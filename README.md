@@ -91,7 +91,7 @@ sjpeg has various options to change the encoding method. Just try `sjpeg -h`.
 
 ## The 'vjpeg' command line tool:
 
-![vjpeg UI](https://webmproject.github.io/sjpeg/examples/vjpeg_sample.jpg "the vjpeg interface")
+![vjpeg UI](https://github.com/webmproject/sjpeg/blob/master/examples/vjpeg_sample.jpg "the vjpeg interface")
 
 examples/vjpeg is a (non-essential) visualization tool, built with OpenGL/GLUT.
 It allows changing the compression parameters with the keyboard, and visually
