@@ -99,6 +99,12 @@ from SjpegEncodeParam can be triggered from the keyboard.
 
 Please read the instructions in the INSTALL file.
 
+Basically, you can use the supplied Makefile or generate your build with
+cmake:
+
+  . `make -j`, or
+  . `mkdir build && cd build && cmake ../ && make -j`
+
 * Discussion list
 *****************
 
