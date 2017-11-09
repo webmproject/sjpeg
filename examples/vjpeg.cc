@@ -33,15 +33,17 @@
 #include <vector>
 using std::vector;
 
-#if defined(SJPEG_HAVE_OPENGL)
-
+#if defined(SJPEG_HAVE_OPENGL) && \
+    (defined(HAVE_GLUT_GLUT_H) || defined(HAVE_GL_GLUT_H))
 #if defined(HAVE_GLUT_GLUT_H)
 #include <GLUT/glut.h>
-#else
+#elif defined(HAVE_GL_GLUT_H)
 #include <GL/glut.h>
+#else
+#error "GLUT is not supported."
+#endif
 #ifdef FREEGLUT
 #include <GL/freeglut.h>
-#endif
 #endif
 
 #include "./utils.h"
@@ -658,7 +660,7 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-#else   // !SJPEG_HAVE_GL
+#else   // !SJPEG_HAVE_OPENGL
 
 int main(int argc, const char *argv[]) {
   fprintf(stderr, "OpenGL support not enabled in %s.\n", argv[0]);
