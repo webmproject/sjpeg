@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 2.8.7)
 project(sjpeg CXX)
 
-include(CheckIncludeFileCXX)
-
 # Options for coder / decoder executables.
 option(SJPEG_ENABLE_SIMD "Enable any SIMD optimization." ON)
 option(SJPEG_BUILD_EXAMPLES "Build the sjpeg / vjpeg command line tools." ON)
@@ -103,8 +101,14 @@ add_library(utils ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.h
 )
 if(SJPEG_HAVE_OPENGL)
+  # check pthread for GL libraries
   set(THREADS_PREFER_PTHREAD_FLAG ON)
   find_package(Threads)
+  if(Threads_FOUND)
+    if(CMAKE_USE_PTHREADS_INIT)
+      list(APPEND SJPEG_DEP_GL_LIBRARIES ${CMAKE_THREAD_LIBS_INIT})
+    endif()
+  endif()
   target_compile_definitions(utils PUBLIC SJPEG_HAVE_OPENGL)
   add_definitions(${OPENGL_DEFINITIONS})
 endif()
@@ -118,9 +122,9 @@ if(SJPEG_HAVE_PNG)
   target_compile_definitions(utils PUBLIC SJPEG_HAVE_PNG)
 endif()
 if(SJPEG_DEP_IMG_LIBRARIES)
-  target_link_libraries(utils Threads::Threads)
+  # check pthread for GL libraries
   target_link_libraries(utils ${SJPEG_DEP_IMG_LIBRARIES}
-      ${SJPEG_DEP_GL_LIBRARIES})
+                        ${SJPEG_DEP_GL_LIBRARIES})
 endif()
 # set_target_properties(utils PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
@@ -133,7 +137,6 @@ if(SJPEG_BUILD_EXAMPLES)
 
   # vjpeg
   add_executable(vjpeg ${CMAKE_CURRENT_SOURCE_DIR}/examples/vjpeg.cc)
-  target_link_libraries(vjpeg Threads::Threads)
   # Force to link against pthread.
   include(CheckCXXSourceCompiles)
   set(CMAKE_REQUIRED_FLAGS_INI ${CMAKE_REQUIRED_FLAGS})
