@@ -37,7 +37,6 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/cpu.cmake)
 # sjpeg source files.
 
 # Build the sjpeg library.
-add_definitions(-Wall)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/ ${SJPEG_DEP_INCLUDE_DIRS})
 add_library(sjpeg ${CMAKE_CURRENT_SOURCE_DIR}/src/bit_writer.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/bit_writer.h
