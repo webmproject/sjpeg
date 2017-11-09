@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 2.8.7)
 project(sjpeg CXX)
 
+include(CheckIncludeFileCXX)
+
 # Options for coder / decoder executables.
 option(SJPEG_ENABLE_SIMD "Enable any SIMD optimization." ON)
 option(SJPEG_BUILD_EXAMPLES "Build the sjpeg / vjpeg command line tools." ON)
@@ -144,9 +146,13 @@ if(SJPEG_BUILD_EXAMPLES)
   endif()
 
   # check whether we need to include GLUT/glut.h or GL/glut.h
-  find_path(FLAG_GLUT_GLUT_H GLUT/glut.h)
-  if(FLAG_GLUT_GLUT_H)
+  include(CheckIncludeFileCXX)
+  check_include_file_cxx(GLUT/glut.h HAVE_GLUT_GLUT_H)
+  check_include_file_cxx(GL/glut.h HAVE_GL_GLUT_H)
+  if(HAVE_GLUT_GLUT_H)
     add_definitions(-DHAVE_GLUT_GLUT_H)
+  elseif(HAVE_GL_GLUT_H)
+    add_definitions(-DHAVE_GL_GLUT_H)
   endif()
   target_link_libraries(vjpeg ${SJPEG_DEP_GL_LIBRARIES} sjpeg utils)
 
