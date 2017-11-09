@@ -74,7 +74,7 @@ int SaveFile(const char* name, const std::string& out, bool quiet) {
 #include <windows.h>
 
 double GetStopwatchTime() {
-  const LARGE_INTEGER watch;
+  LARGE_INTEGER watch;
   LARGE_INTEGER freq;
   if (!QueryPerformanceCounter(&watch))
     return 0.0;
