@@ -21,12 +21,12 @@ set(PROJECT_VERSION 0.1)
 if(ANDROID)
   include_directories(${ANDROID_NDK}/sources/android/cpufeatures)
   add_library(cpufeatures STATIC
-    ${ANDROID_NDK}/sources/android/cpufeatures/cpu-features.c
+              ${ANDROID_NDK}/sources/android/cpufeatures/cpu-features.c
   )
   target_link_libraries(cpufeatures dl)
   set(SJPEG_DEP_LIBRARIES ${SJPEG_DEP_LIBRARIES} cpufeatures)
   set(SJPEG_DEP_INCLUDE_DIRS ${SJPEG_DEP_INCLUDE_DIRS}
-    ${ANDROID_NDK}/sources/android/cpufeatures
+      ${ANDROID_NDK}/sources/android/cpufeatures
   )
 endif()
 
@@ -136,6 +136,7 @@ if(SJPEG_BUILD_EXAMPLES)
   set_target_properties(sjpeg-bin PROPERTIES OUTPUT_NAME sjpeg)
 
   # vjpeg
+  include_directories(${SJPEG_DEP_GL_INCLUDE_DIRS})
   add_executable(vjpeg ${CMAKE_CURRENT_SOURCE_DIR}/examples/vjpeg.cc)
   # Force to link against pthread.
   include(CheckCXXSourceCompiles)
