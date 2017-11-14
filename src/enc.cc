@@ -532,8 +532,8 @@ bool SjpegEncoder::WriteEXIF(const std::string& data) {
   bw_.Reserve(data_size);
   bw_.PutByte(0xff);
   bw_.PutByte(0xe1);
-  bw_.PutByte(data_size >> 8);
-  bw_.PutByte(data_size & 0xff);
+  bw_.PutByte((data_size >> 8) & 0xff);
+  bw_.PutByte((data_size >> 0) & 0xff);
   bw_.PutBytes(kEXIF, kEXIF_len);
   bw_.PutBytes(reinterpret_cast<const uint8_t*>(data.data()), data.size());
   return true;
@@ -555,10 +555,10 @@ bool SjpegEncoder::WriteICCP(const std::string& data) {
     bw_.Reserve(size + kICCP_len + 4 + 2);
     bw_.PutByte(0xff);
     bw_.PutByte(0xe2);
-    bw_.PutByte((size + kICCP_len + 4) >> 8);
-    bw_.PutByte((size + kICCP_len + 4) & 0xff);
+    bw_.PutByte(((size + kICCP_len + 4) >> 8) & 0xff);
+    bw_.PutByte(((size + kICCP_len + 4) >> 0) & 0xff);
     bw_.PutBytes(kICCP, kICCP_len);
-    bw_.PutByte(seq);
+    bw_.PutByte(seq & 0xff);
     bw_.PutByte(max_chunk & 0xff);
     bw_.PutBytes(ptr, size);
     ptr += size;
@@ -577,8 +577,8 @@ bool SjpegEncoder::WriteXMP(const std::string& data) {
   bw_.Reserve(data_size);
   bw_.PutByte(0xff);
   bw_.PutByte(0xe1);
-  bw_.PutByte(data_size >> 8);
-  bw_.PutByte(data_size & 0xff);
+  bw_.PutByte((data_size >> 8) & 0xff);
+  bw_.PutByte((data_size >> 0) & 0xff);
   bw_.PutBytes(kXMP, kXMP_size);
   bw_.PutBytes(reinterpret_cast<const uint8_t*>(data.data()), data.size());
   return true;
@@ -1226,8 +1226,8 @@ void SjpegEncoder::AnalyseHisto() {
               }
             }
           }   // end of 'i' loop
-          distortions[pos][delta] = dsum;
-          sizes[pos][delta] = bsum;
+          distortions[pos][delta] = (float)dsum;
+          sizes[pos][delta] = (float)bsum;
           const double w = kHistoWeight[delta];   // Gaussian weight
           if (w > 0.) {
             const double x = static_cast<double>(delta + QDELTA_MIN);
@@ -1275,12 +1275,12 @@ void SjpegEncoder::AnalyseHisto() {
       if (omit_channels & (1ULL << pos)) {
         continue;
       }
-      float best_score = FLT_MAX;
+      double best_score = FLT_MAX;
       int best_dq = 0;
       for (int delta = 0; delta <= delta_max; ++delta) {
         if (distortions[pos][delta] < FLT_MAX) {
-          const float score = distortions[pos][delta]
-                            + lambda * sizes[pos][delta];
+          const double score = distortions[pos][delta]
+                             + lambda * sizes[pos][delta];
           if (score < best_score) {
             best_score = score;
             best_dq = delta + QDELTA_MIN;

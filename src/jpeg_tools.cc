@@ -150,7 +150,7 @@ int SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
   for (int quality = 0; quality <= 100; ++quality) {
     // this is the jpeg6b way of mapping quality_factor to quantization scale.
     const int q_factor = QToQFactor(quality);
-    int score = 0.;
+    int score = 0;
     for (int i = 0; i < 64; ++i) {
       const uint64_t v = matrix0[i] * q_factor;
       // (x*335545) >> 25 is bit-wise equal to x/100 for all x we care about.
@@ -158,7 +158,7 @@ int SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
       // need uint64.
       const int clipped_quant = (v < 50ULL) ? 1
                               : (v > 25449ULL) ? 255
-                              : ((v + 50) * 335545ULL) >> 25;
+                              : (int)(((v + 50) * 335545ULL) >> 25);
       const int diff = clipped_quant - matrix[i];
       score += diff * diff;
       if (score > best_score) {
@@ -215,7 +215,7 @@ int SjpegRiskiness(const uint8_t* rgb, int width, int height, int stride,
 
   // recommendation (TODO(skal): tune thresholds)
   total_score = (total_score > 25.) ? 100. : total_score * 100. / 25.;
-  if (risk != NULL) *risk = total_score;
+  if (risk != NULL) *risk = (float)total_score;
 
   const int recommendation =
       (total_score < kTreshYU420) ?      1 :   // YUV420
