@@ -135,7 +135,7 @@ void SjpegQuantMatrix(int q, bool for_chroma, uint8_t matrix[64]) {
     // need uint64.
     matrix[i] = (v < 50ULL) ? 1
               : (v > 25449ULL) ? 255
-              : ((v + 50) * 335545ULL) >> 25;
+              : (uint8_t)(((v + 50) * 335545ULL) >> 25);
   }
 }
 
