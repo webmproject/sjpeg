@@ -72,7 +72,7 @@ struct Params {
   uint32_t elapsed;      // encoding time in ms
   int quality;
   int reduction;
-  const uint8_t* quant[2];
+  uint8_t quant[2][64];
   bool limit_quantization;
   SjpegEncodeParam param;
   vector<uint8_t> rgb;       // original samples
@@ -83,8 +83,6 @@ struct Params {
   int viewport_width, viewport_height;
 
   Params() : current_file(~0u) {
-    quant[0] = NULL;
-    quant[1] = NULL;
     limit_quantization = true;
     quality = 75;
     reduction = 100;
@@ -369,8 +367,7 @@ bool Params::SetCurrentFile(size_t file) {
     }
     if (type == SJPEG_JPEG) {
       if (SjpegFindQuantizer(input, quant)) {
-        estimated_quality =
-            SjpegEstimateQuality(quant[0], false);
+        estimated_quality = SjpegEstimateQuality(quant[0], false);
       }
       int w, h;
       if (!SjpegDimensions(input, &w, &h, &is_yuv420)) {
@@ -400,11 +397,11 @@ void PrintMatrix(const char name[], const uint8_t m[64], bool for_chroma) {
 }
 
 void PrintMatrices() {
-  const uint8_t* quants[2];
+  uint8_t quants[2][64];
   const int nb = SjpegFindQuantizer(kParams.jpeg, quants);
   if (nb == 0) return;
   PrintMatrix("- Luma -", quants[0], false);
-  PrintMatrix("- Chroma -", quants[1], true);
+  if (nb > 1) PrintMatrix("- Chroma -", quants[1], true);
 }
 
 //------------------------------------------------------------------------------
