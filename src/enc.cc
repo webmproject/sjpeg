@@ -2144,7 +2144,8 @@ bool SjpegDimensions(const std::string& jpeg_data,
       jpeg_data.size(), width, height, is_yuv420);
 }
 
-int SjpegFindQuantizer(const std::string& jpeg_data, const uint8_t* quant[2]) {
+int SjpegFindQuantizer(const std::string& jpeg_data,
+                       uint8_t quant[2][64]) {
   return SjpegFindQuantizer(
       reinterpret_cast<const uint8_t*>(jpeg_data.data()), jpeg_data.size(),
       quant);

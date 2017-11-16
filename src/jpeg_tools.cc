@@ -17,6 +17,7 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <vector>
+#include <string.h>   // for memset
 #include "sjpegi.h"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -66,9 +67,9 @@ bool SjpegDimensions(const uint8_t* src0, size_t size,
 // Quantizer marker (DQT)
 
 int SjpegFindQuantizer(const uint8_t* src, size_t size,
-                       const uint8_t* quant[2]) {
-  quant[0] = NULL;
-  quant[1] = NULL;
+                       uint8_t quant[2][64]) {
+  memset(quant[0], 0, sizeof(quant[0]));
+  memset(quant[1], 0, sizeof(quant[1]));
   // minimal size for 64 coeffs and the markers (5 bytes)
   if (src == NULL || size < 69 || src[0] != 0xff || src[1] != 0xd8) {
     return 0;
@@ -89,33 +90,37 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size,
       break;
     } else if (marker == M_DQT) {
       // Jump over packets of 1 index + 64 coeffs
-      for (int i = 4; i + 65 <= chunk_size; i += 65) {
-        switch (src[i] & 0x0f) {
-          case 0: {
-            // it's ok to const_cast<> away, as *we* are not going to
-            // modify src's content.
-            quant[0] = const_cast<uint8_t*>(src + i + 1);
-            nb_comp |= 1;
-            break;
+      int i = 4;
+      while (i + 1 < chunk_size) {
+        const int Pq = src[i] >> 4;
+        const int Tq = src[i] & 0x0f;
+        if (Pq > 1 || Tq > 3) return 0;    // invalid bitstream. See B.4.
+        const int m_size = 64 * Pq + 65;
+        if (i + m_size > chunk_size) return 0;
+        if (Tq < 2) {
+          for (int j = 0; j < 64; ++j) {
+            int v;
+            if (Pq == 0) {
+              v = src[i + 1 + j];
+            } else {
+              // convert 16b->8b by rounding
+              v = ((int)src[i + 1 + 2 * j + 1] << 8)
+                      | src[i + 1 + 2 * j + 0];
+              v = (v + 128) >> 8;
+            }
+            quant[Tq][j] = (v < 1) ? 1u : (uint8_t)v;
           }
-          case 1: {
-            quant[1] = const_cast<uint8_t*>(src + i + 1);
-            nb_comp |= 2;
-            break;
-          }
-          case 2: {
-            // we don't store the pointer, but we record the component
-            nb_comp |= 4;
-            break;
-          }
-          default:
-            break;
+        } else {
+          // we don't store the pointer, but we record the component
         }
+        nb_comp |= 1 << Tq;
+        i += m_size;
       }
     }
     src += chunk_size;
   }
-  return ((nb_comp & 1) != 0) + ((nb_comp & 2) != 0) + ((nb_comp & 4) != 0);
+  return ((nb_comp & 1) != 0) + ((nb_comp & 2) != 0)
+       + ((nb_comp & 4) != 0) + ((nb_comp & 8) != 0);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
