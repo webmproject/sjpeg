@@ -173,14 +173,14 @@ int main(int argc, char * argv[]) {
   if (input.size() == 0) return 1;
 
   const ImageType input_type = GuessImageType(input);
-  const uint8_t* m[2] = { NULL, NULL };
+  uint8_t quant_matrices[2][64];
   const int nb_matrices =
-    (input_type == SJPEG_JPEG) ? SjpegFindQuantizer(input, m)
+    (input_type == SJPEG_JPEG) ? SjpegFindQuantizer(input, quant_matrices)
                                : 0;
   const bool is_jpeg = (input_type == SJPEG_JPEG) && (nb_matrices > 0);
   if (is_jpeg && use_reduction) {   // use 'reduction' factor for JPEG source
-    param.SetQuantMatrix(m[0], 0, reduction);
-    param.SetQuantMatrix(m[1], 1, reduction);
+    param.SetQuantMatrix(quant_matrices[0], 0, reduction);
+    param.SetQuantMatrix(quant_matrices[1], 1, reduction);
     param.SetLimitQuantization(true);
   } else {    // the '-q' option has been used.
     param.SetQuality(quality);
@@ -188,7 +188,7 @@ int main(int argc, char * argv[]) {
   }
 
   if (estimate) {
-    const int q = is_jpeg ? SjpegEstimateQuality(m[0], 0) : 100;
+    const int q = is_jpeg ? SjpegEstimateQuality(quant_matrices[0], 0) : 100;
     printf("%d\n", q);
     return 0;
   }
@@ -208,11 +208,11 @@ int main(int argc, char * argv[]) {
 
       if (is_jpeg) {
         printf("Input is JPEG w/ %d matrices:\n", nb_matrices);
-        if (m[0] != NULL) {
-          PrintMatrix("Luma", m[0], false);
+        if (nb_matrices > 0) {
+          PrintMatrix("Luma", quant_matrices[0], false);
         }
-        if (m[1] != NULL) {
-          PrintMatrix("UV-chroma", m[1], true);
+        if (nb_matrices > 1) {
+          PrintMatrix("UV-chroma", quant_matrices[1], true);
         }
       }
     }

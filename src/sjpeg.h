@@ -107,14 +107,12 @@ bool SjpegDimensions(const uint8_t* data, size_t size,
 
 // Finds the location of the first two quantization matrices within a JPEG
 // 'data' bitstream. Matrices are 64 coefficients stored as uint8_t.
-// Pointer to the location within 'in' data are stored to quant[0..1] if these
-// are not NULL. If the corresponding matrix is not present the pointer is set
-// to NULL.
 // Note that the input can be truncated to include the headers only, but still
 // must start as a valid JPEG with an 0xffd8 marker.
-// Returns the number of matrices detected, or 0 in case of error.
+// Returns the number of matrices detected.
+// Returns 0 in case of bitstream error, or if the DQT chunk is missing.
 int SjpegFindQuantizer(const uint8_t* data, size_t size,
-                       const uint8_t* quant[2]);
+                       uint8_t quant[2][64]);
 
 // Returns an estimation of the quality factor that would best approximate
 // the quantization coefficients in matrix[].
@@ -227,7 +225,6 @@ std::string SjpegCompress(const uint8_t* rgb,
 bool SjpegDimensions(const std::string& jpeg_data,
                      int* width, int* height, int* is_yuv420);
 
-int SjpegFindQuantizer(const std::string& jpeg_data,
-                       const uint8_t* quant[2]);
+int SjpegFindQuantizer(const std::string& jpeg_data, uint8_t quant[2][64]);
 
 #endif    // SJPEG_JPEG_H_
