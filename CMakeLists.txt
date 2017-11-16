@@ -100,6 +100,10 @@ include_directories(${SJPEG_DEP_IMG_INCLUDE_DIRS})
 add_library(utils ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.h
 )
+if(WIN32)
+  # quiet warnings related to fopen, sscanf
+  target_compile_definitions(utils PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
 if(SJPEG_HAVE_OPENGL)
   # check pthread for GL libraries
   set(THREADS_PREFER_PTHREAD_FLAG ON)
