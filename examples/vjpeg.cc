@@ -166,6 +166,7 @@ static void PrintInfo() {
     msg.push_back("  'a' ............... toggle adaptive quantization");
     msg.push_back("  'b' ............... toggle adaptive bias");
     msg.push_back("  'l' ............... toggle quantization limitation");
+    msg.push_back("  't' ............... toggle trellis-based limitation");
     msg.push_back("  'e' ............... show error map");
     msg.push_back("  'r' ............... show riskiness map");
     msg.push_back("  '+'/'-' ........... go to next/previous file");
@@ -204,6 +205,9 @@ static void PrintInfo() {
     }
     if (kParams.param.adaptive_bias) {
       msg.back() += " (adaptive bias)";
+    }
+    if (kParams.param.use_trellis) {
+      msg.back() += " (trellis)";
     }
 
     snprintf(tmp, sizeof(tmp), "Size: %ld [%.2f bpp] (%u ms)",
@@ -461,6 +465,9 @@ static void HandleKey(unsigned char key, int pos_x, int pos_y) {
   } else if (key == 'l') {
     kParams.limit_quantization = !kParams.limit_quantization;
     FullRedraw();
+  } else if (key == 't') {
+    kParams.param.use_trellis = !kParams.param.use_trellis;
+    FullRedraw();
   } else if (key == 'm') {
     PrintMatrices();
   }
@@ -588,6 +595,7 @@ static void Help(void) {
          "  'o' ............... toggle Huffman optimization\n"
          "  'a' ............... toggle adaptive quantization\n"
          "  'l' ............... toggle quantization limitation\n"
+         "  't' ............... toggle trellis-based quantization\n"
          "  'e' ............... show error map\n"
          "  'r' ............... show riskiness map\n"
          "  '+'/'-' ........... go to next/previous file\n"

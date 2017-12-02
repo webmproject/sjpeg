@@ -1,4 +1,4 @@
-// Copyright 2017 Google Inc.
+
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -157,6 +157,7 @@ struct Quantizer {
   uint16_t iquant_[64];    // precalc'd reciprocal for divisor
   uint16_t qthresh_[64];   // minimal absolute value that produce non-zero coeff
   uint16_t bias_[64];      // bias, for coring
+  const uint32_t* codes_;  // codes for bit-cost calculation
 };
 
 // compact Run/Level storage, separate from DCTCoeffs infos
@@ -230,11 +231,13 @@ class SjpegEncoder {
   }
 
   void SetCompressionMethod(int method) {
-    DCHECK(method >= 0 && method <= 6);
+    DCHECK(method >= 0 && method <= 8);
     use_adaptive_quant_ = (method >= 3);
     optimize_size_ = (method != 0) && (method != 3);
-    use_extra_memory_ = (method == 3) || (method == 4);
-    reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5);
+    use_extra_memory_ = (method == 3) || (method == 4) || (method == 7);
+    reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5)
+                     || (method == 7) || (method == 8);
+    use_trellis_ = (method >= 6);
   }
 
   typedef enum { ICC, EXIF, XMP, MARKERS } MetadataType;
@@ -300,6 +303,7 @@ class SjpegEncoder {
   void AddEntropyStats(const DCTCoeffs* const coeffs,
                        const RunLevel* const run_levels);
   void CompileEntropyStats();
+  void SinglePassScan();
   void MultiPassScan();
 
   // Histogram pass
@@ -314,12 +318,18 @@ class SjpegEncoder {
   static QuantizeBlockFunc quantize_block_;
   static QuantizeBlockFunc GetQuantizeBlockFunc();
 
+  static int TrellisQuantizeBlock(const int16_t in[64], int idx,
+                                  const Quantizer* const Q,
+                                  DCTCoeffs* const out,
+                                  RunLevel* const rl);
+
   void CodeBlock(const DCTCoeffs* const coeffs, const RunLevel* const rl);
   // returns DC code (4bits for length, 12bits for suffix), updates DC_predictor
   static uint16_t GenerateDCDiffCode(int DC, int* const DC_predictor);
 
   static void FinalizeQuantMatrix(Quantizer* const q, int bias);
-  static void QuantMatrixChangeBias(Quantizer* const q, const int16_t bias[64]);
+  void SetCostCodes(int idx);
+  void InitCodes(bool only_ac);
 
  protected:
   // format-specific parameters, set by virtual InitComponents()
@@ -363,9 +373,10 @@ class SjpegEncoder {
 
   // compression tools. See sjpeg.h for description of methods.
   bool optimize_size_;        // Huffman-optimize the codes  (method 0, 3)
-  bool use_adaptive_quant_;   // modulate the quant matrix   (method 3, 4, 5, 6)
+  bool use_adaptive_quant_;   // modulate the quant matrix   (method 3-8)
   bool use_extra_memory_;     // save the unquantized coeffs (method 3, 4)
   bool reuse_run_levels_;     // save quantized run/levels   (method 1, 4, 5)
+  bool use_trellis_;          // use trellis-quantization    (method 7, 8)
 
   int q_bias_;           // [0..255]: rounding bias for quant. of AC coeffs.
   Quantizer quants_[2];  // quant matrices
@@ -463,6 +474,8 @@ SjpegEncoder::SjpegEncoder(int W, int H, int step, const uint8_t* const rgb)
   const uint8_t* tmp[2] = { NULL, NULL };
   SetMinQuantMatrices(tmp, 0);
   InitializeStaticPointers();
+  memset(dc_codes_, 0, sizeof(dc_codes_));  // safety
+  memset(ac_codes_, 0, sizeof(ac_codes_));
 }
 
 SjpegEncoder::~SjpegEncoder() {
@@ -618,22 +631,8 @@ void SjpegEncoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
   }
 }
 
-void SjpegEncoder::QuantMatrixChangeBias(Quantizer* const q,
-                                         const int16_t bias_mtx[64]) {
-  for (int i = 1; i < 64; ++i) {
-    const uint16_t v = q->quant_[i];
-    if (v > 1) {
-      const uint16_t iquant = q->iquant_[i];
-      const uint16_t bias = bias_mtx[i];
-      const uint16_t ibias = (((bias * v) << AC_BITS) + 128) >> 8;
-      const uint16_t qthresh =
-          ((1 << (FP_BITS + AC_BITS)) + iquant - 1) / iquant - ibias;
-      q->bias_[i] = ibias;
-      q->qthresh_[i] = qthresh;
-      DCHECK(QUANTIZE(qthresh, iquant, ibias) > 0);
-      DCHECK(QUANTIZE(qthresh - 1, iquant, ibias) == 0);
-    }
-  }
+void SjpegEncoder::SetCostCodes(int idx) {
+  quants_[idx].codes_ = ac_codes_[idx];
 }
 
 void SjpegEncoder::WriteDQT() {
@@ -756,15 +755,27 @@ static int BuildHuffmanTable(const uint8_t bits[16], const uint8_t* symbols,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void SjpegEncoder::WriteDHT() {
+void SjpegEncoder::InitCodes(bool only_ac) {
   const int nb_tables = (nb_comps_ == 1 ? 1 : 2);
   for (int c = 0; c < nb_tables; ++c) {   // luma, chroma
-    for (int type = 0; type < 2; ++type) {               // dc, ac
+    for (int type = (only_ac ? 1 : 0); type <= 1; ++type) {
       const HuffmanTable* const h = Huffman_tables_[type * 2 + c];
       const int nb_syms = BuildHuffmanTable(h->bits_, h->syms_,
-                                            type ? ac_codes_[c] : dc_codes_[c]);
+                                            type == 1 ? ac_codes_[c]
+                                                      : dc_codes_[c]);
       DCHECK(nb_syms == h->nb_syms_);
-      const int data_size = 3 + 16 + nb_syms;
+      (void)nb_syms;
+    }
+  }
+}
+
+void SjpegEncoder::WriteDHT() {
+  InitCodes(false);
+  const int nb_tables = (nb_comps_ == 1 ? 1 : 2);
+  for (int c = 0; c < nb_tables; ++c) {   // luma, chroma
+    for (int type = 0; type <= 1; ++type) {               // dc, ac
+      const HuffmanTable* const h = Huffman_tables_[type * 2 + c];
+      const int data_size = 3 + 16 + h->nb_syms_;
       DCHECK(data_size <= 255);
       bw_.Reserve(data_size + 2);
       bw_.PutByte(0xff);
@@ -976,6 +987,137 @@ static int QuantizeBlock(const int16_t in[64], int idx,
   return dc;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Trellis-based quantization
+
+typedef uint32_t score_t;
+static const score_t kMaxScore = 0xffffffffu;
+
+struct TrellisNode {
+  uint32_t code;
+  int      nbits;
+  score_t score;
+  uint32_t disto;
+  uint32_t bits;
+  uint32_t run;
+  const TrellisNode* best_prev;
+  int pos;
+  int rank;
+
+  TrellisNode() : score(kMaxScore), best_prev(NULL) {}
+  void InitSink() {
+    score = 0u;
+    disto = 0;
+    pos = 0;
+    rank = 0;
+    nbits = 0;
+    bits = 0;
+  }
+};
+
+static bool SearchBestPrev(const TrellisNode* const nodes0, TrellisNode* node,
+                           const uint32_t disto0[], const uint32_t codes[],
+                           uint32_t lambda) {
+  bool found = false;
+  assert(codes[0xf0] != 0);
+  const uint32_t base_disto = node->disto + disto0[node->pos - 1];
+  for (const TrellisNode* cur = node - 1; cur >= nodes0; --cur) {
+    const int run = node->pos - 1 - cur->pos;
+    if (run < 0) continue;
+    uint32_t bits = node->nbits;
+    bits += (run >> 4) * (codes[0xf0] & 0xff);
+    const uint32_t sym = ((run & 15) << 4) | node->nbits;
+    assert(codes[sym] != 0);
+    bits += codes[sym] & 0xff;
+    const uint32_t disto = base_disto - disto0[cur->pos];
+    const score_t score = disto + lambda * bits + cur->score;
+    if (score < node->score) {
+      node->score = score;
+      node->disto = disto;
+      node->bits = bits;
+      node->best_prev = cur;
+      node->rank = cur->rank + 1;
+      node->run = run;
+      found = true;
+    }
+  }
+  return found;
+}
+
+// number of alternate levels to investigate
+#define NUM_TRELLIS_NODES 2
+
+int SjpegEncoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
+                                       const Quantizer* const Q,
+                                       DCTCoeffs* const out,
+                                       RunLevel* const rl) {
+  const uint16_t* const bias = Q->bias_;
+  const uint16_t* const iquant = Q->iquant_;
+  TrellisNode nodes[1 + NUM_TRELLIS_NODES * 63];  // 1 sink + n channels
+  nodes[0].InitSink();
+  const uint32_t* const codes = Q->codes_;
+  TrellisNode* cur_node = &nodes[1];
+  uint32_t disto0[64];   // disto0[i] = sum of distortions up to i (inclusive)
+  disto0[0] = 0;
+  for (int i = 1; i < 64; ++i) {
+    const int j = sjpeg::kZigzag[i];
+    const uint32_t q = Q->quant_[j] << AC_BITS;
+    const uint32_t lambda = q * q / 32u;
+    int V = in[j];
+    const int32_t mask = V >> 31;
+    V = (V ^ mask) - mask;
+    disto0[i] = V * V + disto0[i - 1];
+    int v = QUANTIZE(V, iquant[j], bias[j]);
+    if (v == 0) continue;
+    int nbits = CalcLog2(v);
+    for (int k = 0; k < NUM_TRELLIS_NODES; ++k) {
+      const int err = V - v * q;
+      cur_node->code = (v ^ mask) & ((1 << nbits) - 1);
+      cur_node->pos = i;
+      cur_node->disto = err * err;
+      cur_node->nbits = nbits;
+      cur_node->score = kMaxScore;
+      if (SearchBestPrev(&nodes[0], cur_node, disto0, codes, lambda)) {
+        ++cur_node;
+      }
+      --nbits;
+      if (nbits <= 0) break;
+      v = (1 << nbits) - 1;
+    }
+  }
+  // search best entry point backward
+  const TrellisNode* nz = &nodes[0];
+  if (cur_node != nz) {
+    score_t best_score = kMaxScore;
+    while (cur_node-- != &nodes[0]) {
+      const uint32_t disto = disto0[63] - disto0[cur_node->pos];
+      // No need to incorporate EOB's bit cost (codes[0x00]), since
+      // it's the same for all coeff except the last one #63.
+      cur_node->disto += disto;
+      cur_node->score += disto;
+      if (cur_node->score < best_score) {
+        nz = cur_node;
+        best_score = cur_node->score;
+      }
+    }
+  }
+  int nb = nz->rank;
+  out->idx_ = idx;
+  out->last_ = nz->pos;
+  out->nb_coeffs_ = nb;
+
+  while (nb-- > 0) {
+    const int32_t code = nz->code;
+    const int n = nz->nbits;
+    rl[nb].level_ = (code << 4) | n;
+    rl[nb].run_ = nz->run;
+    nz = nz->best_prev;
+  }
+  const int dc = (in[0] < 0) ? -QUANTIZE(-in[0], iquant[0], bias[0])
+                             : QUANTIZE(in[0], iquant[0], bias[0]);
+  return dc;
+}
+
 SjpegEncoder::QuantizeBlockFunc SjpegEncoder::GetQuantizeBlockFunc() {
 #if defined(SJPEG_USE_SSE2)
   if (sjpeg::SupportsSSE2()) return QuantizeBlockSSE2;
@@ -1080,7 +1222,7 @@ void StoreHistoNEON(const int16_t in[64], Histo* const histos, int nb_blocks) {
 void StoreHisto(const int16_t in[64], Histo* const histos, int nb_blocks) {
   for (int n = 0; n < nb_blocks; ++n, in += 64) {
     for (int i = 0; i < 64; ++i) {
-      const int k = abs(in[i]) >> HSHIFT;
+      const int k = (in[i] < 0 ? -in[i] : in[i]) >> HSHIFT;
       if (k < MAX_HISTO_DCT_COEFF) {
         ++histos->counts_[i][k];
       }
@@ -1291,6 +1433,7 @@ void SjpegEncoder::AnalyseHisto() {
       DCHECK(quants_[idx].quant_[pos] >= 1);
     }
     FinalizeQuantMatrix(&quants_[idx], q_bias_);
+    SetCostCodes(idx);
   }
 }
 
@@ -1327,6 +1470,8 @@ void SjpegEncoder::Scan() {
   int16_t* in = in_blocks_;
   const int mb_x_max = W_ / block_w_;
   const int mb_y_max = H_ / block_h_;
+  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
+                                                        : quantize_block_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     const bool yclip = (mb_y == mb_y_max);
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
@@ -1339,8 +1484,8 @@ void SjpegEncoder::Scan() {
       for (int c = 0; c < nb_comps_; ++c) {
         DCTCoeffs base_coeffs;
         for (int i = 0; i < nb_blocks_[c]; ++i) {
-          const int dc = quantize_block_(in, c, &quants_[quant_idx_[c]],
-                                         &base_coeffs, run_levels);
+          const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
+                                        &base_coeffs, run_levels);
           base_coeffs.dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
           CodeBlock(&base_coeffs, run_levels);
           in += 64;
@@ -1348,6 +1493,12 @@ void SjpegEncoder::Scan() {
       }
     }
   }
+}
+
+void SjpegEncoder::SinglePassScan() {
+  WriteDHT();
+  WriteSOS();
+  Scan();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1576,12 +1727,19 @@ void SjpegEncoder::CompileEntropyStats() {
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 void SjpegEncoder::MultiPassScan() {
   const int nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
   DCTCoeffs* const base_coeffs =
       new DCTCoeffs[reuse_run_levels_ ? nb_mbs : 1];
   DCTCoeffs* coeffs = base_coeffs;
   RunLevel base_run_levels[64];
+  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
+                                                        : quantize_block_;
+
+  // We use the default Huffman tables as basis for bit-rate evaluation
+  if (use_trellis_) InitCodes(true);
 
   ResetEntropyStats();
   ResetDCs();
@@ -1603,8 +1761,8 @@ void SjpegEncoder::MultiPassScan() {
           RunLevel* const run_levels =
               reuse_run_levels_ ? all_run_levels_ + nb_run_levels_
                                 : base_run_levels;
-          const int dc = quantize_block_(in, c, &quants_[quant_idx_[c]],
-                                         coeffs, run_levels);
+          const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
+                                        coeffs, run_levels);
           coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
           AddEntropyStats(coeffs, run_levels);
           if (reuse_run_levels_) {
@@ -1645,15 +1803,16 @@ void SjpegEncoder::MultiPassScan() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// main call
 
 bool SjpegEncoder::Encode() {
   FinalizeQuantMatrix(&quants_[0], q_bias_);
   FinalizeQuantMatrix(&quants_[1], q_bias_);
+  SetCostCodes(0);
+  SetCostCodes(1);
 
   // default tables
-  for (int i = 0; i < 4; ++i) {
-    Huffman_tables_[i] = &kHuffmanTables[i];
-  }
+  for (int i = 0; i < 4; ++i) Huffman_tables_[i] = &kHuffmanTables[i];
 
   // colorspace init
   InitComponents();
@@ -1693,9 +1852,7 @@ bool SjpegEncoder::Encode() {
   if (optimize_size_) {
     MultiPassScan();
   } else {
-    WriteDHT();
-    WriteSOS();
-    Scan();
+    SinglePassScan();
   }
 
   WriteEOI();
@@ -1711,6 +1868,7 @@ bool SjpegEncoder::Encode() {
 // Edge replication
 
 namespace {
+
 int GetAverage(const int16_t* const out) {
   int DC = 0;
   for (int i = 0; i < 64; ++i) DC += out[i];
@@ -1720,6 +1878,7 @@ int GetAverage(const int16_t* const out) {
 void SetAverage(int DC, int16_t* const out) {
   for (int i = 0; i < 64; ++i) out[i] = DC;
 }
+
 }   // anonymous namespace
 
 void SjpegEncoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
@@ -2040,6 +2199,7 @@ SjpegEncodeParam::SjpegEncodeParam() {
 void SjpegEncodeParam::Init(int quality_factor) {
   Huffman_compress = true;
   adaptive_quantization = true;
+  use_trellis = false;
   yuv_mode = 0;
   quantization_bias = kDefaultBias;
   qdelta_max_luma = kDefaultDeltaMaxLuma;
@@ -2102,6 +2262,10 @@ std::string SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
 
   int method = param.Huffman_compress ? 1 : 0;
   if (param.adaptive_quantization) method += 3;
+  if (param.use_trellis) {
+    if (method == 4) method = 7;
+    else if (method == 6) method = 8;
+  }
   enc->SetCompressionMethod(method);
   enc->SetQuantizationBias(param.quantization_bias, param.adaptive_bias);
   enc->SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);

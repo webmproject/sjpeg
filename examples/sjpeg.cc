@@ -91,6 +91,7 @@ int main(int argc, char * argv[]) {
     "                    than the original (JPEG input only).\n"
     "  -no_optim ....... Don't use Huffman optimization (=faster)\n"
     "  -no_adapt ....... Don't use adaptive quantization (=faster)\n"
+    "  -trellis ........ use trellis-based quantization (=slower)\n"
     "  -no_metadata .... Ignore metadata from the source.\n"
     "\n"
     "\n"
@@ -136,6 +137,8 @@ int main(int argc, char * argv[]) {
       param.Huffman_compress = false;
     } else if (!strcmp(argv[c], "-adapt_bias")) {
       param.adaptive_bias = true;
+    } else if (!strcmp(argv[c], "-trellis")) {
+      param.use_trellis = true;
     } else if (!strcmp(argv[c], "-no_metadata")) {
       no_metadata = true;
     } else if (!strcmp(argv[c], "-yuv_mode") && c + 1 < argc) {
