@@ -70,12 +70,13 @@ size_t SjpegCompress(const uint8_t* rgb, int width, int height, int quality,
 //  memory for the Huffman size-optimization. Eventually, method 6 will use
 //  a minimal amount of RAM, but will be must slower.
 //  To recap:
-//     method                     | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
-//     ---------------------------+---+---+---+---+---+---+---|
-//     Huffman size-optimization  |   | x | x |   | x | x | x |
-//     Adaptive quantization      |   |   |   | x | x | x | x |
-//     Extra RAM for Huffman pass |   | x |   |   | x | x |   |
-//     Extra RAM for histogram    |   |   |   | x | x |   |   |
+//     method                     | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+//     ---------------------------+---+---+---+---+---+---+---+---+---|
+//     Huffman size-optimization  |   | x | x |   | x | x | x | x | x |
+//     Adaptive quantization      |   |   |   | x | x | x | x | x | x |
+//     Extra RAM for Huffman pass |   | x |   |   | x | x |   | x |   |
+//     Extra RAM for histogram    |   |   |   | x | x |   |   | x |   |
+//     Trellis-based quantization |   |   |   |   |   |   |   | x | x |
 //
 //  Methods sorted by decreasing speed: 0 > 1 > 2 > 3 > 4 > 5 > 6
 //  Sorted by increasing efficiency: 0 < [1|2] < 3 < [4|5|6]
@@ -173,11 +174,14 @@ struct SjpegEncodeParam {
   // Hence, this function must be called after SetQuality() or SetQuantMatrix().
   void SetLimitQuantization(bool limit_quantization = true, int tolerance = 0);
 
+  // main compression parameters
   int yuv_mode;                 // YUV-420/444 decisions
   bool Huffman_compress;        // if true, use optimized Huffman tables.
   bool adaptive_quantization;   // if true, use optimized quantizer matrices.
   bool adaptive_bias;           // if true, use perceptual bias adaptation
-  // Fine-grained control over compression parameters
+  bool use_trellis;             // if true, use trellis-based optimization
+
+  // fine-grained control over compression parameters
   int quantization_bias;    // [0..255] Rounding bias for quantization.
   int qdelta_max_luma;      // [0..12] How much to hurt luma in adaptive quant
   int qdelta_max_chroma;    // [0..12] How much to hurt chroma in adaptive quant

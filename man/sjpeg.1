@@ -1,5 +1,5 @@
 .\"                                      Hey, EMACS: -*- nroff -*-
-.TH SJPEG 1 "Nov 2, 2017"
+.TH SJPEG 1 "Dec 2, 2017"
 .SH NAME
 sjpeg \- compress a PNG, JPEG or PPM image file to a baseline JPEG file
 .SH SYNOPSIS
@@ -73,6 +73,10 @@ though!).
 .TP
 .B \-no_adapt
 Disable adaptive quantization optimization (faster processing, larger file)
+.TP
+.B \-trellis
+Enable trellis-based quantization (slower processing, but produces file
+optimized for rate-distortion)
 .TP
 .B \-no_optim
 Disable Huffman code optimization (faster processing, larger file)
