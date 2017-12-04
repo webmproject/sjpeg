@@ -182,8 +182,8 @@ int SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
 // Bluriness risk evaluation and YUV420 / sharp-YUV420 / YUV444 decision
 
 static const int kNoiseLevel = 4;
-static const double kTreshYU420 = 40.0;
-static const double kTreshSharpYU420 = 70.0;
+static const double kThreshYU420 = 40.0;
+static const double kThreshSharpYU420 = 70.0;
 
 int SjpegRiskiness(const uint8_t* rgb, int width, int height, int stride,
                    float* risk) {
@@ -223,9 +223,9 @@ int SjpegRiskiness(const uint8_t* rgb, int width, int height, int stride,
   if (risk != NULL) *risk = (float)total_score;
 
   const int recommendation =
-      (total_score < kTreshYU420) ?      1 :   // YUV420
-      (total_score < kTreshSharpYU420) ? 2 :   // SharpYUV420
-                                         3;    // YUV444
+      (total_score < kThreshYU420) ?      1 :   // YUV420
+      (total_score < kThreshSharpYU420) ? 2 :   // SharpYUV420
+                                          3;    // YUV444
   return recommendation;
 }
 
