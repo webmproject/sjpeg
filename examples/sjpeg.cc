@@ -34,13 +34,13 @@ using std::vector;
 ///////////////////////////////////////////////////////////////////////////////
 
 void PrintMatrix(const char name[], const uint8_t m[64], bool for_chroma) {
-  printf(" %s quantization matrix (estimated quality: %d)\n",
-         name, SjpegEstimateQuality(m, for_chroma));
+  fprintf(stdout, " %s quantization matrix (estimated quality: %d)\n",
+          name, SjpegEstimateQuality(m, for_chroma));
   for (int j = 0; j < 8; ++j) {
-    for (int i = 0; i < 8; ++i) printf("%3d ", m[i + j * 8]);
-    printf("\n");
+    for (int i = 0; i < 8; ++i) fprintf(stdout, "%3d ", m[i + j * 8]);
+    fprintf(stdout, "\n");
   }
-  printf("------\n");
+  fprintf(stdout, "------\n");
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -115,16 +115,16 @@ int main(int argc, char * argv[]) {
       quality = atoi(argv[++c]);
       use_reduction = false;
       if (quality < 0 || quality > 100) {
-        printf("Error: invalid range for option '%s': %s\n",
-               argv[c - 1], argv[c]);
+        fprintf(stdout, "Error: invalid range for option '%s': %s\n",
+                argv[c - 1], argv[c]);
         return 1;
       }
     } else if (!strcmp(argv[c], "-r") && c + 1 < argc) {
       reduction = atoi(argv[++c]);
       use_reduction = true;
       if (reduction <= 0 || reduction > 100) {
-        printf("Error: invalid range for option '%s': %s\n",
-               argv[c - 1], argv[c]);
+        fprintf(stdout, "Error: invalid range for option '%s': %s\n",
+                argv[c - 1], argv[c]);
         return 1;
       }
     } else if (!strcmp(argv[c], "-estimate")) {
@@ -144,8 +144,8 @@ int main(int argc, char * argv[]) {
     } else if (!strcmp(argv[c], "-yuv_mode") && c + 1 < argc) {
       param.yuv_mode = atoi(argv[++c]);
       if (param.yuv_mode < 0 || param.yuv_mode > 3) {
-        printf("Error: invalid range for option '%s': %s\n",
-               argv[c - 1], argv[c]);
+        fprintf(stdout, "Error: invalid range for option '%s': %s\n",
+                argv[c - 1], argv[c]);
         return 1;
       }
     } else if (!strcmp(argv[c], "-i") || !strcmp(argv[c], "-info")) {
@@ -156,10 +156,10 @@ int main(int argc, char * argv[]) {
       short_output = true;
     } else if (!strcmp(argv[c], "-version")) {
       const uint32_t version = SjpegVersion();
-      printf("%d.%d.%d\n",
-             (version >> 16) & 0xff,
-             (version >>  8) & 0xff,
-             (version >>  0) & 0xff);
+      fprintf(stdout, "%d.%d.%d\n",
+              (version >> 16) & 0xff,
+              (version >>  8) & 0xff,
+              (version >>  0) & 0xff);
       return 0;
     } else {
       input_file = argv[c];
@@ -192,7 +192,7 @@ int main(int argc, char * argv[]) {
 
   if (estimate) {
     const int q = is_jpeg ? SjpegEstimateQuality(quant_matrices[0], 0) : 100;
-    printf("%d\n", q);
+    fprintf(stdout, "%d\n", q);
     return 0;
   }
   int W, H;
@@ -210,7 +210,7 @@ int main(int argc, char * argv[]) {
               riskiness, kYUVModeNames[yuv_mode_rec]);
 
       if (is_jpeg) {
-        printf("Input is JPEG w/ %d matrices:\n", nb_matrices);
+        fprintf(stdout, "Input is JPEG w/ %d matrices:\n", nb_matrices);
         if (nb_matrices > 0) {
           PrintMatrix("Luma", quant_matrices[0], false);
         }
