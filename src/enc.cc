@@ -2183,6 +2183,10 @@ size_t SjpegCompress(const uint8_t* rgb, int W, int H, int quality,
   return SjpegEncode(rgb, W, H, 3 * W, out_data, quality, 4, 0);
 }
 
+void SjpegFreeBuffer(const uint8_t* buffer) {
+  delete[] buffer;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 uint32_t SjpegVersion() {
@@ -2285,7 +2289,7 @@ std::string SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
 
   std::string output;
   output.append(reinterpret_cast<const char*>(buf), size);
-  delete[] buf;
+  SjpegFreeBuffer(buf);
   return output;
 }
 
@@ -2297,7 +2301,7 @@ std::string SjpegCompress(const uint8_t* rgb, int W, int H, int quality) {
   uint8_t* data = NULL;
   size_t size = SjpegCompress(rgb, W, H, quality, &data);
   if (size > 0) output.append(reinterpret_cast<const char*>(data), size);
-  delete[] data;
+  SjpegFreeBuffer(data);
   return output;
 }
 
