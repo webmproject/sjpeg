@@ -2178,6 +2178,12 @@ size_t SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
 
 ////////////////////////////////////////////////////////////////////////////////
 
+void SjpegFreeBuffer(uint8_t* buffer) {
+  delete[] buffer;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 size_t SjpegCompress(const uint8_t* rgb, int W, int H, int quality,
                      uint8_t** out_data) {
   return SjpegEncode(rgb, W, H, 3 * W, out_data, quality, 4, 0);
