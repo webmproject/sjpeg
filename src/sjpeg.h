@@ -31,6 +31,10 @@ extern "C" {
 // Returns the library's version.
 uint32_t SjpegVersion();
 
+// Can be used for freeing buffers obtained from 'SjpegEncode' and
+// 'SjpegCompress', if the library is used in a language different from C++.
+void SjpegFreeBuffer(uint8_t* buffer);
+
 // Main function
 // This is the simplest possible call. There is only one parameter (quality)
 // and most decisions will be made automatically (YUV420/YUV444/etc...).
