@@ -36,7 +36,7 @@ uint32_t SjpegVersion();
 // and most decisions will be made automatically (YUV420/YUV444/etc...).
 // Returns the compressed size, and fills *out_data with the bitstream.
 // This returned buffer is allocated with 'new[]' operator. It must be
-// deallocated using 'delete[]' call.
+// deallocated by using 'delete[]' or SjpegFreeBuffer() calls.
 // Input data 'rgb' are the samples in sRGB format, in R/G/B memory order.
 // Picture dimension is width x height.
 // Retuns 0 in case of error.
@@ -50,7 +50,8 @@ size_t SjpegCompress(const uint8_t* rgb, int width, int height, int quality,
 //  positive.
 //
 // The compressed bytes are made available in *out_data, which is a buffer
-// allocated with new []. This buffer must be disallocated using 'delete []'.
+// allocated with new []. This buffer must be disallocated using 'delete []',
+// or by calling SjpegBufferFree().
 //
 // Return parameter -if positive- is the size of the JPEG string,
 // or 0 if an error occured.
@@ -95,6 +96,11 @@ size_t SjpegEncode(const uint8_t* rgb,
                    int quality,
                    int compression_method,
                    int yuv_mode);
+
+// Deallocate a compressed bitstream by calling 'delete []'. These are the
+// bitstreams returned by SjpegEncode() or SjpegCompress(). Useful if the
+// library has non-C++ bidings.
+void SjpegFreeBuffer(const uint8_t* buffer);
 
 ////////////////////////////////////////////////////////////////////////////////
 // JPEG-parsing tools

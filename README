@@ -37,15 +37,17 @@ size_t SjpegEncode(const uint8_t* const data,
 
 as well as functions with a C++ string-based API.
 
+The library comes primarily with a plain-C API, but a C++ version is available
+too, that uses std::string as interface.
+
+SjpegFreeBuffer() can be called release the buffers returned by SjpegEncode()
+and SjpegCompress().
+
 Also included in the library: some helper functions to inspect JPEG bitstream.
 They are meant to help re-processing a JPEG source:
   SjpegDimensions(): quickly get the JPEG picture dimensions.
   SjpegFindQuantizer(): return the quantization matrices
   SjpegEstimateQuality(): return an estimate of the encoding quality
-
-The library comes primarily with a plain-C API, but a C++ version is available
-too, that uses std::string as interface.
-
 
 * SjpegEncodeParam interface:
 *****************************
