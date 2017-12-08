@@ -57,7 +57,7 @@ struct Params {
   int done;
   int decoding_error;
   int show;  // 0 = compressed, 1 = original, 2 = info, 3 = help
-             // 4 = error map, 5 = riskiness map
+             // 4 = error map, 5 = riskiness map, 6 = alt
   int fade;  // [0..100]
 
   size_t current_file;
@@ -77,6 +77,7 @@ struct Params {
   vector<uint8_t> rgb;       // original samples
   vector<uint8_t> out_rgb;   // recompressed samples
   vector<uint8_t> map;       // error map
+  vector<uint8_t> alt;       // alternate comparison picture
   int width, height;
   int is_yuv420;
   int viewport_width, viewport_height;
@@ -87,6 +88,7 @@ struct Params {
     reduction = 100;
   }
   bool SetCurrentFile(size_t file_number);
+  bool SetAltFile(const char* const file_name);
 };
 static Params kParams;
 
@@ -160,6 +162,8 @@ static void PrintInfo() {
         "  up/down ........... change the compression factor by +/- 1 units");
     msg.push_back(
         "  left/right ........ change the compression factor by +/- 10 units");
+    msg.push_back(
+        "  return ............ show alternate picture (if specified)");
     msg.push_back("  0/1/2/3 ........... change the yuv_mode to ");
     msg.push_back("                      auto/yuv420/sharp-yuv420/yuv444");
     msg.push_back("  'o' ............... toggle Huffman optimization");
@@ -234,6 +238,8 @@ static void PrintInfo() {
     msg.push_back("- E R R O R   M A P -");
   } else if (kParams.show == 5) {
     msg.push_back("- Riskiness Map -");
+  } else if (kParams.show == 6) {
+    msg.push_back("- Alt Pic -");
   }
 
   PrintMessages(msg, color, kParams.show != 1);
@@ -387,6 +393,27 @@ bool Params::SetCurrentFile(size_t file) {
   return !decoding_error;
 }
 
+bool Params::SetAltFile(const char* const file_name) {
+  alt.clear();
+  const std::string data = ReadFile(file_name);
+  if (data.empty()) return false;
+  int w, h;
+  alt = ReadImage(data, &w, &h, NULL);
+  if (alt.empty()) {
+    fprintf(stderr, "Could not decode the alternate file %s\n",
+            file_name);
+    return false;
+  }
+  if (w != width || h != height) {
+    alt.clear();
+    fprintf(stderr, "Alternate picture has incompatible dimensions "
+                    " (%dx%d vs expected %dx%d)\n",
+            w, h, width, height);
+    return false;
+  }
+  return true;
+}
+
 //------------------------------------------------------------------------------
 
 void PrintMatrix(const char name[], const uint8_t m[64], bool for_chroma) {
@@ -422,6 +449,11 @@ static void HandleKey(unsigned char key, int pos_x, int pos_y) {
   } else if (key == ' ') {
     kParams.show = 1;
     glutPostRedisplay();
+  } else if (key == 13) {  // return
+    if (!kParams.alt.empty()) {
+      kParams.show = 6;
+      glutPostRedisplay();
+    }
   } else if (key == 'E' || key == 'e') {
     ComputeErrorMap();
     glutPostRedisplay();
@@ -477,6 +509,9 @@ static void HandleKeyUp(unsigned char key, int pos_x, int pos_y) {
   (void)pos_x;
   (void)pos_y;
   if (key == ' ') {
+    kParams.show = 0;
+    glutPostRedisplay();
+  } else if (key == 13) {
     kParams.show = 0;
     glutPostRedisplay();
   } else if (key == 'E' || key == 'e' || key == 'R' || key == 'r') {
@@ -536,6 +571,8 @@ static void HandleDisplay(void) {
     src = &kParams.rgb[0];
   } else if (kParams.show == 4 || kParams.show == 5) {
     src = &kParams.map[0];
+  } else if (kParams.show == 6 && !kParams.alt.empty()) {
+    src = &kParams.alt[0];
   } else {
     src = &kParams.out_rgb[0];
   }
@@ -590,6 +627,7 @@ static void Help(void) {
          "  ' ' ............... show the original uncompressed picture\n"
          "  up/down ........... change the compression factor by +/- 1 units\n"
          "  left/right ........ change the compression factor by +/- 10 units\n"
+         "  return ............ show alternate picture (if specified)\n"
          "  0/1/2/3 ........... change the yuv_mode to "
                                 "auto/yuv420/sharp-yuv420/yuv444\n"
          "  'o' ............... toggle Huffman optimization\n"
@@ -606,6 +644,7 @@ static void Help(void) {
 }
 
 int main(int argc, char *argv[]) {
+  const char* alt_name = NULL;
   for (int c = 1; c < argc; ++c) {
     int parse_error = 0;
     if (!strcmp(argv[c], "-h") || !strcmp(argv[c], "-help")) {
@@ -619,6 +658,8 @@ int main(int argc, char *argv[]) {
              (version >> 16) & 0xff, (version >> 8) & 0xff,
              (version >>  0) & 0xff);
       return 0;
+    } else if (!strcmp(argv[c], "-alt")) {
+      if (c < argc - 1) alt_name = argv[++c];
     } else if (!strcmp(argv[c], "--")) {
       if (c < argc - 1) kParams.files.push_back(argv[++c]);
     } else if (!strcmp(argv[c], "-q")) {
@@ -644,6 +685,8 @@ int main(int argc, char *argv[]) {
 
   kParams.fade = kFadeMax;
   if (!kParams.SetCurrentFile(0)) return 1;
+
+  if (alt_name != NULL) kParams.SetAltFile(alt_name);
 
 #if defined(__unix__) || defined(__CYGWIN__)
   // Work around GLUT compositor bug.
