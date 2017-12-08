@@ -181,7 +181,16 @@ int main(int argc, char * argv[]) {
     (input_type == SJPEG_JPEG) ? SjpegFindQuantizer(input, quant_matrices)
                                : 0;
   const bool is_jpeg = (input_type == SJPEG_JPEG) && (nb_matrices > 0);
-  if (is_jpeg && use_reduction) {   // use 'reduction' factor for JPEG source
+  if (use_reduction && !is_jpeg) {
+    if (!quiet && !short_output) {
+      fprintf(stdout, "Warning! reduction factor (-r option) disabled"
+                      " (only applies to JPEG source).\n");
+      fprintf(stdout, "         Please use the -q option to set the"
+                      " quality factor.\n\n");
+    }
+    use_reduction = false;
+  }
+  if (use_reduction) {   // use 'reduction' factor for JPEG source
     param.SetQuantMatrix(quant_matrices[0], 0, reduction);
     param.SetQuantMatrix(quant_matrices[1], 1, reduction);
     param.SetLimitQuantization(true);
@@ -239,11 +248,12 @@ int main(int argc, char * argv[]) {
   if (!short_output && !quiet) {
     yuv_mode_rec = SjpegRiskiness(&in_bytes[0], W, H, 3 * W, &riskiness);
     fprintf(stdout, "new size:   %ld bytes (%.2lf%% of original)\n"
-                    "reduction:  r=%d (adaptive: %s, Huffman: %s)\n"
+                    "%s%d (adaptive: %s, Huffman: %s)\n"
                     "yuv mode:   %s (riskiness: %.1lf%%)\n"
                     "elapsed:    %d ms\n",
                     (long)out.size(), 100. * out.size() / input.size(),
-                    reduction,
+                    use_reduction ? "reduction:  r=" : "quality:    q=",
+                    use_reduction ? reduction : quality,
                     kNoYes[param.adaptive_quantization],
                     kNoYes[param.Huffman_compress],
                     kYUVModeNames[yuv_mode_rec], riskiness,
