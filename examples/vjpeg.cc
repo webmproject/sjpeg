@@ -78,6 +78,7 @@ struct Params {
   vector<uint8_t> out_rgb;   // recompressed samples
   vector<uint8_t> map;       // error map
   vector<uint8_t> alt;       // alternate comparison picture
+  size_t alt_size;           // size of the alternate picture
   int width, height;
   int is_yuv420;
   int viewport_width, viewport_height;
@@ -239,7 +240,9 @@ static void PrintInfo() {
   } else if (kParams.show == 5) {
     msg.push_back("- Riskiness Map -");
   } else if (kParams.show == 6) {
-    msg.push_back("- Alt Pic -");
+    char tmp[80];
+    snprintf(tmp, sizeof(tmp), "- Alt Pic (%d bytes) -", kParams.alt_size);
+    msg.push_back(tmp);
   }
 
   PrintMessages(msg, color, kParams.show != 1);
@@ -395,6 +398,7 @@ bool Params::SetCurrentFile(size_t file) {
 
 bool Params::SetAltFile(const char* const file_name) {
   alt.clear();
+  alt_size = 0;
   const std::string data = ReadFile(file_name);
   if (data.empty()) return false;
   int w, h;
@@ -411,6 +415,7 @@ bool Params::SetAltFile(const char* const file_name) {
             w, h, width, height);
     return false;
   }
+  alt_size = data.size();
   return true;
 }
 
