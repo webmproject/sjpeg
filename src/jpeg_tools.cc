@@ -103,10 +103,10 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size,
             if (Pq == 0) {
               v = src[i + 1 + j];
             } else {
-              // convert 16b->8b by rounding
-              v = ((int)src[i + 1 + 2 * j + 1] << 8)
-                      | src[i + 1 + 2 * j + 0];
-              v = (v + 128) >> 8;
+              // convert 16b->8b by clamping
+              v = ((int)src[i + 1 + 2 * j + 0] << 8)
+                      | src[i + 1 + 2 * j + 1];
+              v = (v > 255) ? 255 : v;
             }
             quant[Tq][j] = (v < 1) ? 1u : (uint8_t)v;
           }
