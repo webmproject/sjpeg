@@ -583,7 +583,7 @@ static bool ExtractMetadataFromPNG(png_structp png,
 #else  // >= libpng 1.5.0
       png_bytep profile;
 #endif
-      png_uint_32 len = 0;
+      png_uint_32 len;
 
       if (png_get_iCCP(png, info,
                        &name, &comp_type, &profile, &len) == PNG_INFO_iCCP) {
@@ -593,14 +593,15 @@ static bool ExtractMetadataFromPNG(png_structp png,
         }
         fprintf(stderr, "[%s : %d bytes]\n", "ICCP", static_cast<int>(len));
       }
-      if (len == 0) {  // if there's no iCCP, we look for gamma values.
-        if (p == 0 && png_get_gAMA(png, info, gamma) == PNG_INFO_gAMA) {
-          fprintf(stderr, "[GAMMA: %lf]\n", *gamma);
-        }
-      }
+    }
+    if (p == 0 && png_get_gAMA(png, info, gamma) != PNG_INFO_gAMA) {
+      *gamma = 0;
     }
   }
-
+  if (param->iccp.size() > 0) {
+    // if there's an iCCP, we discard the gamma value by resetting it.
+    *gamma = 0.;
+  }
   return 1;
 }
 
