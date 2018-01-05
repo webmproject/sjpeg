@@ -23,6 +23,7 @@
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
+#include <math.h>
 
 #ifdef SJPEG_HAVE_PNG
 #include <png.h>
@@ -533,7 +534,8 @@ static const struct {
 static bool ExtractMetadataFromPNG(png_structp png,
                                    png_infop const head_info,
                                    png_infop const end_info,
-                                   SjpegEncodeParam* const param) {
+                                   SjpegEncodeParam* const param,
+                                   double* const gamma) {
   if (param == NULL) return true;
   param->ResetMetadata();
   for (int p = 0; p < 2; ++p)  {
@@ -581,7 +583,7 @@ static bool ExtractMetadataFromPNG(png_structp png,
 #else  // >= libpng 1.5.0
       png_bytep profile;
 #endif
-      png_uint_32 len;
+      png_uint_32 len = 0;
 
       if (png_get_iCCP(png, info,
                        &name, &comp_type, &profile, &len) == PNG_INFO_iCCP) {
@@ -590,6 +592,11 @@ static bool ExtractMetadataFromPNG(png_structp png,
           return 0;
         }
         fprintf(stderr, "[%s : %d bytes]\n", "ICCP", static_cast<int>(len));
+      }
+      if (len == 0) {  // if there's no iCCP, we look for gamma values.
+        if (p == 0 && png_get_gAMA(png, info, gamma) == PNG_INFO_gAMA) {
+          fprintf(stderr, "[GAMMA: %lf]\n", *gamma);
+        }
       }
     }
   }
@@ -613,6 +620,23 @@ static void ReadFunc(png_structp png_ptr, png_bytep data, png_size_t length) {
   ctx->offset += length;
 }
 
+static void ApplyGamma(uint8_t* rgb, int64_t len, double g) {
+  if (g == 1.) return;
+  if (len < 512) {
+    // for small array, no need to build a LUT.
+    for (int64_t i = 0; i < len; ++i) {
+      if (rgb[i] > 0 && rgb[i] < 255) {
+        rgb[i] = (uint8_t)(255. * pow(rgb[i] / 255., g));
+      }
+    }
+  } else {
+    uint8_t lut[256];
+    for (int i = 0; i < 256; ++i) lut[i] = i;
+    ApplyGamma(lut, 256, g);
+    for (int64_t i = 0; i < len; ++i) rgb[i] = lut[rgb[i]];
+  }
+}
+
 vector<uint8_t> ReadPNG(const std::string& input,
                         int* const width_ptr, int* const height_ptr,
                         SjpegEncodeParam* const param) {
@@ -627,6 +651,7 @@ vector<uint8_t> ReadPNG(const std::string& input,
   png_uint_32 width, height, y;
   int64_t stride;
   vector<uint8_t> rgb;
+  double gamma = 0.;
 
   assert(input.size() > 0);
 
@@ -699,9 +724,14 @@ vector<uint8_t> ReadPNG(const std::string& input,
   }
   png_read_end(png, end_info);
 
-  if (!ExtractMetadataFromPNG(png, info, end_info, param)) {
+  if (!ExtractMetadataFromPNG(png, info, end_info, param, &gamma)) {
     fprintf(stderr, "Error extracting PNG metadata!\n");
     goto Error;
+  }
+
+  if (gamma != 0) {
+    gamma = 1. / (gamma * 2.2);  // sRGB approximation
+    ApplyGamma(rgb.data(), stride * height, gamma);
   }
 
   if (width_ptr != NULL) *width_ptr = static_cast<int>(width);
