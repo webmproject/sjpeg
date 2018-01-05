@@ -23,7 +23,6 @@
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
-#include <math.h>
 
 #ifdef SJPEG_HAVE_PNG
 #include <png.h>
@@ -534,8 +533,7 @@ static const struct {
 static bool ExtractMetadataFromPNG(png_structp png,
                                    png_infop const head_info,
                                    png_infop const end_info,
-                                   SjpegEncodeParam* const param,
-                                   double* const gamma) {
+                                   SjpegEncodeParam* const param) {
   if (param == NULL) return true;
   param->ResetMetadata();
   for (int p = 0; p < 2; ++p)  {
@@ -594,13 +592,6 @@ static bool ExtractMetadataFromPNG(png_structp png,
         fprintf(stderr, "[%s : %d bytes]\n", "ICCP", static_cast<int>(len));
       }
     }
-    if (p == 0 && png_get_gAMA(png, info, gamma) != PNG_INFO_gAMA) {
-      *gamma = 0;
-    }
-  }
-  if (param->iccp.size() > 0) {
-    // if there's an iCCP, we discard the gamma value by resetting it.
-    *gamma = 0.;
   }
   return 1;
 }
@@ -621,23 +612,6 @@ static void ReadFunc(png_structp png_ptr, png_bytep data, png_size_t length) {
   ctx->offset += length;
 }
 
-static void ApplyGamma(uint8_t* rgb, int64_t len, double g) {
-  if (g == 1.) return;
-  if (len < 512) {
-    // for small array, no need to build a LUT.
-    for (int64_t i = 0; i < len; ++i) {
-      if (rgb[i] > 0 && rgb[i] < 255) {
-        rgb[i] = (uint8_t)(255. * pow(rgb[i] / 255., g));
-      }
-    }
-  } else {
-    uint8_t lut[256];
-    for (int i = 0; i < 256; ++i) lut[i] = i;
-    ApplyGamma(lut, 256, g);
-    for (int64_t i = 0; i < len; ++i) rgb[i] = lut[rgb[i]];
-  }
-}
-
 vector<uint8_t> ReadPNG(const std::string& input,
                         int* const width_ptr, int* const height_ptr,
                         SjpegEncodeParam* const param) {
@@ -652,7 +626,6 @@ vector<uint8_t> ReadPNG(const std::string& input,
   png_uint_32 width, height, y;
   int64_t stride;
   vector<uint8_t> rgb;
-  double gamma = 0.;
 
   assert(input.size() > 0);
 
@@ -705,6 +678,16 @@ vector<uint8_t> ReadPNG(const std::string& input,
     has_alpha = 0;
   }
 
+  // Apply gamma correction if needed.
+  {
+    double image_gamma = 1 / 2.2, screen_gamma = 2.2;
+    int srgb_intent;
+    if (png_get_sRGB(png, info, &srgb_intent) ||
+        png_get_gAMA(png, info, &image_gamma)) {
+      png_set_gamma(png, screen_gamma, image_gamma);
+    }
+  }
+
   num_passes = png_set_interlace_handling(png);
   png_read_update_info(png, info);
 
@@ -725,14 +708,9 @@ vector<uint8_t> ReadPNG(const std::string& input,
   }
   png_read_end(png, end_info);
 
-  if (!ExtractMetadataFromPNG(png, info, end_info, param, &gamma)) {
+  if (!ExtractMetadataFromPNG(png, info, end_info, param)) {
     fprintf(stderr, "Error extracting PNG metadata!\n");
     goto Error;
-  }
-
-  if (gamma != 0) {
-    gamma = 1. / (gamma * 2.2);  // sRGB approximation
-    ApplyGamma(rgb.data(), stride * height, gamma);
   }
 
   if (width_ptr != NULL) *width_ptr = static_cast<int>(width);
