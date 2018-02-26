@@ -187,6 +187,17 @@ struct SjpegEncodeParam {
   bool adaptive_bias;           // if true, use perceptual bias adaptation
   bool use_trellis;             // if true, use trellis-based optimization
 
+  // target size or distortion
+  typedef enum {
+    TARGET_NONE = 0,
+    TARGET_SIZE = 1,
+    TARGET_PSNR = 2,
+  } TargetMode;
+  TargetMode target_mode;
+  float target_value;           // size, psnr or SSIM
+  int passes;                   // max number of passes to try and converge
+  float min_psnr;               // minimum psnr value to never go under
+
   // fine-grained control over compression parameters
   int quantization_bias;    // [0..255] Rounding bias for quantization.
   int qdelta_max_luma;      // [0..12] How much to hurt luma in adaptive quant
@@ -205,18 +216,14 @@ struct SjpegEncodeParam {
   std::string app_markers;
   void ResetMetadata();      // clears the above
 
- protected:
-  void Init(int quality_factor);
-
   uint8_t quant_[2][64];         // quantization matrices to use
   const uint8_t* min_quant_[2];  // if limit_quantization is true, these pointers
                                  // should point luma / chroma minimum allowed
                                  // quantizer values.
   int min_quant_tolerance_;      // Tolerance going over min_quant_ ([0..100])
 
-  friend std::string SjpegEncode(const uint8_t* rgb,
-                                 int width, int height, int stride,
-                                 const SjpegEncodeParam& param);
+ protected:
+  void Init(int quality_factor);
 };
 
 // Same as the first version of SjpegEncode(), except encoding parameters are

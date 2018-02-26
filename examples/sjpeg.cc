@@ -75,6 +75,8 @@ int main(int argc, char * argv[]) {
     "                    Default value is 100. Lower value will reduce the \n"
     "                    file size.\n"
     "  -o filename ..... specifies the output file name.\n"
+    "  -size <int> ..... target size\n"
+    "  -psnr <float> ... target YUV-PSNR\n"
     "  -estimate ....... Just estimate and print the JPEG source quality.\n"
     "  -i .............. Just print some information about the input file.\n"
     "  -version ........ Print the version and exit.\n"
@@ -93,6 +95,8 @@ int main(int argc, char * argv[]) {
     "  -no_adapt ....... Don't use adaptive quantization (=faster)\n"
     "  -trellis ........ use trellis-based quantization (=slower)\n"
     "  -no_metadata .... Ignore metadata from the source.\n"
+    "  -pass <int> ..... number of passes for -size or -psnr (default: 10\n"
+    "  -min_psnr <float> minimum PSNR value limit during dichotomy\n"
     "\n"
     "\n"
     "If the input format is JPEG, the recompression will not go beyond the\n"
@@ -139,6 +143,16 @@ int main(int argc, char * argv[]) {
       param.adaptive_bias = true;
     } else if (!strcmp(argv[c], "-trellis")) {
       param.use_trellis = true;
+    } else if (!strcmp(argv[c], "-psnr") && c + 1 < argc) {
+      param.target_mode = SjpegEncodeParam::TARGET_PSNR;
+      param.target_value = atof(argv[++c]);
+    } else if (!strcmp(argv[c], "-min_psnr")) {
+      param.min_psnr = atof(argv[++c]);
+    } else if (!strcmp(argv[c], "-size") && c + 1 < argc) {
+      param.target_mode = SjpegEncodeParam::TARGET_SIZE;
+      param.target_value = atof(argv[++c]);
+    } else if (!strcmp(argv[c], "-pass") && c + 1 < argc) {
+      param.passes = atoi(argv[++c]);
     } else if (!strcmp(argv[c], "-no_metadata")) {
       no_metadata = true;
     } else if (!strcmp(argv[c], "-yuv_mode") && c + 1 < argc) {
@@ -170,7 +184,10 @@ int main(int argc, char * argv[]) {
     if (!quiet) fprintf(stderr, usage);
     return -1;
   }
-
+  // finish param set up
+  if (param.target_mode != SjpegEncodeParam::TARGET_NONE && param.passes <= 1) {
+    param.passes = 10;
+  }
   // Read input file into the buffer in_bytes[]
   std::string input = ReadFile(input_file);
   if (input.size() == 0) return 1;
