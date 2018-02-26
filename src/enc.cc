@@ -35,6 +35,11 @@ static const int32_t kDefaultBias = 0x78;
 static const int kDefaultDeltaMaxLuma = 12;
 static const int kDefaultDeltaMaxChroma = 1;
 
+// convergence is considered reached if |dq| < kdQLimit
+static const float kdQLimit = 0.2;
+// maximal variation allowed on dQ
+static const float kdQThresh = 200.;
+
 // finer tuning of perceptual optimizations:
 
 // Minimum average number of entries per bin required for performing histogram-
@@ -91,6 +96,10 @@ const uint8_t kDefaultMatrices[2][64] = {
 int GetQFactor(int q) {
   // we use the same mapping than jpeg-6b, for coherency
   return (q <= 0) ? 5000 : (q < 50) ? 5000 / q : (q < 100) ? 2 * (100 - q) : 0;
+}
+
+void CopyQuantMatrix(const uint8_t in[64], uint8_t out[64]) {
+  memcpy(out, in, 64 * sizeof(out[0]));
 }
 
 void SetQuantMatrix(const uint8_t in[64], int q_factor, uint8_t out[64]) {
@@ -152,7 +161,7 @@ struct HuffmanTable {
 
 // quantizer matrices
 struct Quantizer {
-  uint8_t quant_[64];      // direct quantizer matrice
+  uint8_t quant_[64];      // direct quantizer matrix
   uint8_t min_quant_[64];  // min quantizer value allowed
   uint16_t iquant_[64];    // precalc'd reciprocal for divisor
   uint16_t qthresh_[64];   // minimal absolute value that produce non-zero coeff
@@ -210,7 +219,7 @@ struct Histo {
 ////////////////////////////////////////////////////////////////////////////////
 // main struct
 
-class SjpegEncoder {
+struct SjpegEncoder {
  public:
   SjpegEncoder(int W, int H, int step, const uint8_t* rgb);
   virtual ~SjpegEncoder();
@@ -234,9 +243,10 @@ class SjpegEncoder {
     DCHECK(method >= 0 && method <= 8);
     use_adaptive_quant_ = (method >= 3);
     optimize_size_ = (method != 0) && (method != 3);
-    use_extra_memory_ = (method == 3) || (method == 4) || (method == 7);
+    use_extra_memory_ = (method == 3) || (method == 4) || (method == 7)
+                     || (passes_ > 1);
     reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5)
-                     || (method == 7) || (method == 8);
+                     || (method == 7) || (method == 8) || (passes_ > 1);
     use_trellis_ = (method >= 6);
   }
 
@@ -263,6 +273,9 @@ class SjpegEncoder {
     qdelta_max_luma_ = qdelta_luma;
     qdelta_max_chroma_ = qdelta_chroma;
   }
+
+  // all-in-one init from SjpegEncodeParam.
+  bool InitFromParam(const SjpegEncodeParam& param);
 
   // getters
   int Size() const { return bw_.BytePos(); }
@@ -295,16 +308,23 @@ class SjpegEncoder {
 
   void ResetDCs();
 
-  // 1-pass scan
-  void Scan();
+  // collect transformed coeffs (unquantized) only
+  void CollectCoeffs();
 
   // 2-pass Huffman optimizing scan
   void ResetEntropyStats();
   void AddEntropyStats(const DCTCoeffs* const coeffs,
                        const RunLevel* const run_levels);
   void CompileEntropyStats();
-  void SinglePassScan();
-  void MultiPassScan();
+  void StoreOptimalHuffmanTables(size_t nb_mbs, const DCTCoeffs* coeffs);
+
+  void SinglePassScan();           // finalizing scan
+  void SinglePassScanOptimized();  // optimize the Huffman table + finalize scan
+  // just write already stored run_levels & coeffs:
+  void FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs);
+
+  // dichotomy loop
+  void LoopScan();
 
   // Histogram pass
   void CollectHistograms();
@@ -330,6 +350,12 @@ class SjpegEncoder {
   static void FinalizeQuantMatrix(Quantizer* const q, int bias);
   void SetCostCodes(int idx);
   void InitCodes(bool only_ac);
+
+  size_t HeaderSize() const;
+  void BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
+                  const RunLevel* rl, sjpeg::BitCounter* const bc) const;
+  float ComputeSize(const DCTCoeffs* coeffs, const RunLevel* rl);
+  float ComputePSNR(const DCTCoeffs* coeffs, const RunLevel* rl) const;
 
  protected:
   // format-specific parameters, set by virtual InitComponents()
@@ -383,10 +409,19 @@ class SjpegEncoder {
   int DCs_[3];           // DC predictors
 
   // DCT coefficients storage, aligned
-  enum { ALIGN_CST = 15 };
+  static const size_t ALIGN_CST = 15;
   uint8_t* in_blocks_base_;   // base memory for blocks
   int16_t* in_blocks_;        // aligned pointer to in_blocks_base_
   bool have_coeffs_;          // true if the Fourier coefficients are stored
+  void AllocateBlocks(size_t num_blocks);
+  void DesallocateBlocks();
+
+  // multi-pass parameters
+  SjpegEncodeParam::TargetMode target_mode_;
+  float target_value_;
+  int passes_;
+  float min_psnr_;
+  friend struct PassStats;
 
   // these are for regular compression methods 0 or 2.
   RunLevel base_run_levels_[64];
@@ -462,6 +497,8 @@ SjpegEncoder::SjpegEncoder(int W, int H, int step, const uint8_t* const rgb)
     in_blocks_base_(NULL),
     in_blocks_(NULL),
     have_coeffs_(false),
+    passes_(1),
+    min_psnr_(0.),
     all_run_levels_(NULL),
     nb_run_levels_(0),
     max_run_levels_(0),
@@ -480,7 +517,7 @@ SjpegEncoder::SjpegEncoder(int W, int H, int step, const uint8_t* const rgb)
 
 SjpegEncoder::~SjpegEncoder() {
   delete[] all_run_levels_;
-  delete[] in_blocks_base_;
+  DesallocateBlocks();   // clean-up leftovers in case of we had an error
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -505,6 +542,21 @@ void SjpegEncoder::CheckBuffers() {
       DCHECK(nb_run_levels_ + 6 * 64 <= max_run_levels_);
     }
   }
+}
+
+void SjpegEncoder::AllocateBlocks(size_t num_blocks) {
+  assert(in_blocks_ == NULL);
+  in_blocks_base_ =
+      new uint8_t[num_blocks * 64 * sizeof(*in_blocks_) + ALIGN_CST];
+  in_blocks_ = reinterpret_cast<int16_t*>(
+      (ALIGN_CST + reinterpret_cast<uintptr_t>(in_blocks_base_)) & ~ALIGN_CST);
+  have_coeffs_ = false;
+}
+
+void SjpegEncoder::DesallocateBlocks() {
+  delete[] in_blocks_base_;
+  in_blocks_base_ = NULL;
+  in_blocks_ = NULL;          // sanity
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -587,7 +639,7 @@ bool SjpegEncoder::WriteXMP(const std::string& data) {
   const size_t kXMP_size = 29;
   const size_t data_size = 2 + data.size() + kXMP_size;
   if (data_size > 0xffff) return false;  // error
-  bw_.Reserve(data_size);
+  bw_.Reserve(data_size + 2);
   bw_.PutByte(0xff);
   bw_.PutByte(0xe1);
   bw_.PutByte((data_size >> 8) & 0xff);
@@ -975,6 +1027,7 @@ static int QuantizeBlock(const int16_t in[64], int idx,
       const uint16_t code = (v ^ mask) & ((1 << n) - 1);
       rl[nb].level_ = (code << 4) | n;
       rl[nb].run_ = i - prev;
+      printf("i=%d j=%d run=%d level=%d\n", i, j, rl[nb].run_, v);
       prev = i + 1;
       ++nb;
     }
@@ -1461,12 +1514,31 @@ void SjpegEncoder::CollectHistograms() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Perform YUV conversion and fDCT, and store the unquantized coeffs
+
+void SjpegEncoder::CollectCoeffs() {
+  assert(use_extra_memory_);
+  int16_t* in = in_blocks_;
+  const int mb_x_max = W_ / block_w_;
+  const int mb_y_max = H_ / block_h_;
+  for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
+    const bool yclip = (mb_y == mb_y_max);
+    for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
+      GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
+      fDCT_(in, mcu_blocks_);
+      in += 64 * mcu_blocks_;
+    }
+  }
+  have_coeffs_ = true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // 1-pass Scan
 
-void SjpegEncoder::Scan() {
+void SjpegEncoder::SinglePassScan() {
   ResetDCs();
 
-  RunLevel run_levels[64];
+  RunLevel base_run_levels[64];
   int16_t* in = in_blocks_;
   const int mb_x_max = W_ / block_w_;
   const int mb_y_max = H_ / block_h_;
@@ -1485,9 +1557,9 @@ void SjpegEncoder::Scan() {
         DCTCoeffs base_coeffs;
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
-                                        &base_coeffs, run_levels);
+                                        &base_coeffs, base_run_levels);
           base_coeffs.dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
-          CodeBlock(&base_coeffs, run_levels);
+          CodeBlock(&base_coeffs, base_run_levels);
           in += 64;
         }
       }
@@ -1495,10 +1567,16 @@ void SjpegEncoder::Scan() {
   }
 }
 
-void SjpegEncoder::SinglePassScan() {
-  WriteDHT();
-  WriteSOS();
-  Scan();
+void SjpegEncoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
+  DesallocateBlocks();     // we can free up some coeffs memory at this point
+  CheckBuffers();   // this call is needed to finalize all_run_levels_.
+  assert(reuse_run_levels_);
+  const RunLevel* run_levels = all_run_levels_;
+  for (size_t n = 0; n < nb_mbs; ++n) {
+    CheckBuffers();
+    CodeBlock(&coeffs[n], run_levels);
+    run_levels += coeffs[n].nb_coeffs_;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1727,10 +1805,22 @@ void SjpegEncoder::CompileEntropyStats() {
   }
 }
 
+void SjpegEncoder::StoreOptimalHuffmanTables(size_t nb_mbs,
+                                             const DCTCoeffs* coeffs) {
+  // optimize Huffman tables
+  ResetEntropyStats();
+  const RunLevel* run_levels = all_run_levels_;
+  for (size_t n = 0; n < nb_mbs; ++n) {
+    AddEntropyStats(&coeffs[n], run_levels);
+    run_levels += coeffs[n].nb_coeffs_;
+  }
+  CompileEntropyStats();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
-void SjpegEncoder::MultiPassScan() {
-  const int nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
+void SjpegEncoder::SinglePassScanOptimized() {
+  const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
   DCTCoeffs* const base_coeffs =
       new DCTCoeffs[reuse_run_levels_ ? nb_mbs : 1];
   DCTCoeffs* coeffs = base_coeffs;
@@ -1750,12 +1840,12 @@ void SjpegEncoder::MultiPassScan() {
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     const bool yclip = (mb_y == mb_y_max);
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      CheckBuffers();
       if (!have_coeffs_) {
         in = in_blocks_;
         GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
         fDCT_(in, mcu_blocks_);
       }
+      CheckBuffers();
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           RunLevel* const run_levels =
@@ -1782,24 +1872,286 @@ void SjpegEncoder::MultiPassScan() {
   WriteSOS();
 
   if (!reuse_run_levels_) {
-    // redo everything, but with optimal tables now.
-    Scan();
+    SinglePassScan();   // redo everything, but with optimal tables now.
   } else {
-    delete[] in_blocks_base_;
-    in_blocks_base_ = NULL;     // we can free up memory for coeffs here
-    in_blocks_ = NULL;          // sanity
-
     // Re-use the saved run/levels for fast 2nd-pass.
-    coeffs = base_coeffs;
-    CheckBuffers();   // this call is needed to finalize all_run_levels_.
-    RunLevel* run_levels = all_run_levels_;
-    for (int n = 0; n < nb_mbs; ++n) {
-      CheckBuffers();
-      CodeBlock(&coeffs[n], run_levels);
-      run_levels += coeffs[n].nb_coeffs_;
-    }
+    FinalPassScan(nb_mbs, base_coeffs);
   }
   delete[] base_coeffs;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// dichotomy
+
+#define DBG_PRINT 0
+
+struct PassStats {  // struct for organizing convergence in either size or PSNR
+  bool is_first;
+  float dq, q, last_q;
+  double value, last_value, target;
+  bool do_size_search;
+
+  PassStats(const SjpegEncoder& enc);
+  bool ComputeNextQ(float result);   // returns true if finished
+  void BackTrack() {
+    q = last_q;
+    dq /= 2;
+    q += dq;
+  }
+};
+
+PassStats::PassStats(const SjpegEncoder& enc) {
+  is_first = true;
+  dq = 50.f;
+  q = last_q = 100.;
+  value = last_value = 0;
+  target = enc.target_value_;
+  do_size_search = (enc.target_mode_ == SjpegEncodeParam::TARGET_SIZE);
+}
+
+static float Clamp(float v, float min, float max) {
+  return (v < min) ? min : (v > max) ? max : v;
+}
+
+bool PassStats::ComputeNextQ(float result) {
+  value = result;
+  if (is_first) {
+    if (do_size_search) {
+      dq = (value < target) ? -dq : dq;
+    } else {
+      dq = (value < target) ? -dq : dq;
+    }
+    is_first = false;
+  } else {
+    if (fabs(value - last_value) > 0.01 * value) {
+      const double slope = (target - value) / (last_value - value);
+      dq = (float)(slope * (last_q - q));
+    } else {
+      dq = 0.;  // we're done?!
+    }
+  }
+  // Limit variable to avoid large swings.
+  dq = Clamp(dq, -kdQThresh, kdQThresh);
+  last_q = q;
+  last_value = value;
+  q = Clamp(q + dq, 0.f, 2000.f);
+  return fabs(q - last_q) < kdQLimit;
+}
+
+void SjpegEncoder::LoopScan() {
+  assert(use_extra_memory_);
+  assert(reuse_run_levels_);
+
+  if (use_adaptive_quant_) {
+    CollectHistograms();
+  } else {
+    CollectCoeffs();   // we just need the coeffs
+  }
+
+  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
+                                                        : quantize_block_;
+  // We use the default Huffman tables as basis for bit-rate evaluation
+  if (use_trellis_) InitCodes(true);
+
+  const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
+  DCTCoeffs* const base_coeffs = new DCTCoeffs[nb_mbs];
+  uint8_t base_quant[2][64], opt_quants[2][64];
+  for (int c = 0; c < 2; ++c) {
+    sjpeg::CopyQuantMatrix(quants_[c].quant_, base_quant[c]);
+  }
+
+  // Dichotomy passes
+  PassStats stats(*this);
+  for (int p = 0; p < passes_; ++p) {
+    for (int c = 0; c < 2; ++c) {
+      sjpeg::SetQuantMatrix(base_quant[c], stats.q, quants_[c].quant_);
+      FinalizeQuantMatrix(&quants_[c], q_bias_);
+    }
+
+    if (use_adaptive_quant_) {
+      AnalyseHisto();   // adjust quant_[] matrices
+    }
+
+    // compute pass to store coeffs / runs / dc_code_
+    ResetDCs();
+    nb_run_levels_ = 0;
+    int16_t* in = in_blocks_;
+    DCTCoeffs* coeffs = base_coeffs;
+    for (int n = 0; n < mb_w_ * mb_h_; ++n) {
+      CheckBuffers();
+      for (int c = 0; c < nb_comps_; ++c) {
+        for (int i = 0; i < nb_blocks_[c]; ++i) {
+          RunLevel* const run_levels = all_run_levels_ + nb_run_levels_;
+          const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
+                                        coeffs, run_levels);
+          coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
+          nb_run_levels_ += coeffs->nb_coeffs_;
+          ++coeffs;
+          in += 64;
+        }
+      }
+    }
+    if (optimize_size_) {
+      StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
+      if (use_trellis_) InitCodes(true);
+    }
+
+    const float result =
+      stats.do_size_search ? ComputeSize(base_coeffs, all_run_levels_)
+                           : ComputePSNR(base_coeffs, all_run_levels_);
+    if (p > 0 && min_psnr_ > 0.) {
+      const float psnr =
+          stats.do_size_search ? ComputePSNR(base_coeffs, all_run_levels_)
+                               : result;
+      if (psnr < min_psnr_) {
+        stats.BackTrack();
+        continue;
+      }
+    }
+    if (DBG_PRINT) printf("pass #%d: q=%f value:%.2f\n", p, stats.q, result);
+    for (int c = 0; c < 2; ++c) {
+      sjpeg::CopyQuantMatrix(quants_[c].quant_, opt_quants[c]);
+    }
+    if (stats.ComputeNextQ(result)) break;
+  }
+  SetQuantMatrices(opt_quants);   // set the final matrix
+
+  // finish bitstream
+  WriteDQT();
+  WriteSOF();
+  WriteDHT();
+  WriteSOS();
+  FinalPassScan(nb_mbs, base_coeffs);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Size & PSNR computation, mostly for dichotomy
+
+size_t SjpegEncoder::HeaderSize() const {
+  size_t size = 0;
+  size += 20;    // APP0
+  size += app_markers_.size();
+  if (exif_.size() > 0) {
+    size += 8 + exif_.size();
+  }
+  if (iccp_.size() > 0) {
+    const size_t chunk_size_max = 0xffff - 12 - 4;
+    const size_t num_chunks = (iccp_.size() - 1) / chunk_size_max + 1;
+    size += num_chunks * (12 + 4 + 2);
+    size += iccp_.size();
+  }
+  if (xmp_.size() > 0) {
+    size += 2 + 2 + 29 + xmp_.size();
+  }
+  size += 2 * 65 + 2 + 2;         // DQT
+  size += 8 + 3 * nb_comps_ + 2;  // SOF
+  size += 6 + 2 * nb_comps_ + 2;  // SOS
+  size += 2;                      // EOI
+  // DHT:
+  for (int c = 0; c < (nb_comps_ == 1 ? 1 : 2); ++c) {   // luma, chroma
+    for (int type = 0; type <= 1; ++type) {               // dc, ac
+      const HuffmanTable* const h = Huffman_tables_[type * 2 + c];
+      size += 2 + 3 + 16 + h->nb_syms_;
+    }
+  }
+  return size * 8;
+}
+
+void SjpegEncoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
+                              const RunLevel* rl,
+                              sjpeg::BitCounter* const bc) const {
+  for (int n = 0; n < nb_mbs; ++n) {
+    const DCTCoeffs& c = coeffs[n];
+    const int idx = c.idx_;
+    const int q_idx = quant_idx_[idx];
+
+    // DC
+    const int dc_len = c.dc_code_ & 0x0f;
+    const uint32_t code = dc_codes_[q_idx][dc_len];
+    bc->AddPackedCode(code);
+    bc->AddBits(c.dc_code_ >> 4, dc_len);
+
+    // AC
+    const uint32_t* const codes = ac_codes_[q_idx];
+    for (int i = 0; i < c.nb_coeffs_; ++i) {
+      int run = rl[i].run_;
+      while (run & ~15) {        // escapes
+        bc->AddPackedCode(codes[0xf0]);
+        run -= 16;
+      }
+      const uint32_t suffix = rl[i].level_;
+      const size_t nbits = suffix & 0x0f;
+      const int sym = (run << 4) | nbits;
+      bc->AddPackedCode(codes[sym]);
+      bc->AddBits(suffix >> 4, nbits);
+    }
+    if (c.last_ < 63) bc->AddPackedCode(codes[0x00]);  // EOB
+    rl += c.nb_coeffs_;
+  }
+}
+
+float SjpegEncoder::ComputeSize(const DCTCoeffs* coeffs,
+                                 const RunLevel* rl) {
+  InitCodes(false);
+  size_t size = HeaderSize();
+  sjpeg::BitCounter bc;
+  BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, rl, &bc);
+  size += bc.Size();
+  return size / 8.f;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+static double GetPSNR(uint64_t err, uint64_t size) {
+  return (err > 0 && size > 0) ? 10. * log10(255. * 255. * size / err) : 99.;
+}
+
+static const uint16_t kMasks[16 + 1][2] = {
+  { 0x0000U, 0x0000U },  // fake extra entry, for robustness
+  { 0x0001U, 0x0001U }, { 0x0002U, 0x0003U },
+  { 0x0004U, 0x0007U }, { 0x0008U, 0x000fU },
+  { 0x0010U, 0x001fU }, { 0x0020U, 0x003fU },
+  { 0x0040U, 0x007fU }, { 0x0080U, 0x00ffU },
+  { 0x0100U, 0x01ffU }, { 0x0200U, 0x03ffU },
+  { 0x0400U, 0x07ffU }, { 0x0800U, 0x03ffU },
+  { 0x1000U, 0x1fffU }, { 0x2000U, 0x3fffU },
+  { 0x4000U, 0x7fffU }, { 0x8000U, 0xffffU }
+};
+
+static int16_t CodeToCoeff(uint16_t code) {
+  const int nbits = (code & 0xf);
+  int16_t qcoeff = (code >> 4);
+  if (qcoeff < kMasks[nbits][0]) qcoeff -= kMasks[nbits][1];
+  return qcoeff;
+}
+
+float SjpegEncoder::ComputePSNR(const DCTCoeffs* coeffs,
+                                const RunLevel* rl) const {
+  uint64_t error = 0;
+  int16_t* in = in_blocks_;
+  const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
+  int32_t DCs[3] = { 0, 0, 0 };
+  for (size_t n = 0; n < nb_mbs; ++n) {
+    const DCTCoeffs& c = coeffs[n];
+    const int c_idx = c.idx_;
+    const int q_idx = quant_idx_[c_idx];
+    const uint8_t* const Q = quants_[q_idx].quant_;
+    int pos = 0;
+    int32_t dq[64] = { 0 };
+    for (int i = 0; i < c.nb_coeffs_; ++i, ++rl) {
+      pos += rl->run_ + 1;
+      const int j = sjpeg::kZigzag[pos];
+      dq[j] = Q[j] * CodeToCoeff(rl->level_);
+    }
+    dq[0] = (DCs[c_idx] += CodeToCoeff(c.dc_code_)) * Q[0];
+    for (int i = 0; i < 64; ++i) {
+      const int16_t v0 = in[i] / 16;  // fDCT output is upscaled
+      const int16_t v = dq[i];
+      error += ((uint64_t)(v0 - v) * (v0 - v));
+    }
+    in += 64;
+  }
+  return GetPSNR(error, nb_mbs * 64ull);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1825,18 +2177,8 @@ bool SjpegEncoder::Encode() {
   }
   mb_w_ = (W_ + (block_w_ - 1)) / block_w_;
   mb_h_ = (H_ + (block_h_ - 1)) / block_h_;
-  const int nb_blocks = use_extra_memory_ ? mb_w_ * mb_h_ : 1;
-  in_blocks_base_ =
-    new uint8_t[nb_blocks * mcu_blocks_ * 64 * sizeof(*in_blocks_) + ALIGN_CST];
-  in_blocks_ = reinterpret_cast<int16_t*>(
-      (ALIGN_CST + reinterpret_cast<uintptr_t>(in_blocks_base_)) & ~ALIGN_CST);
-  have_coeffs_ = false;
-
-  // Histogram analysis, deriving optimal quant matrices
-  if (use_adaptive_quant_) {
-    CollectHistograms();
-    AnalyseHisto();
-  }
+  const size_t nb_blocks = use_extra_memory_ ? mb_w_ * mb_h_ : 1;
+  AllocateBlocks(nb_blocks * mcu_blocks_);
 
   WriteAPP0();
 
@@ -1846,21 +2188,29 @@ bool SjpegEncoder::Encode() {
   // metadata
   if (!WriteEXIF(exif_) || !WriteICCP(iccp_) || !WriteXMP(xmp_)) return false;
 
-  WriteDQT();
-  WriteSOF();
-
-  if (optimize_size_) {
-    MultiPassScan();
+  if (passes_ > 1) {
+    LoopScan();
   } else {
-    SinglePassScan();
-  }
+    if (use_adaptive_quant_) {
+      // Histogram analysis + derive optimal quant matrices
+      CollectHistograms();
+      AnalyseHisto();
+    }
 
+    WriteDQT();
+    WriteSOF();
+
+    if (optimize_size_) {
+      SinglePassScanOptimized();
+    } else {
+      WriteDHT();
+      WriteSOS();
+      SinglePassScan();
+    }
+  }
   WriteEOI();
 
-  delete[] in_blocks_base_;
-  in_blocks_base_ = NULL;
-  in_blocks_ = NULL;
-
+  DesallocateBlocks();
   return true;
 }
 
@@ -2212,6 +2562,10 @@ void SjpegEncodeParam::Init(int quality_factor) {
   SetLimitQuantization(false);
   min_quant_tolerance_ = 0;
   SetQuality(quality_factor);
+  target_mode = TARGET_NONE;
+  target_value = 0;
+  passes = 1;
+  min_psnr = 0.;
 }
 
 void SjpegEncodeParam::SetQuality(int quality_factor) {
@@ -2256,30 +2610,48 @@ void SjpegEncodeParam::ResetMetadata() {
   app_markers.clear();
 }
 
+bool SjpegEncoder::InitFromParam(const SjpegEncodeParam& param) {
+  SetQuantMatrices(param.quant_);
+  SetMinQuantMatrices(param.min_quant_, param.min_quant_tolerance_);
+
+  target_mode_ = param.target_mode;
+  target_value_ = param.target_value;
+  passes_ = (param.passes < 1) ? 1 : (param.passes > 20) ? 20 : param.passes;
+  min_psnr_ = (param.min_psnr > 0) ? param.min_psnr : 0.;
+  if (target_mode_ == SjpegEncodeParam::TARGET_PSNR &&
+      min_psnr_ > target_value_) {
+    min_psnr_ = target_value_;
+  }
+
+  int method = param.Huffman_compress ? 1 : 0;
+  if (param.adaptive_quantization) method += 3;
+  if (param.use_trellis) {
+    method = (method == 4) ? 7 : (method == 6) ? 8 : method;
+  }
+
+  SetCompressionMethod(method);  // depends on passes_
+  SetQuantizationBias(param.quantization_bias, param.adaptive_bias);
+  SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);
+
+  SetMetadata(param.iccp, SjpegEncoder::ICC);
+  SetMetadata(param.exif, SjpegEncoder::EXIF);
+  SetMetadata(param.xmp, SjpegEncoder::XMP);
+  SetMetadata(param.app_markers, SjpegEncoder::MARKERS);
+
+  return true;
+}
+
 std::string SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
                         const SjpegEncodeParam& param) {
   if (rgb == NULL || W <= 0 || H <= 0 || stride < 3 * W) return "";
 
   SjpegEncoder* const enc = EncoderFactory(rgb, W, H, stride, param.yuv_mode);
-  enc->SetQuantMatrices(param.quant_);
-  enc->SetMinQuantMatrices(param.min_quant_, param.min_quant_tolerance_);
+  if (enc == NULL) return "";
 
-  int method = param.Huffman_compress ? 1 : 0;
-  if (param.adaptive_quantization) method += 3;
-  if (param.use_trellis) {
-    if (method == 4) method = 7;
-    else if (method == 6) method = 8;
-  }
-  enc->SetCompressionMethod(method);
-  enc->SetQuantizationBias(param.quantization_bias, param.adaptive_bias);
-  enc->SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);
-
-  enc->SetMetadata(param.iccp, SjpegEncoder::ICC);
-  enc->SetMetadata(param.exif, SjpegEncoder::EXIF);
-  enc->SetMetadata(param.xmp, SjpegEncoder::XMP);
-  enc->SetMetadata(param.app_markers, SjpegEncoder::MARKERS);
+  if (!enc->InitFromParam(param)) goto Error;
 
   if (!enc->Encode()) {
+ Error:
     delete enc;
     return "";
   }
