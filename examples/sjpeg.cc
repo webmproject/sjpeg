@@ -247,7 +247,7 @@ int main(int argc, char * argv[]) {
     }
   }
   if (info) return 0;   // done
-  
+
   // finish setting up the quantization matrices
   if (limit_quantization == false) param.SetLimitQuantization(false);
 
