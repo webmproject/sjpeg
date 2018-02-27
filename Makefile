@@ -68,11 +68,13 @@ LDFLAGS = $(EXTRA_LIBS) $(EXTRA_FLAGS) -lm
 SJPEG_OBJS = \
     src/bit_writer.o \
     src/colors_rgb.o \
+    src/dichotomy.o \
     src/enc.o \
     src/fdct.o \
-    src/yuv_convert.o \
+    src/headers.o \
     src/jpeg_tools.o \
     src/score_7.o  \
+    src/yuv_convert.o \
 
 UTILS_OBJS = \
     examples/utils.o \
@@ -166,10 +168,12 @@ DIST_FILES= \
          src/bit_writer.cc  \
          src/bit_writer.h  \
          src/colors_rgb.cc  \
+         src/dichotomy.cc  \
+         src/enc.cc  \
+         src/fdct.cc  \
+         src/headers.cc \
          src/jpeg_tools.cc  \
          src/score_7.cc  \
-         src/fdct.cc  \
-         src/enc.cc  \
          src/sjpeg.h  \
          src/sjpegi.h  \
          src/yuv_convert.cc \
