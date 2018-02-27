@@ -19,7 +19,7 @@
 #ifndef SJPEG_BIT_WRITER_H_
 #define SJPEG_BIT_WRITER_H_
 
-#include "sjpegi.h"
+#include <assert.h>
 #include <string.h>
 
 namespace sjpeg {
@@ -74,7 +74,7 @@ class BitWriter {
   // calling this function.
   void FlushBits() {
     // worst case: 3 escaped codes = 6 bytes
-    DCHECK(byte_pos_ + 6 <= max_pos_);
+    assert(byte_pos_ + 6 <= max_pos_);
     while (nb_bits_ >= 8) {
       buf_[byte_pos_++] = bits_ >> 24;
       if ((bits_ & 0xff000000U) == 0xff000000U) {   // escaping
@@ -88,8 +88,8 @@ class BitWriter {
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
   // calling this function.
   void PutBits(uint32_t bits, int nb) {
-    DCHECK(nb <= 24 && nb > 0);
-    DCHECK((bits & ~((1 << nb) - 1)) == 0);
+    assert(nb <= 24 && nb > 0);
+    assert((bits & ~((1 << nb) - 1)) == 0);
     FlushBits();    // make room for a least 24bits
     nb_bits_+= nb;
     bits_ |= bits << (32 - nb_bits_);
@@ -99,16 +99,16 @@ class BitWriter {
   // calling this function.
   // Also: no 0xff escaping is performed by this function.
   void PutByte(uint8_t value) {
-    DCHECK(nb_bits_ == 0);
+    assert(nb_bits_ == 0);
     buf_[byte_pos_++] = value;
-    DCHECK(byte_pos_ <= max_pos_);
+    assert(byte_pos_ <= max_pos_);
   }
   // Same as multiply calling PutByte().
   void PutBytes(const uint8_t* buf, size_t size) {
-    DCHECK(nb_bits_ == 0);
-    DCHECK(byte_pos_ + size <= max_pos_);
-    DCHECK(buf != NULL);
-    DCHECK(size > 0);
+    assert(nb_bits_ == 0);
+    assert(byte_pos_ + size <= max_pos_);
+    assert(buf != NULL);
+    assert(size > 0);
     memcpy(buf_ + byte_pos_, buf, size);
     byte_pos_ += size;
   }
