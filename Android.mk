@@ -26,6 +26,8 @@ enc_srcs := \
 	src/colors_rgb.$(NEON) \
 	src/enc.$(NEON) \
 	src/fdct.$(NEON) \
+	src/headers.cc \
+	src/dichotomy.cc \
 	src/jpeg_tools.cc \
 	src/yuv_convert.$(NEON) \
 	src/score_7.cc \

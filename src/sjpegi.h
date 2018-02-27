@@ -111,6 +111,15 @@ void ApplySharpYUVConversion(const uint8_t* const rgb,
                              uint8_t* y_plane,
                              uint8_t* u_plane, uint8_t* v_plane);
 
+///////////////////////////////////////////////////////////////////////////////
+// some useful helper functions around quant matrices
+
+extern int GetQFactor(int q);
+extern void CopyQuantMatrix(const uint8_t in[64], uint8_t out[64]);
+extern void SetQuantMatrix(const uint8_t in[64], int q_factor, uint8_t out[64]);
+extern void SetMinQuantMatrix(const uint8_t* const m, uint8_t out[64],
+                              int tolerance);
+
 ////////////////////////////////////////////////////////////////////////////////
 // main structs
 
