@@ -175,8 +175,8 @@ struct SjpegEncodeParam {
   // be called after SetQuality() or SetQuantMatrix() in order to be effective.
   void SetReduction(int reduction);
 
-  // Limit the quantization by setting up some minimal quantization matrices based
-  // on the current content of quant[][] matrices.
+  // Limit the quantization by setting up some minimal quantization matrices
+  // based on the current content of quant[][] matrices.
   // Hence, this function must be called after SetQuality() or SetQuantMatrix().
   void SetLimitQuantization(bool limit_quantization = true, int tolerance = 0);
 
@@ -217,9 +217,9 @@ struct SjpegEncodeParam {
   void ResetMetadata();      // clears the above
 
   uint8_t quant_[2][64];         // quantization matrices to use
-  const uint8_t* min_quant_[2];  // if limit_quantization is true, these pointers
-                                 // should point luma / chroma minimum allowed
-                                 // quantizer values.
+  const uint8_t* min_quant_[2];  // if limit_quantization is true, these
+                                 // pointers should directo to the minimum
+                                 // quantizer values allowed for luma / chroma
   int min_quant_tolerance_;      // Tolerance going over min_quant_ ([0..100])
 
  protected:
