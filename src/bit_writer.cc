@@ -16,6 +16,7 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include "sjpeg.h"
 #include "bit_writer.h"
 
 #include <string.h>
@@ -39,7 +40,7 @@ BitWriter::~BitWriter() {
 }
 
 void BitWriter::GrowBuffer(size_t max_size) {
-  DCHECK(max_size > max_pos_);
+  assert(max_size > max_pos_);
   // TODO(skal): the x2 growth is probably over-shooting. Need to tune
   // depending on use-case (ie.: what is the expected average final size?)
   max_size += 256;
@@ -56,7 +57,7 @@ void BitWriter::GrowBuffer(size_t max_size) {
 }
 
 uint8_t* BitWriter::Grab(size_t *size) {
-  DCHECK(size != NULL);
+  assert(size != NULL);
   uint8_t *buf = buf_;
   *size = byte_pos_;
   buf_ = NULL;

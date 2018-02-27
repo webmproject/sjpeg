@@ -593,8 +593,8 @@ static void PreprocessARGB(const uint8_t* const rgb,
   vector<fixed_t> best_rgb_uv(uv_w * 3 * 1);
   const uint64_t diff_y_threshold = static_cast<uint64_t>(3.0 * w * h);
 
-  DCHECK(width >= kMinDimensionIterativeConversion);
-  DCHECK(height >= kMinDimensionIterativeConversion);
+  assert(width >= kMinDimensionIterativeConversion);
+  assert(height >= kMinDimensionIterativeConversion);
 
   // Import RGB samples to W/RGB representation.
   for (int j = 0; j < height; j += 2) {

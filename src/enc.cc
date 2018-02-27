@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-//  Fast and simple one-file JPEG encoder
+//  Fast and simple JPEG encoder
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
@@ -23,7 +23,8 @@
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
-#include "bit_writer.h"
+
+using namespace sjpeg;
 
 // Some general default values:
 static const int kDefaultQuality = 75;
@@ -60,6 +61,7 @@ static double kCorrelationThreshold = 0.5;
 static const uint64_t kOmittedChannels = 0x0000000000000103ULL;
 
 ////////////////////////////////////////////////////////////////////////////////
+
 namespace sjpeg {
 
 const uint8_t kZigzag[64] = {
@@ -126,12 +128,57 @@ void SetMinQuantMatrix(const uint8_t* const m, uint8_t out[64],
   }
 }
 
-}    // namespace sjpeg
+void Encoder::SetQuality(int q) {
+  q = GetQFactor(q);
+  SetQuantMatrix(kDefaultMatrices[0], q, quants_[0].quant_);
+  SetQuantMatrix(kDefaultMatrices[1], q, quants_[1].quant_);
+}
+void Encoder::SetQuantMatrices(const uint8_t m[2][64]) {
+  SetQuantMatrix(m[0], 100, quants_[0].quant_);
+  SetQuantMatrix(m[1], 100, quants_[1].quant_);
+}
+void Encoder::SetMinQuantMatrices(const uint8_t* const m[2], int tolerance) {
+  SetMinQuantMatrix(m[0], quants_[0].min_quant_, tolerance);
+  SetMinQuantMatrix(m[1], quants_[1].min_quant_, tolerance);
+}
+
+void Encoder::SetCompressionMethod(int method) {
+  assert(method >= 0 && method <= 8);
+  use_adaptive_quant_ = (method >= 3);
+  optimize_size_ = (method != 0) && (method != 3);
+  use_extra_memory_ = (method == 3) || (method == 4) || (method == 7)
+                   || (passes_ > 1);
+  reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5)
+                   || (method == 7) || (method == 8) || (passes_ > 1);
+  use_trellis_ = (method >= 6);
+}
+
+void Encoder::SetMetadata(const std::string& data, MetadataType type) {
+  switch (type) {
+    case ICC: iccp_ = data; break;
+    case EXIF: exif_ = data; break;
+    case XMP: xmp_ = data; break;
+    default:
+    case MARKERS: app_markers_ = data; break;
+  }
+}
+
+void Encoder::SetQuantizationBias(int bias, bool use_adaptive) {
+  assert(bias >= 0 && bias <= 255);
+  q_bias_ = bias;
+  adaptive_bias_ = use_adaptive;
+}
+
+void Encoder::SetQuantizationDeltas(int qdelta_luma, int qdelta_chroma) {
+  assert(qdelta_luma >= 0 && qdelta_luma <= 255);
+  assert(qdelta_chroma >= 0 && qdelta_chroma <= 255);
+  qdelta_max_luma_ = qdelta_luma;
+  qdelta_max_chroma_ = qdelta_chroma;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // CPU support
 
-namespace sjpeg {
 bool SupportsSSE2() {
 #if defined(SJPEG_USE_SSE2)
   return true;
@@ -146,351 +193,26 @@ bool SupportsNEON() {
   return false;
 }
 
-}    // namespace sjpeg
-
-namespace {
-////////////////////////////////////////////////////////////////////////////////
-// helper structures
-
-// Huffman tables
-struct HuffmanTable {
-  uint8_t bits_[16];     // number of symbols per bit count
-  const uint8_t* syms_;  // symbol map, in increasing bit length
-  uint8_t nb_syms_;      // cached value of sum(bits_[])
-};
-
-// quantizer matrices
-struct Quantizer {
-  uint8_t quant_[64];      // direct quantizer matrix
-  uint8_t min_quant_[64];  // min quantizer value allowed
-  uint16_t iquant_[64];    // precalc'd reciprocal for divisor
-  uint16_t qthresh_[64];   // minimal absolute value that produce non-zero coeff
-  uint16_t bias_[64];      // bias, for coring
-  const uint32_t* codes_;  // codes for bit-cost calculation
-};
-
-// compact Run/Level storage, separate from DCTCoeffs infos
-// Run/Level Information is not yet entropy-coded, but just stored
-struct RunLevel {
-  int16_t run_;
-  uint16_t level_;     // 4bits for length, 12bits for mantissa
-};
-
-// short infos about the block of quantized coefficients
-struct DCTCoeffs {
-  int16_t last_;       // last position (inclusive) of non-zero coeff
-  int16_t nb_coeffs_;  // total number of non-zero AC coeffs
-  uint16_t dc_code_;   // DC code (4bits for length, 12bits for suffix)
-  int8_t idx_;         // component idx
-  int8_t bias_;        // perceptual bias
-};
-
-// Histogram of transform coefficients, for adaptive quant matrices
-// * HSHIFT controls the trade-off between storage size for counts[]
-//   and precision: the fdct doesn't descale and returns coefficients as
-//   signed 16bit value. We are only interested in the absolute values
-//   of coefficients that are less than MAX_HISTO_DCT_COEFF, which are our
-//   best contributors.
-//   Still, storing histogram up to MAX_HISTO_DCT_COEFF can be costly, so
-//   we further aggregate the statistics in bins of size 1 << HSHIFT to save
-//   space.
-// * HLAMBDA roughly measures how much you are willing to trade in distortion
-//   for a 1-bit gain in filesize.
-// * QDELTA_MIN / QDELTA_MAX control how much we allow wandering around the
-//   initial point. This helps reducing the CPU cost, as long as keeping the
-//   optimization around the initial desired quality-factor (HLAMBDA also
-//   serve this purpose).
-enum { HSHIFT = 2,                       // size of bins is (1 << HSHIFT)
-       HHALF = 1 << (HSHIFT - 1),
-       MAX_HISTO_DCT_COEFF = (1 << 7),   // max coefficient, descaled by HSHIFT
-       HLAMBDA = 0x80,
-       // Limits on range of alternate quantizers explored around
-       // the initial value.  (see details in AnalyseHisto())
-       QDELTA_MIN = -12, QDELTA_MAX = 12,
-       QSIZE = QDELTA_MAX + 1 - QDELTA_MIN,
-};
-
-struct Histo {
-  // Reserve one extra entry for counting all coeffs greater than
-  // MAX_HISTO_DCT_COEFF. Result isn't used, but it makes the loop easier.
-  int counts_[64][MAX_HISTO_DCT_COEFF + 1];
-};
-
-////////////////////////////////////////////////////////////////////////////////
-// main struct
-
-struct SjpegEncoder {
- public:
-  SjpegEncoder(int W, int H, int step, const uint8_t* rgb);
-  virtual ~SjpegEncoder();
-
-  // setters
-  void SetQuality(int q) {
-    q = sjpeg::GetQFactor(q);
-    sjpeg::SetQuantMatrix(sjpeg::kDefaultMatrices[0], q, quants_[0].quant_);
-    sjpeg::SetQuantMatrix(sjpeg::kDefaultMatrices[1], q, quants_[1].quant_);
-  }
-  void SetQuantMatrices(const uint8_t m[2][64]) {
-    sjpeg::SetQuantMatrix(m[0], 100, quants_[0].quant_);
-    sjpeg::SetQuantMatrix(m[1], 100, quants_[1].quant_);
-  }
-  void SetMinQuantMatrices(const uint8_t* const m[2], int tolerance) {
-    sjpeg::SetMinQuantMatrix(m[0], quants_[0].min_quant_, tolerance);
-    sjpeg::SetMinQuantMatrix(m[1], quants_[1].min_quant_, tolerance);
-  }
-
-  void SetCompressionMethod(int method) {
-    DCHECK(method >= 0 && method <= 8);
-    use_adaptive_quant_ = (method >= 3);
-    optimize_size_ = (method != 0) && (method != 3);
-    use_extra_memory_ = (method == 3) || (method == 4) || (method == 7)
-                     || (passes_ > 1);
-    reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5)
-                     || (method == 7) || (method == 8) || (passes_ > 1);
-    use_trellis_ = (method >= 6);
-  }
-
-  typedef enum { ICC, EXIF, XMP, MARKERS } MetadataType;
-  void SetMetadata(const std::string& data, MetadataType type) {
-    switch (type) {
-      case ICC: iccp_ = data; break;
-      case EXIF: exif_ = data; break;
-      case XMP: xmp_ = data; break;
-      default:
-      case MARKERS: app_markers_ = data; break;
-    }
-  }
-
-  void SetQuantizationBias(int bias, bool use_adaptive) {
-    DCHECK(bias >= 0 && bias <= 255);
-    q_bias_ = bias;
-    adaptive_bias_ = use_adaptive;
-  }
-
-  void SetQuantizationDeltas(int qdelta_luma, int qdelta_chroma) {
-    DCHECK(qdelta_luma >= 0 && qdelta_luma <= 255);
-    DCHECK(qdelta_chroma >= 0 && qdelta_chroma <= 255);
-    qdelta_max_luma_ = qdelta_luma;
-    qdelta_max_chroma_ = qdelta_chroma;
-  }
-
-  // all-in-one init from SjpegEncodeParam.
-  bool InitFromParam(const SjpegEncodeParam& param);
-
-  // getters
-  int Size() const { return bw_.BytePos(); }
-  uint8_t* Bits() const { return const_cast<uint8_t*>(bw_.Data()); }
-  uint8_t* Grab(size_t *size) { return bw_.Grab(size); }
-
-  // Main call. Return false in case of parameter error (setting empty output).
-  bool Encode();
-
-  // these are colorspace-dependant.
-  virtual void InitComponents() = 0;
-  // return MCU samples at macroblock position (mb_x, mb_y)
-  // clipped is true if the MCU is clipped and needs replication
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped,
-                          int16_t* out_blocks) = 0;
-
- private:
-  void CheckBuffers();
-
-  void WriteAPP0();
-  bool WriteAPPMarkers(const std::string& data);
-  bool WriteEXIF(const std::string& data);
-  bool WriteICCP(const std::string& data);
-  bool WriteXMP(const std::string& data);
-  void WriteDQT();
-  void WriteSOF();
-  void WriteDHT();
-  void WriteSOS();
-  void WriteEOI();
-
-  void ResetDCs();
-
-  // collect transformed coeffs (unquantized) only
-  void CollectCoeffs();
-
-  // 2-pass Huffman optimizing scan
-  void ResetEntropyStats();
-  void AddEntropyStats(const DCTCoeffs* const coeffs,
-                       const RunLevel* const run_levels);
-  void CompileEntropyStats();
-  void StoreOptimalHuffmanTables(size_t nb_mbs, const DCTCoeffs* coeffs);
-
-  void SinglePassScan();           // finalizing scan
-  void SinglePassScanOptimized();  // optimize the Huffman table + finalize scan
-  // just write already stored run_levels & coeffs:
-  void FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs);
-
-  // dichotomy loop
-  void LoopScan();
-
-  // Histogram pass
-  void CollectHistograms();
-
-  void BuildHuffmanCodes(const HuffmanTable* const tab,
-                         uint32_t* const codes);
-
-  typedef int (*QuantizeBlockFunc)(const int16_t in[64], int idx,
-                                   const Quantizer* const Q,
-                                   DCTCoeffs* const out, RunLevel* const rl);
-  static QuantizeBlockFunc quantize_block_;
-  static QuantizeBlockFunc GetQuantizeBlockFunc();
-
-  static int TrellisQuantizeBlock(const int16_t in[64], int idx,
-                                  const Quantizer* const Q,
-                                  DCTCoeffs* const out,
-                                  RunLevel* const rl);
-
-  void CodeBlock(const DCTCoeffs* const coeffs, const RunLevel* const rl);
-  // returns DC code (4bits for length, 12bits for suffix), updates DC_predictor
-  static uint16_t GenerateDCDiffCode(int DC, int* const DC_predictor);
-
-  static void FinalizeQuantMatrix(Quantizer* const q, int bias);
-  void SetCostCodes(int idx);
-  void InitCodes(bool only_ac);
-
-  size_t HeaderSize() const;
-  void BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
-                  const RunLevel* rl, sjpeg::BitCounter* const bc) const;
-  float ComputeSize(const DCTCoeffs* coeffs, const RunLevel* rl);
-  float ComputePSNR(const DCTCoeffs* coeffs, const RunLevel* rl) const;
-
- protected:
-  // format-specific parameters, set by virtual InitComponents()
-  enum { MAX_COMP = 3 };
-  int nb_comps_;
-  int quant_idx_[MAX_COMP];       // indices for quantization matrices
-  int nb_blocks_[MAX_COMP];       // number of 8x8 blocks per components
-  uint8_t block_dims_[MAX_COMP];  // component dimensions (8-pixels units)
-  int block_w_, block_h_;         // maximum mcu width / height
-  int mcu_blocks_;                // total blocks in mcu (= sum of nb_blocks_[])
-
-  // data accessible to sub-classes implementing alternate input format
-  int W_, H_, step_;    // width, height, stride
-  int mb_w_, mb_h_;     // width / height in units of mcu
-  const uint8_t* const rgb_;   // samples
-
-  // Replicate an RGB source sub_w x sub_h block, expanding it to w x h size.
-  const uint8_t* GetReplicatedSamples(const uint8_t* rgb,    // block source
-                                      int rgb_step,          // stride in source
-                                      int sub_w, int sub_h,  // sub-block size
-                                      int w, int h);         // size of mcu
-  // Replicate an YUV sub-block similarly.
-  const uint8_t* GetReplicatedYUVSamples(const uint8_t* in, int step,
-                                         int sub_w, int sub_h, int w, int h);
-  // set blocks that are totally outside of the picture to an average value
-  void AverageExtraLuma(int sub_w, int sub_h, int16_t* out);
-  uint8_t replicated_buffer_[3 * 16 * 16];   // tmp buffer for replication
-
-  sjpeg::RGBToYUVBlockFunc get_yuv_block_;
-  static sjpeg::RGBToYUVBlockFunc get_yuv444_block_;
-  void SetYUVFormat(bool use_444) {
-    get_yuv_block_ = sjpeg::GetBlockFunc(use_444);
-  }
-  bool adaptive_bias_;   // if true, use per-block perceptual bias modulation
-
- private:
-  sjpeg::BitWriter bw_;    // output buffer
-
-  std::string iccp_, xmp_, exif_, app_markers_;   // metadata
-  const uint8_t* metadata_;
-
-  // compression tools. See sjpeg.h for description of methods.
-  bool optimize_size_;        // Huffman-optimize the codes  (method 0, 3)
-  bool use_adaptive_quant_;   // modulate the quant matrix   (method 3-8)
-  bool use_extra_memory_;     // save the unquantized coeffs (method 3, 4)
-  bool reuse_run_levels_;     // save quantized run/levels   (method 1, 4, 5)
-  bool use_trellis_;          // use trellis-quantization    (method 7, 8)
-
-  int q_bias_;           // [0..255]: rounding bias for quant. of AC coeffs.
-  Quantizer quants_[2];  // quant matrices
-  int DCs_[3];           // DC predictors
-
-  // DCT coefficients storage, aligned
-  static const size_t ALIGN_CST = 15;
-  uint8_t* in_blocks_base_;   // base memory for blocks
-  int16_t* in_blocks_;        // aligned pointer to in_blocks_base_
-  bool have_coeffs_;          // true if the Fourier coefficients are stored
-  void AllocateBlocks(size_t num_blocks);
-  void DesallocateBlocks();
-
-  // multi-pass parameters
-  SjpegEncodeParam::TargetMode target_mode_;
-  float target_value_;
-  int passes_;
-  float min_psnr_;
-  friend struct PassStats;
-
-  // these are for regular compression methods 0 or 2.
-  RunLevel base_run_levels_[64];
-
-  // this is the extra memory for compression method 1
-  RunLevel* all_run_levels_;
-  size_t nb_run_levels_, max_run_levels_;
-
-  // Huffman_tables_ indices:
-  //  0: luma dc, 1: chroma dc, 2: luma ac, 3: chroma ac
-  const HuffmanTable *Huffman_tables_[4];
-  uint32_t ac_codes_[2][256];
-  uint32_t dc_codes_[2][12];
-
-  // histograms for dynamic codes. Could be temporaries.
-  uint32_t freq_ac_[2][256 + 1];  // frequency distribution for AC coeffs
-  uint32_t freq_dc_[2][12 + 1];   // frequency distribution for DC coeffs
-  uint8_t opt_syms_ac_[2][256];   // optimal table for AC symbols
-  uint8_t opt_syms_dc_[2][12];    // optimal table for DC symbols
-  HuffmanTable opt_tables_ac_[2];
-  HuffmanTable opt_tables_dc_[2];
-
-  // Limits on how much we will decrease the bitrate in the luminance
-  // and chrominance channels (respectively).
-  int qdelta_max_luma_;
-  int qdelta_max_chroma_;
-
-  // Histogram handling
-
-  // This function aggregates each 63 unquantized AC coefficients into an
-  // histogram for further analysis.
-  typedef void (*StoreHistoFunc)(const int16_t in[64], Histo* const histos,
-                                 int nb_blocks);
-  static StoreHistoFunc store_histo_;
-  static StoreHistoFunc GetStoreHistoFunc();  // select between the above.
-
-  // Provided the AC histograms have been stored with StoreHisto(), this
-  // function will analyze impact of varying the quantization scales around
-  // initial values, trading distortion for bit-rate in a controlled way.
-  void AnalyseHisto();
-  void ResetHisto();  // initialize histos_[]
-  Histo histos_[2];
-
-  static const float kHistoWeight[QSIZE];
-
-  static void (*fDCT_)(int16_t* in, int num_blocks);
-  static void InitializeStaticPointers();
-};
-
 ////////////////////////////////////////////////////////////////////////////////
 // static pointers to architecture-dependant implementation
 
-SjpegEncoder::QuantizeBlockFunc SjpegEncoder::quantize_block_ = NULL;
-void (*SjpegEncoder::fDCT_)(int16_t* in, int num_blocks) = NULL;
-SjpegEncoder::StoreHistoFunc SjpegEncoder::store_histo_ = NULL;
-sjpeg::RGBToYUVBlockFunc SjpegEncoder::get_yuv444_block_ = NULL;
+Encoder::QuantizeBlockFunc Encoder::quantize_block_ = NULL;
+void (*Encoder::fDCT_)(int16_t* in, int num_blocks) = NULL;
+Encoder::StoreHistoFunc Encoder::store_histo_ = NULL;
+RGBToYUVBlockFunc Encoder::get_yuv444_block_ = NULL;
 
-void SjpegEncoder::InitializeStaticPointers() {
+void Encoder::InitializeStaticPointers() {
   if (fDCT_ == NULL) {
     store_histo_ = GetStoreHistoFunc();
     quantize_block_ = GetQuantizeBlockFunc();
-    fDCT_ = sjpeg::SjpegGetFdct();
-    get_yuv444_block_ = sjpeg::GetBlockFunc(true);
+    fDCT_ = SjpegGetFdct();
+    get_yuv444_block_ = GetBlockFunc(true);
   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-SjpegEncoder::SjpegEncoder(int W, int H, int step, const uint8_t* const rgb)
+Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb)
   : W_(W), H_(H), step_(step),
     rgb_(rgb),
     bw_(W_ * H_ / 4),      // very reasonable guess about final size
@@ -515,7 +237,7 @@ SjpegEncoder::SjpegEncoder(int W, int H, int step, const uint8_t* const rgb)
   memset(ac_codes_, 0, sizeof(ac_codes_));
 }
 
-SjpegEncoder::~SjpegEncoder() {
+Encoder::~Encoder() {
   delete[] all_run_levels_;
   DesallocateBlocks();   // clean-up leftovers in case of we had an error
 }
@@ -523,7 +245,7 @@ SjpegEncoder::~SjpegEncoder() {
 ////////////////////////////////////////////////////////////////////////////////
 // memory and internal buffers managment. We grow on demand.
 
-void SjpegEncoder::CheckBuffers() {
+void Encoder::CheckBuffers() {
   // maximum macroblock size, worst-case, is 24bits*64*6 coeffs = 1152bytes
   bw_.ReserveLarge(2048);
 
@@ -539,12 +261,12 @@ void SjpegEncoder::CheckBuffers() {
       delete[] all_run_levels_;
       all_run_levels_ = new_rl;
       max_run_levels_ = new_size;
-      DCHECK(nb_run_levels_ + 6 * 64 <= max_run_levels_);
+      assert(nb_run_levels_ + 6 * 64 <= max_run_levels_);
     }
   }
 }
 
-void SjpegEncoder::AllocateBlocks(size_t num_blocks) {
+void Encoder::AllocateBlocks(size_t num_blocks) {
   assert(in_blocks_ == NULL);
   in_blocks_base_ =
       new uint8_t[num_blocks * 64 * sizeof(*in_blocks_) + ALIGN_CST];
@@ -553,7 +275,7 @@ void SjpegEncoder::AllocateBlocks(size_t num_blocks) {
   have_coeffs_ = false;
 }
 
-void SjpegEncoder::DesallocateBlocks() {
+void Encoder::DesallocateBlocks() {
   delete[] in_blocks_base_;
   in_blocks_base_ = NULL;
   in_blocks_ = NULL;          // sanity
@@ -567,7 +289,7 @@ void SjpegEncoder::DesallocateBlocks() {
 // That's why you often find these 'Reserve(data_size + 2)' below, the '+2'
 // accounting for the 0xff?? startcode size.
 
-void SjpegEncoder::WriteAPP0() {  // SOI + APP0
+void Encoder::WriteAPP0() {  // SOI + APP0
   const uint8_t kHeader0[] = {
     0xff, 0xd8,                     // SOI
     0xff, 0xe0, 0x00, 0x10,         // APP0
@@ -580,7 +302,7 @@ void SjpegEncoder::WriteAPP0() {  // SOI + APP0
   bw_.PutBytes(kHeader0, sizeof(kHeader0));
 }
 
-bool SjpegEncoder::WriteAPPMarkers(const std::string& data) {
+bool Encoder::WriteAPPMarkers(const std::string& data) {
   if (data.size() == 0) return true;
   const size_t data_size = data.size();
   bw_.Reserve(data_size);
@@ -588,7 +310,7 @@ bool SjpegEncoder::WriteAPPMarkers(const std::string& data) {
   return true;
 }
 
-bool SjpegEncoder::WriteEXIF(const std::string& data) {
+bool Encoder::WriteEXIF(const std::string& data) {
   if (data.size() == 0) return true;
   const uint8_t kEXIF[] = "Exif\0";
   const size_t kEXIF_len = 6;  // includes the \0's
@@ -604,7 +326,7 @@ bool SjpegEncoder::WriteEXIF(const std::string& data) {
   return true;
 }
 
-bool SjpegEncoder::WriteICCP(const std::string& data) {
+bool Encoder::WriteICCP(const std::string& data) {
   if (data.size() == 0) return true;
   size_t data_size = data.size();
   const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data.data());
@@ -633,7 +355,7 @@ bool SjpegEncoder::WriteICCP(const std::string& data) {
   return true;
 }
 
-bool SjpegEncoder::WriteXMP(const std::string& data) {
+bool Encoder::WriteXMP(const std::string& data) {
   if (data.size() == 0) return true;
   const uint8_t kXMP[] = "http://ns.adobe.com/xap/1.0/";
   const size_t kXMP_size = 29;
@@ -660,7 +382,7 @@ bool SjpegEncoder::WriteXMP(const std::string& data) {
 #define DIV_BY_MULT(A, M) (((A) * (M)) >> FP_BITS)
 #define QUANTIZE(A, M, B) (DIV_BY_MULT((A) + (B), (M)) >> AC_BITS)
 
-void SjpegEncoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
+void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
   // Special case! for v=1 we can't represent the multiplier with 16b precision.
   // So, instead we max out the multiplier to 0xffffu, and twist the bias to the
   // value 0x80. The overall precision isn't affected: it's bit-exact the same
@@ -678,16 +400,16 @@ void SjpegEncoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
     q->bias_[i] = ibias;
     q->iquant_[i] = iquant;
     q->qthresh_[i] = qthresh;
-    DCHECK(QUANTIZE(qthresh, iquant, ibias) > 0);
-    DCHECK(QUANTIZE(qthresh - 1, iquant, ibias) == 0);
+    assert(QUANTIZE(qthresh, iquant, ibias) > 0);
+    assert(QUANTIZE(qthresh - 1, iquant, ibias) == 0);
   }
 }
 
-void SjpegEncoder::SetCostCodes(int idx) {
+void Encoder::SetCostCodes(int idx) {
   quants_[idx].codes_ = ac_codes_[idx];
 }
 
-void SjpegEncoder::WriteDQT() {
+void Encoder::WriteDQT() {
   const int data_size = 2 * 65 + 2;
   const uint8_t kDQTHeader[] = { 0xff, 0xdb, 0x00, (uint8_t)data_size };
   bw_.Reserve(data_size + 2);
@@ -696,7 +418,7 @@ void SjpegEncoder::WriteDQT() {
     bw_.PutByte(n);
     const uint8_t* quant = quants_[n].quant_;
     for (int i = 0; i < 64; ++i) {
-      bw_.PutByte(quant[sjpeg::kZigzag[i]]);
+      bw_.PutByte(quant[kZigzag[i]]);
     }
   }
 }
@@ -705,9 +427,9 @@ void SjpegEncoder::WriteDQT() {
 
 #define DATA_16b(X) ((uint8_t)((X) >> 8)), ((uint8_t)((X) & 0xff))
 
-void SjpegEncoder::WriteSOF() {   // SOF
+void Encoder::WriteSOF() {   // SOF
   const int data_size = 8 + 3 * nb_comps_;
-  DCHECK(data_size <= 255);
+  assert(data_size <= 255);
   const uint8_t kHeader[] = {
     0xff, 0xc0, DATA_16b(data_size),         // SOF0 marker, size
     0x08,                                    // 8bits/components
@@ -807,7 +529,7 @@ static int BuildHuffmanTable(const uint8_t bits[16], const uint8_t* symbols,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void SjpegEncoder::InitCodes(bool only_ac) {
+void Encoder::InitCodes(bool only_ac) {
   const int nb_tables = (nb_comps_ == 1 ? 1 : 2);
   for (int c = 0; c < nb_tables; ++c) {   // luma, chroma
     for (int type = (only_ac ? 1 : 0); type <= 1; ++type) {
@@ -815,20 +537,20 @@ void SjpegEncoder::InitCodes(bool only_ac) {
       const int nb_syms = BuildHuffmanTable(h->bits_, h->syms_,
                                             type == 1 ? ac_codes_[c]
                                                       : dc_codes_[c]);
-      DCHECK(nb_syms == h->nb_syms_);
+      assert(nb_syms == h->nb_syms_);
       (void)nb_syms;
     }
   }
 }
 
-void SjpegEncoder::WriteDHT() {
+void Encoder::WriteDHT() {
   InitCodes(false);
   const int nb_tables = (nb_comps_ == 1 ? 1 : 2);
   for (int c = 0; c < nb_tables; ++c) {   // luma, chroma
     for (int type = 0; type <= 1; ++type) {               // dc, ac
       const HuffmanTable* const h = Huffman_tables_[type * 2 + c];
       const int data_size = 3 + 16 + h->nb_syms_;
-      DCHECK(data_size <= 255);
+      assert(data_size <= 255);
       bw_.Reserve(data_size + 2);
       bw_.PutByte(0xff);
       bw_.PutByte(0xc4);
@@ -843,9 +565,9 @@ void SjpegEncoder::WriteDHT() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void SjpegEncoder::WriteSOS() {   // SOS
+void Encoder::WriteSOS() {   // SOS
   const int data_size = 6 + nb_comps_ * 2;
-  DCHECK(data_size <= 255);
+  assert(data_size <= 255);
   const uint8_t kHeader[] = {
       0xff, 0xda, DATA_16b(data_size), (uint8_t)nb_comps_
   };
@@ -862,7 +584,7 @@ void SjpegEncoder::WriteSOS() {   // SOS
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void SjpegEncoder::WriteEOI() {   // EOI
+void Encoder::WriteEOI() {   // EOI
   bw_.Flush();
   // append EOI
   bw_.Reserve(2);
@@ -880,14 +602,14 @@ static int CalcLog2(int v) {
 #else
   const int kLog2[16] = {
     0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4 };
-  DCHECK(v > 0 && v < (1 << 12));
+  assert(v > 0 && v < (1 << 12));
   return (v & ~0xff) ? 8 + kLog2[v >> 8] :
          (v & ~0x0f) ? 4 + kLog2[v >> 4] :
                        0 + kLog2[v];
 #endif
 }
 
-uint16_t SjpegEncoder::GenerateDCDiffCode(int DC, int* const DC_predictor) {
+uint16_t Encoder::GenerateDCDiffCode(int DC, int* const DC_predictor) {
   const int diff = DC - *DC_predictor;
   *DC_predictor = DC;
   if (diff == 0) {
@@ -901,8 +623,8 @@ uint16_t SjpegEncoder::GenerateDCDiffCode(int DC, int* const DC_predictor) {
     n = CalcLog2(diff);
     suff = diff;
   }
-  DCHECK((suff & 0xf000) == 0);
-  DCHECK(n < 12);
+  assert((suff & 0xf000) == 0);
+  assert(n < 12);
   return n | (suff << 4);
 }
 
@@ -937,7 +659,7 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
     STORE_16(G, masked + i);
   }
   for (int i = 1; i < 64; ++i) {
-    const int j = sjpeg::kZigzag[i];
+    const int j = kZigzag[i];
     const int v = tmp[j];
     if (v > 0) {
       const int n = CalcLog2(v);
@@ -986,7 +708,7 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
     vst1q_u16(masked + i, G);
   }
   for (int i = 1; i < 64; ++i) {
-    const int j = sjpeg::kZigzag[i];
+    const int j = kZigzag[i];
     const int v = tmp[j];
     if (v > 0) {
       const int n = CalcLog2(v);
@@ -1016,13 +738,13 @@ static int QuantizeBlock(const int16_t in[64], int idx,
   // to extract absolute values, instead of sign tests.
   const uint16_t* const qthresh = Q->qthresh_;
   for (int i = 1; i < 64; ++i) {
-    const int j = sjpeg::kZigzag[i];
+    const int j = kZigzag[i];
     int v = in[j];
     const int32_t mask = v >> 31;
     v = (v ^ mask) - mask;
     if (v >= qthresh[j]) {
       v = QUANTIZE(v, iquant[j], bias[j]);
-      DCHECK(v > 0);
+      assert(v > 0);
       const int n = CalcLog2(v);
       const uint16_t code = (v ^ mask) & ((1 << n) - 1);
       rl[nb].level_ = (code << 4) | n;
@@ -1100,7 +822,7 @@ static bool SearchBestPrev(const TrellisNode* const nodes0, TrellisNode* node,
 // number of alternate levels to investigate
 #define NUM_TRELLIS_NODES 2
 
-int SjpegEncoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
+int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
                                        const Quantizer* const Q,
                                        DCTCoeffs* const out,
                                        RunLevel* const rl) {
@@ -1113,7 +835,7 @@ int SjpegEncoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
   uint32_t disto0[64];   // disto0[i] = sum of distortions up to i (inclusive)
   disto0[0] = 0;
   for (int i = 1; i < 64; ++i) {
-    const int j = sjpeg::kZigzag[i];
+    const int j = kZigzag[i];
     const uint32_t q = Q->quant_[j] << AC_BITS;
     const uint32_t lambda = q * q / 32u;
     int V = in[j];
@@ -1171,11 +893,11 @@ int SjpegEncoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
   return dc;
 }
 
-SjpegEncoder::QuantizeBlockFunc SjpegEncoder::GetQuantizeBlockFunc() {
+Encoder::QuantizeBlockFunc Encoder::GetQuantizeBlockFunc() {
 #if defined(SJPEG_USE_SSE2)
-  if (sjpeg::SupportsSSE2()) return QuantizeBlockSSE2;
+  if (SupportsSSE2()) return QuantizeBlockSSE2;
 #elif defined(SJPEG_USE_NEON)
-  if (sjpeg::SupportsNEON()) return QuantizeBlockNEON;
+  if (SupportsNEON()) return QuantizeBlockNEON;
 #endif
   return QuantizeBlock;  // default
 }
@@ -1183,13 +905,13 @@ SjpegEncoder::QuantizeBlockFunc SjpegEncoder::GetQuantizeBlockFunc() {
 ////////////////////////////////////////////////////////////////////////////////
 // Code bitstream
 
-void SjpegEncoder::ResetDCs() {
+void Encoder::ResetDCs() {
   for (int c = 0; c < nb_comps_; ++c) {
     DCs_[c] = 0;
   }
 }
 
-void SjpegEncoder::CodeBlock(const DCTCoeffs* const coeffs,
+void Encoder::CodeBlock(const DCTCoeffs* const coeffs,
                              const RunLevel* const rl) {
   const int idx = coeffs->idx_;
   const int q_idx = quant_idx_[idx];
@@ -1224,7 +946,7 @@ void SjpegEncoder::CodeBlock(const DCTCoeffs* const coeffs,
 ////////////////////////////////////////////////////////////////////////////////
 // Histogram
 
-void SjpegEncoder::ResetHisto() {
+void Encoder::ResetHisto() {
   memset(histos_, 0, sizeof(histos_));
 }
 
@@ -1283,23 +1005,23 @@ void StoreHisto(const int16_t in[64], Histo* const histos, int nb_blocks) {
   }
 }
 
-SjpegEncoder::StoreHistoFunc SjpegEncoder::GetStoreHistoFunc() {
+Encoder::StoreHistoFunc Encoder::GetStoreHistoFunc() {
 #if defined(SJPEG_USE_SSE2)
-  if (sjpeg::SupportsSSE2()) return StoreHistoSSE2;
+  if (SupportsSSE2()) return StoreHistoSSE2;
 #elif defined(SJPEG_USE_NEON)
-  if (sjpeg::SupportsNEON()) return StoreHistoNEON;
+  if (SupportsNEON()) return StoreHistoNEON;
 #endif
   return StoreHisto;  // default
 }
 
-const float SjpegEncoder::kHistoWeight[QSIZE] = {
+const float Encoder::kHistoWeight[QSIZE] = {
   // Gaussian with sigma ~= 3
   0, 0, 0, 0, 0,
   1,   5,  16,  43,  94, 164, 228, 255, 228, 164,  94,  43,  16,   5,   1,
   0, 0, 0, 0, 0
 };
 
-void SjpegEncoder::AnalyseHisto() {
+void Encoder::AnalyseHisto() {
   // A bit of theory and background: for each sub-band i in [0..63], we pick a
   // quantization scale New_Qi close to the initial one Qi. We evaluate a cost
   // function associated with F({New_Qi}) = distortion + lambda . rate,
@@ -1352,11 +1074,11 @@ void SjpegEncoder::AnalyseHisto() {
     // (and quality) by using a smaller qdelta_max_chroma_.
     // delta_max is only use during the second phase, but not during
     // the first phase of deriving an optimal lambda.
-    DCHECK(QDELTA_MAX >= qdelta_max_luma_);
-    DCHECK(QDELTA_MAX >=qdelta_max_chroma_);
+    assert(QDELTA_MAX >= qdelta_max_luma_);
+    assert(QDELTA_MAX >=qdelta_max_chroma_);
     const int delta_max =
       ((idx == 0) ? qdelta_max_luma_ : qdelta_max_chroma_) - QDELTA_MIN;
-    DCHECK(delta_max < QSIZE);
+    assert(delta_max < QSIZE);
     float sizes[64][QSIZE];
     float distortions[64][QSIZE];
     double num = 0.;  // accumulate d(distortion) around delta_q = 0
@@ -1483,14 +1205,14 @@ void SjpegEncoder::AnalyseHisto() {
         }
       }
       quants_[idx].quant_[pos] += best_dq;
-      DCHECK(quants_[idx].quant_[pos] >= 1);
+      assert(quants_[idx].quant_[pos] >= 1);
     }
     FinalizeQuantMatrix(&quants_[idx], q_bias_);
     SetCostCodes(idx);
   }
 }
 
-void SjpegEncoder::CollectHistograms() {
+void Encoder::CollectHistograms() {
   ResetHisto();
   int16_t* in = in_blocks_;
   const int mb_x_max = W_ / block_w_;
@@ -1516,7 +1238,7 @@ void SjpegEncoder::CollectHistograms() {
 ////////////////////////////////////////////////////////////////////////////////
 // Perform YUV conversion and fDCT, and store the unquantized coeffs
 
-void SjpegEncoder::CollectCoeffs() {
+void Encoder::CollectCoeffs() {
   assert(use_extra_memory_);
   int16_t* in = in_blocks_;
   const int mb_x_max = W_ / block_w_;
@@ -1535,7 +1257,7 @@ void SjpegEncoder::CollectCoeffs() {
 ////////////////////////////////////////////////////////////////////////////////
 // 1-pass Scan
 
-void SjpegEncoder::SinglePassScan() {
+void Encoder::SinglePassScan() {
   ResetDCs();
 
   RunLevel base_run_levels[64];
@@ -1567,7 +1289,7 @@ void SjpegEncoder::SinglePassScan() {
   }
 }
 
-void SjpegEncoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
+void Encoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
   DesallocateBlocks();     // we can free up some coeffs memory at this point
   CheckBuffers();   // this call is needed to finalize all_run_levels_.
   assert(reuse_run_levels_);
@@ -1582,12 +1304,12 @@ void SjpegEncoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
 ////////////////////////////////////////////////////////////////////////////////
 // Multi-pass
 
-void SjpegEncoder::ResetEntropyStats() {
+void Encoder::ResetEntropyStats() {
   memset(freq_ac_, 0, sizeof(freq_ac_));
   memset(freq_dc_, 0, sizeof(freq_dc_));
 }
 
-void SjpegEncoder::AddEntropyStats(const DCTCoeffs* const coeffs,
+void Encoder::AddEntropyStats(const DCTCoeffs* const coeffs,
                                    const RunLevel* const run_levels) {
   // freq_ac_[] and freq_dc_[] cannot overflow 32bits, since the maximum
   // resolution allowed is 65535 * 65535. The sum of all frequencies cannot
@@ -1610,15 +1332,15 @@ void SjpegEncoder::AddEntropyStats(const DCTCoeffs* const coeffs,
 static int cmp(const void *pa, const void *pb) {
   const uint64_t a = *reinterpret_cast<const uint64_t*>(pa);
   const uint64_t b = *reinterpret_cast<const uint64_t*>(pb);
-  DCHECK(a != b);  // tie-breaks can't happen
+  assert(a != b);  // tie-breaks can't happen
   return (a < b) ? 1 : -1;
 }
 
 static void BuildOptimalTable(HuffmanTable* const t,
                               const uint32_t* const freq, int size) {
   enum { MAX_BITS = 32, MAX_CODE_SIZE = 16 };
-  DCHECK(size <= 256);
-  DCHECK(t != NULL);
+  assert(size <= 256);
+  assert(t != NULL);
 
   // The celebrated merging algorithm from Huffman, with some restrictions:
   // * codes with all '1' are forbidden, to avoid trailing marker emulation
@@ -1713,7 +1435,7 @@ static void BuildOptimalTable(HuffmanTable* const t,
   int max_bit_size = 0;
   for (int i = 0; i <= size; ++i) {
     int s = codesizes[i];
-    DCHECK(s <= codesizes[size]);    // symbol #size is the biggest one.
+    assert(s <= codesizes[size]);    // symbol #size is the biggest one.
     if (s > 0) {
       // This is slightly penalizing but only for ultra-rare symbol
       if (s > MAX_BITS) {
@@ -1735,7 +1457,7 @@ static void BuildOptimalTable(HuffmanTable* const t,
     start[i] = position;
     position += bits[i];
   }
-  DCHECK(position == nb_syms);
+  assert(position == nb_syms);
 
   // Now, we can ventilate the symbols directly to their final slice in the
   // partitioning, according to the their bit-length.
@@ -1745,11 +1467,11 @@ static void BuildOptimalTable(HuffmanTable* const t,
   for (int symbol = 0; symbol < size; ++symbol) {
     const int s = codesizes[symbol];
     if (s > 0) {
-      DCHECK(s <= MAX_BITS);
+      assert(s <= MAX_BITS);
       syms[start[s - 1]++] = symbol;
     }
   }
-  DCHECK(start[max_bit_size - 1] == nb_syms - 1);
+  assert(start[max_bit_size - 1] == nb_syms - 1);
 
   // Fix codes with length greater than 16 bits. We move too long
   // codes up, and one short down, making the tree a little sub-optimal.
@@ -1781,7 +1503,7 @@ static void BuildOptimalTable(HuffmanTable* const t,
   // remove last pseudo-symbol
   max_bit_size = MAX_CODE_SIZE;
   while (bits[--max_bit_size] == 0) {
-    DCHECK(max_bit_size > 0);
+    assert(max_bit_size > 0);
   }
   --bits[max_bit_size];
 
@@ -1791,7 +1513,7 @@ static void BuildOptimalTable(HuffmanTable* const t,
   }
 }
 
-void SjpegEncoder::CompileEntropyStats() {
+void Encoder::CompileEntropyStats() {
   // plug and build new tables
   for (int q_idx = 0; q_idx < (nb_comps_ == 1 ? 1 : 2); ++q_idx) {
     // DC tables
@@ -1805,7 +1527,7 @@ void SjpegEncoder::CompileEntropyStats() {
   }
 }
 
-void SjpegEncoder::StoreOptimalHuffmanTables(size_t nb_mbs,
+void Encoder::StoreOptimalHuffmanTables(size_t nb_mbs,
                                              const DCTCoeffs* coeffs) {
   // optimize Huffman tables
   ResetEntropyStats();
@@ -1819,7 +1541,7 @@ void SjpegEncoder::StoreOptimalHuffmanTables(size_t nb_mbs,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void SjpegEncoder::SinglePassScanOptimized() {
+void Encoder::SinglePassScanOptimized() {
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
   DCTCoeffs* const base_coeffs =
       new DCTCoeffs[reuse_run_levels_ ? nb_mbs : 1];
@@ -1858,10 +1580,10 @@ void SjpegEncoder::SinglePassScanOptimized() {
           if (reuse_run_levels_) {
             nb_run_levels_ += coeffs->nb_coeffs_;
             ++coeffs;
-            DCHECK(coeffs <= &base_coeffs[nb_mbs]);
+            assert(coeffs <= &base_coeffs[nb_mbs]);
           }
           in += 64;
-          DCHECK(nb_run_levels_ <= max_run_levels_);
+          assert(nb_run_levels_ <= max_run_levels_);
         }
       }
     }
@@ -1891,7 +1613,7 @@ struct PassStats {  // struct for organizing convergence in either size or PSNR
   double value, last_value, target;
   bool do_size_search;
 
-  PassStats(const SjpegEncoder& enc);
+  PassStats(const Encoder& enc);
   bool ComputeNextQ(float result);   // returns true if finished
   void BackTrack() {
     q = last_q;
@@ -1900,7 +1622,7 @@ struct PassStats {  // struct for organizing convergence in either size or PSNR
   }
 };
 
-PassStats::PassStats(const SjpegEncoder& enc) {
+PassStats::PassStats(const Encoder& enc) {
   is_first = true;
   dq = 50.f;
   q = last_q = 100.;
@@ -1938,7 +1660,7 @@ bool PassStats::ComputeNextQ(float result) {
   return fabs(q - last_q) < kdQLimit;
 }
 
-void SjpegEncoder::LoopScan() {
+void Encoder::LoopScan() {
   assert(use_extra_memory_);
   assert(reuse_run_levels_);
 
@@ -1957,14 +1679,14 @@ void SjpegEncoder::LoopScan() {
   DCTCoeffs* const base_coeffs = new DCTCoeffs[nb_mbs];
   uint8_t base_quant[2][64], opt_quants[2][64];
   for (int c = 0; c < 2; ++c) {
-    sjpeg::CopyQuantMatrix(quants_[c].quant_, base_quant[c]);
+    CopyQuantMatrix(quants_[c].quant_, base_quant[c]);
   }
 
   // Dichotomy passes
   PassStats stats(*this);
   for (int p = 0; p < passes_; ++p) {
     for (int c = 0; c < 2; ++c) {
-      sjpeg::SetQuantMatrix(base_quant[c], stats.q, quants_[c].quant_);
+      SetQuantMatrix(base_quant[c], stats.q, quants_[c].quant_);
       FinalizeQuantMatrix(&quants_[c], q_bias_);
     }
 
@@ -2010,7 +1732,7 @@ void SjpegEncoder::LoopScan() {
     }
     if (DBG_PRINT) printf("pass #%d: q=%f value:%.2f\n", p, stats.q, result);
     for (int c = 0; c < 2; ++c) {
-      sjpeg::CopyQuantMatrix(quants_[c].quant_, opt_quants[c]);
+      CopyQuantMatrix(quants_[c].quant_, opt_quants[c]);
     }
     if (stats.ComputeNextQ(result)) break;
   }
@@ -2027,7 +1749,7 @@ void SjpegEncoder::LoopScan() {
 ////////////////////////////////////////////////////////////////////////////////
 // Size & PSNR computation, mostly for dichotomy
 
-size_t SjpegEncoder::HeaderSize() const {
+size_t Encoder::HeaderSize() const {
   size_t size = 0;
   size += 20;    // APP0
   size += app_markers_.size();
@@ -2057,9 +1779,9 @@ size_t SjpegEncoder::HeaderSize() const {
   return size * 8;
 }
 
-void SjpegEncoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
+void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
                               const RunLevel* rl,
-                              sjpeg::BitCounter* const bc) const {
+                              BitCounter* const bc) const {
   for (int n = 0; n < nb_mbs; ++n) {
     const DCTCoeffs& c = coeffs[n];
     const int idx = c.idx_;
@@ -2090,11 +1812,11 @@ void SjpegEncoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
   }
 }
 
-float SjpegEncoder::ComputeSize(const DCTCoeffs* coeffs,
+float Encoder::ComputeSize(const DCTCoeffs* coeffs,
                                  const RunLevel* rl) {
   InitCodes(false);
   size_t size = HeaderSize();
-  sjpeg::BitCounter bc;
+  BitCounter bc;
   BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, rl, &bc);
   size += bc.Size();
   return size / 8.f;
@@ -2125,7 +1847,7 @@ static int16_t CodeToCoeff(uint16_t code) {
   return qcoeff;
 }
 
-float SjpegEncoder::ComputePSNR(const DCTCoeffs* coeffs,
+float Encoder::ComputePSNR(const DCTCoeffs* coeffs,
                                 const RunLevel* rl) const {
   uint64_t error = 0;
   int16_t* in = in_blocks_;
@@ -2140,7 +1862,7 @@ float SjpegEncoder::ComputePSNR(const DCTCoeffs* coeffs,
     int32_t dq[64] = { 0 };
     for (int i = 0; i < c.nb_coeffs_; ++i, ++rl) {
       pos += rl->run_ + 1;
-      const int j = sjpeg::kZigzag[pos];
+      const int j = kZigzag[pos];
       dq[j] = Q[j] * CodeToCoeff(rl->level_);
     }
     dq[0] = (DCs[c_idx] += CodeToCoeff(c.dc_code_)) * Q[0];
@@ -2157,7 +1879,7 @@ float SjpegEncoder::ComputePSNR(const DCTCoeffs* coeffs,
 ////////////////////////////////////////////////////////////////////////////////
 // main call
 
-bool SjpegEncoder::Encode() {
+bool Encoder::Encode() {
   FinalizeQuantMatrix(&quants_[0], q_bias_);
   FinalizeQuantMatrix(&quants_[1], q_bias_);
   SetCostCodes(0);
@@ -2168,8 +1890,8 @@ bool SjpegEncoder::Encode() {
 
   // colorspace init
   InitComponents();
-  DCHECK(nb_comps_ <= MAX_COMP);
-  DCHECK(mcu_blocks_ <= 6);
+  assert(nb_comps_ <= MAX_COMP);
+  assert(mcu_blocks_ <= 6);
   // validate some input parameters
   if (W_ <= 0 || H_ <= 0 || rgb_ == NULL) {
     bw_.DeleteOutputBuffer();    // release output_ memory
@@ -2231,7 +1953,7 @@ void SetAverage(int DC, int16_t* const out) {
 
 }   // anonymous namespace
 
-void SjpegEncoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
+void Encoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
   // out[] points to four 8x8 blocks. When one of this block is totally
   // outside of the frame, we set it flat to the average value of the previous
   // block ("DC"), in order to help compressibility.
@@ -2251,11 +1973,11 @@ void SjpegEncoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
   }
 }
 
-const uint8_t* SjpegEncoder::GetReplicatedSamples(const uint8_t* rgb,
+const uint8_t* Encoder::GetReplicatedSamples(const uint8_t* rgb,
                                                   int rgb_step,
                                                   int sub_w, int sub_h,
                                                   int w, int h) {
-  DCHECK(sub_w > 0 && sub_h > 0);
+  assert(sub_w > 0 && sub_h > 0);
   if (sub_w > w) {
     sub_w = w;
   }
@@ -2281,11 +2003,11 @@ const uint8_t* SjpegEncoder::GetReplicatedSamples(const uint8_t* rgb,
 }
 
 // TODO(skal): merge with above function? Probably slower...
-const uint8_t* SjpegEncoder::GetReplicatedYUVSamples(const uint8_t* in,
+const uint8_t* Encoder::GetReplicatedYUVSamples(const uint8_t* in,
                                                      int step,
                                                      int sub_w, int sub_h,
                                                      int w, int h) {
-  DCHECK(sub_w > 0 && sub_h > 0);
+  assert(sub_w > 0 && sub_h > 0);
   if (sub_w > w) {
     sub_w = w;
   }
@@ -2314,11 +2036,11 @@ const uint8_t* SjpegEncoder::GetReplicatedYUVSamples(const uint8_t* in,
 ////////////////////////////////////////////////////////////////////////////////
 // sub-class for YUV 4:2:0 version
 
-class SjpegEncoder420 : public SjpegEncoder {
+class Encoder420 : public Encoder {
  public:
-  SjpegEncoder420(int W, int H, int step, const uint8_t* const rgb)
-    : SjpegEncoder(W, H, step, rgb) {}
-  virtual ~SjpegEncoder420() {}
+  Encoder420(int W, int H, int step, const uint8_t* const rgb)
+    : Encoder(W, H, step, rgb) {}
+  virtual ~Encoder420() {}
   virtual void InitComponents() {
     nb_comps_ = 3;
 
@@ -2356,13 +2078,13 @@ class SjpegEncoder420 : public SjpegEncoder {
 ////////////////////////////////////////////////////////////////////////////////
 // sub-class for YUV 4:4:4 version
 
-class SjpegEncoder444 : public SjpegEncoder {
+class Encoder444 : public Encoder {
  public:
-  SjpegEncoder444(int W, int H, int step, const uint8_t* const rgb)
-      : SjpegEncoder(W, H, step, rgb) {
+  Encoder444(int W, int H, int step, const uint8_t* const rgb)
+      : Encoder(W, H, step, rgb) {
     SetYUVFormat(true);
   }
-  virtual ~SjpegEncoder444() {}
+  virtual ~Encoder444() {}
   virtual void InitComponents() {
     nb_comps_ = 3;
 
@@ -2396,10 +2118,10 @@ class SjpegEncoder444 : public SjpegEncoder {
 ////////////////////////////////////////////////////////////////////////////////
 // sub-class for the sharp YUV 4:2:0 version
 
-class SjpegEncoderSharp420 : public SjpegEncoder420 {
+class EncoderSharp420 : public Encoder420 {
  public:
-  SjpegEncoderSharp420(int W, int H, int step, const uint8_t* const rgb)
-      : SjpegEncoder420(W, H, step, rgb), yuv_memory_(NULL) {
+  EncoderSharp420(int W, int H, int step, const uint8_t* const rgb)
+      : Encoder420(W, H, step, rgb), yuv_memory_(NULL) {
     const int uv_w = (W + 1) >> 1;
     const int uv_h = (H + 1) >> 1;
     yuv_memory_ = new uint8_t[W * H + 2 * uv_w * uv_h];
@@ -2408,10 +2130,9 @@ class SjpegEncoderSharp420 : public SjpegEncoder420 {
     u_plane_ = yuv_memory_ + W * H;
     v_plane_ = u_plane_ + uv_w * uv_h;
     uv_step_ = uv_w;
-    sjpeg::ApplySharpYUVConversion(rgb, W, H, step,
-                                   y_plane_, u_plane_, v_plane_);
+    ApplySharpYUVConversion(rgb, W, H, step, y_plane_, u_plane_, v_plane_);
   }
-  virtual ~SjpegEncoderSharp420() { delete[] yuv_memory_; }
+  virtual ~EncoderSharp420() { delete[] yuv_memory_; }
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out);
 
  protected:
@@ -2448,7 +2169,7 @@ class SjpegEncoderSharp420 : public SjpegEncoder420 {
    uint8_t* yuv_memory_;
 };
 
-void SjpegEncoderSharp420::GetSamples(int mb_x, int mb_y,
+void EncoderSharp420::GetSamples(int mb_x, int mb_y,
                                       bool clipped, int16_t* out) {
   GetLumaSamples(mb_x, mb_y, clipped, out);
 
@@ -2484,24 +2205,24 @@ void SjpegEncoderSharp420::GetSamples(int mb_x, int mb_y,
 ////////////////////////////////////////////////////////////////////////////////
 // all-in-one factory to pickup the right encoder instance
 
-SjpegEncoder* EncoderFactory(const uint8_t* rgb,
+Encoder* EncoderFactory(const uint8_t* rgb,
                              int W, int H, int stride, int yuv_mode) {
   if (yuv_mode <= 0) {
     yuv_mode = SjpegRiskiness(rgb, W, H, stride, NULL);
   }
 
-  SjpegEncoder* enc = NULL;
+  Encoder* enc = NULL;
   if (yuv_mode == 1) {
-    enc = new SjpegEncoder420(W, H, stride, rgb);
+    enc = new Encoder420(W, H, stride, rgb);
   } else if (yuv_mode == 2) {
-    enc = new SjpegEncoderSharp420(W, H, stride, rgb);
+    enc = new EncoderSharp420(W, H, stride, rgb);
   } else {
-    enc = new SjpegEncoder444(W, H, stride, rgb);
+    enc = new Encoder444(W, H, stride, rgb);
   }
   return enc;
 }
 
-}     // anonymous namespace
+}    // namespace sjpeg
 
 ////////////////////////////////////////////////////////////////////////////////
 // public plain-C functions
@@ -2513,7 +2234,7 @@ size_t SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
   }
   *out_data = NULL;  // safety
 
-  SjpegEncoder* const enc = EncoderFactory(rgb, W, H, stride, yuv_mode);
+  Encoder* const enc = EncoderFactory(rgb, W, H, stride, yuv_mode);
   enc->SetQuality(quality);
   enc->SetCompressionMethod(method);
   size_t size = 0;
@@ -2569,9 +2290,9 @@ void SjpegEncodeParam::Init(int quality_factor) {
 }
 
 void SjpegEncodeParam::SetQuality(int quality_factor) {
-  const int q = sjpeg::GetQFactor(quality_factor);
-  sjpeg::SetQuantMatrix(sjpeg::kDefaultMatrices[0], q, quant_[0]);
-  sjpeg::SetQuantMatrix(sjpeg::kDefaultMatrices[1], q, quant_[1]);
+  const int q = GetQFactor(quality_factor);
+  sjpeg::SetQuantMatrix(kDefaultMatrices[0], q, quant_[0]);
+  sjpeg::SetQuantMatrix(kDefaultMatrices[1], q, quant_[1]);
 }
 
 void SjpegEncodeParam::SetQuantMatrix(const uint8_t m[64], int idx,
@@ -2610,7 +2331,7 @@ void SjpegEncodeParam::ResetMetadata() {
   app_markers.clear();
 }
 
-bool SjpegEncoder::InitFromParam(const SjpegEncodeParam& param) {
+bool Encoder::InitFromParam(const SjpegEncodeParam& param) {
   SetQuantMatrices(param.quant_);
   SetMinQuantMatrices(param.min_quant_, param.min_quant_tolerance_);
 
@@ -2633,10 +2354,10 @@ bool SjpegEncoder::InitFromParam(const SjpegEncodeParam& param) {
   SetQuantizationBias(param.quantization_bias, param.adaptive_bias);
   SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);
 
-  SetMetadata(param.iccp, SjpegEncoder::ICC);
-  SetMetadata(param.exif, SjpegEncoder::EXIF);
-  SetMetadata(param.xmp, SjpegEncoder::XMP);
-  SetMetadata(param.app_markers, SjpegEncoder::MARKERS);
+  SetMetadata(param.iccp, Encoder::ICC);
+  SetMetadata(param.exif, Encoder::EXIF);
+  SetMetadata(param.xmp, Encoder::XMP);
+  SetMetadata(param.app_markers, Encoder::MARKERS);
 
   return true;
 }
@@ -2645,7 +2366,7 @@ std::string SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
                         const SjpegEncodeParam& param) {
   if (rgb == NULL || W <= 0 || H <= 0 || stride < 3 * W) return "";
 
-  SjpegEncoder* const enc = EncoderFactory(rgb, W, H, stride, param.yuv_mode);
+  Encoder* const enc = EncoderFactory(rgb, W, H, stride, param.yuv_mode);
   if (enc == NULL) return "";
 
   if (!enc->InitFromParam(param)) goto Error;
