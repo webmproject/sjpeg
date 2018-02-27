@@ -1,5 +1,5 @@
 .\"                                      Hey, EMACS: -*- nroff -*-
-.TH SJPEG 1 "Dec 2, 2017"
+.TH SJPEG 1 "Feb 26, 2018"
 .SH NAME
 sjpeg \- compress a PNG, JPEG or PPM image file to a baseline JPEG file
 .SH SYNOPSIS
@@ -42,6 +42,29 @@ When using a value of 100, the source JPEG file is only recompressed with
 closed to no quality loss (but file size will likely be smaller).
 This option is disabled by subsequent use (in parsing order) of the \-q
 option.
+.TP
+.BI \-size " int
+Specify a target size to try and reach using several passes. By default, the
+internal search loop will try to get as close as possible to the specified
+size.
+See also the \-pass option.
+.TP
+.BI \-psnr " float
+Specify a target PSNR to try and reach using several passes. By default, the
+internal search loop will try to get as close as possible to the specified
+distortion. Note that the Peak-Signal-to-Noise is computed using the YUV
+samples, not the RGB ones.
+See also the \-pass option.
+.TP
+.BI \-min_psnr " float
+Minimum acceptable PSNR value for dichotomy (when \-psnr or \-size option
+is used). If possible, the search will try and avoid having a PSNR value
+lower than this threshold.
+.TP
+.BI \-pass " int
+Specify the number of internal loop to use for convergence toward a target
+size or distortion. If none is specified but \-size or \-psnr option is
+used, then a default value of \fB10\fP is used.
 .TP
 .B \-yuv_mode " int
 Specify the YUV color space method to use. Possible values are

@@ -89,4 +89,17 @@ void BitWriter::Flush() {
   FlushBits();
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
+void BitCounter::AddBits(const uint32_t bits, size_t nbits) {
+  size_ += nbits;
+  bit_pos_ += nbits;
+  bits_ |= bits << (32 - bit_pos_);
+  while (bit_pos_ >= 8) {
+    size_ += ((bits_ >> 24) == 0xff) ? 8 : 0;
+    bits_ <<= 8;
+    bit_pos_ -= 8;
+  }
+}
+
 }   // namespace jpeg

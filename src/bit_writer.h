@@ -146,6 +146,20 @@ class BitWriter {
   size_t max_pos_;   // maximum write-position within output buffer
 };
 
+// Class for counting bits, including the 0xff escape
+struct BitCounter {
+  BitCounter() : bits_(0), bit_pos_(0), size_(0) {}
+
+  void AddPackedCode(const uint32_t code) { AddBits(code >> 16, code & 0xff); }
+  void AddBits(const uint32_t bits, size_t nbits);
+  size_t Size() const { return size_; }
+
+ private:
+  uint32_t bits_;
+  size_t bit_pos_;
+  size_t size_;
+};
+
 }   // namespace sjpeg
 
 #endif    // SJPEG_BIT_WRITER_H_
