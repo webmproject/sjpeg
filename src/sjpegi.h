@@ -293,7 +293,7 @@ struct Encoder {
   size_t HeaderSize() const;
   void BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
                   const RunLevel* rl, sjpeg::BitCounter* const bc) const;
-  float ComputeSize(const DCTCoeffs* coeffs, const RunLevel* rl);
+  float ComputeSize(const DCTCoeffs* coeffs);
   float ComputePSNR() const;
 
  protected:
