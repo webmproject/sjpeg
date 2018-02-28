@@ -225,6 +225,7 @@ bool SupportsNEON() {
 ////////////////////////////////////////////////////////////////////////////////
 // static pointers to architecture-dependant implementation
 
+Encoder::QuantizeErrorFunc Encoder::quantize_error_ = NULL;
 Encoder::QuantizeBlockFunc Encoder::quantize_block_ = NULL;
 void (*Encoder::fDCT_)(int16_t* in, int num_blocks) = NULL;
 Encoder::StoreHistoFunc Encoder::store_histo_ = NULL;
@@ -234,6 +235,7 @@ void Encoder::InitializeStaticPointers() {
   if (fDCT_ == NULL) {
     store_histo_ = GetStoreHistoFunc();
     quantize_block_ = GetQuantizeBlockFunc();
+    quantize_error_ = GetQuantizeErrorFunc();
     fDCT_ = SjpegGetFdct();
     get_yuv444_block_ = GetBlockFunc(true);
   }
@@ -583,7 +585,6 @@ static int QuantizeBlock(const int16_t in[64], int idx,
   out->nb_coeffs_ = nb;
   return dc;
 }
-
 ////////////////////////////////////////////////////////////////////////////////
 // Trellis-based quantization
 
@@ -722,6 +723,69 @@ Encoder::QuantizeBlockFunc Encoder::GetQuantizeBlockFunc() {
   if (SupportsNEON()) return QuantizeBlockNEON;
 #endif
   return QuantizeBlock;  // default
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+#if defined(SJPEG_USE_SSE2)
+// Load eight 16b-words from *src.
+#define LOAD_16(src) _mm_loadu_si128((const __m128i*)(src))
+#define LOAD_64(src) _mm_loadl_epi64((const __m128i*)(src))
+// Store eight 16b-words into *dst
+#define STORE_16(V, dst) _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), (V))
+
+static uint32_t QuantizeErrorSSE2(const int16_t in[64], const Quantizer* const Q) {
+  const uint16_t* const bias = Q->bias_;
+  const uint16_t* const iquant = Q->iquant_;
+  const uint8_t* const quant = Q->quant_;
+  const __m128i zero = _mm_setzero_si128();
+  uint32_t tmp[32];
+  for (int i = 0; i < 64; i += 8) {
+    const __m128i m_bias = LOAD_16(bias + i);
+    const __m128i m_iquant = LOAD_16(iquant + i);
+    const __m128i m_quant = _mm_unpacklo_epi8(LOAD_64(quant + i), zero);
+    const __m128i A = LOAD_16(in + i);                        // v0 = in[i]
+    const __m128i B = _mm_srai_epi16(A, 15);                  // sign extract
+    const __m128i C = _mm_sub_epi16(_mm_xor_si128(A, B), B);  // abs(v0)
+    const __m128i D = _mm_adds_epi16(C, m_bias);              // v' = v0 + bias
+    const __m128i E = _mm_mulhi_epu16(D, m_iquant);           // (v' * iq) >> 16
+    const __m128i F = _mm_srai_epi16(E, AC_BITS);
+    const __m128i G = _mm_srai_epi16(C, AC_BITS);
+    const __m128i H = _mm_mullo_epi16(F, m_quant);            // *= quant[j]
+    const __m128i I = _mm_sub_epi16(G, H);
+    const __m128i J = _mm_madd_epi16(I, I);                   // (v0-v) ^ 2
+    STORE_16(J, tmp + i / 2);
+  }
+  uint32_t err = 0;
+  for (int i = 0; i < 32; ++i) err += tmp[i];
+  return err;
+}
+#undef LOAD_16
+#undef LOAD_64
+#undef STORE_16
+#endif  // SJPEG_USE_SSE2
+
+static uint32_t QuantizeError(const int16_t in[64], const Quantizer* const Q) {
+  const uint16_t* const bias = Q->bias_;
+  const uint16_t* const iquant = Q->iquant_;
+  const uint8_t* const quant = Q->quant_;
+  uint32_t err = 0;
+  for (int j = 0; j < 64; ++j) {
+    int32_t v0 = (in[j] < 0) ? -in[j] : in[j];
+    const uint32_t v = quant[j] * QUANTIZE(v0, iquant[j], bias[j]);
+    v0 >>= AC_BITS;
+    err += (v0 - v) * (v0 - v);
+  }
+  return err;
+}
+
+Encoder::QuantizeErrorFunc Encoder::GetQuantizeErrorFunc() {
+#if defined(SJPEG_USE_SSE2)
+  if (SupportsSSE2()) return QuantizeErrorSSE2;
+#elif defined(SJPEG_USE_NEON)
+// no yet:  if (SupportsNEON()) return QuantizeErrorNEON;
+#endif
+  return QuantizeError;  // default
 }
 
 ////////////////////////////////////////////////////////////////////////////////

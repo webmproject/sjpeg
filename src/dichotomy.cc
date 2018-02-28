@@ -149,30 +149,22 @@ void Encoder::LoopScan() {
       AnalyseHisto();   // adjust quant_[] matrices
     }
 
+    float result;
     if (stats.do_size_search) {
       // compute pass to store coeffs / runs / dc_code_
       StoreRunLevels(base_coeffs);
-    } else {
-      // TODO(skal): have a function that only sums error, not run/levels
-      StoreRunLevels(base_coeffs);
-    }
-
-    if (optimize_size_) {
-      // if we're just targetting PSNR, we don't need to optimize
-      // for size within the loop.
-      if (stats.do_size_search || use_trellis_) {
+      if (optimize_size_) {
         StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
         if (use_trellis_) InitCodes(true);
       }
+      result = ComputeSize(base_coeffs, all_run_levels_);
+    } else {
+      // if we're just targetting PSNR, we don't need to optimize
+      // for size within the loop.
+      result = ComputePSNR();
     }
-
-    const float result =
-      stats.do_size_search ? ComputeSize(base_coeffs, all_run_levels_)
-                           : ComputePSNR(base_coeffs, all_run_levels_);
     if (p > 0 && min_psnr_ > 0.) {
-      const float psnr =
-          stats.do_size_search ? ComputePSNR(base_coeffs, all_run_levels_)
-                               : result;
+      const float psnr = stats.do_size_search ? ComputePSNR() : result;
       if (psnr < min_psnr_) {
         stats.BackTrack();
         continue;
@@ -187,8 +179,11 @@ void Encoder::LoopScan() {
   SetQuantMatrices(opt_quants);   // set the final matrix
 
   // optimize Huffman table now, if we haven't already during the search
-  if (optimize_size_ && !stats.do_size_search && !use_trellis_) {
-    StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
+  if (!stats.do_size_search) {
+    StoreRunLevels(base_coeffs);
+    if (optimize_size_) {
+      StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
+    }
   }
 
   // finish bitstream
@@ -281,52 +276,20 @@ static double GetPSNR(uint64_t err, uint64_t size) {
   return (err > 0 && size > 0) ? 10. * log10(255. * 255. * size / err) : 99.;
 }
 
-static const uint16_t kMasks[16 + 1][2] = {
-  { 0x0000U, 0x0000U },  // fake extra entry, for robustness
-  { 0x0001U, 0x0001U }, { 0x0002U, 0x0003U },
-  { 0x0004U, 0x0007U }, { 0x0008U, 0x000fU },
-  { 0x0010U, 0x001fU }, { 0x0020U, 0x003fU },
-  { 0x0040U, 0x007fU }, { 0x0080U, 0x00ffU },
-  { 0x0100U, 0x01ffU }, { 0x0200U, 0x03ffU },
-  { 0x0400U, 0x07ffU }, { 0x0800U, 0x03ffU },
-  { 0x1000U, 0x1fffU }, { 0x2000U, 0x3fffU },
-  { 0x4000U, 0x7fffU }, { 0x8000U, 0xffffU }
-};
-
-static int16_t CodeToCoeff(uint16_t code) {
-  const int nbits = (code & 0xf);
-  int16_t qcoeff = (code >> 4);
-  if (qcoeff < kMasks[nbits][0]) qcoeff -= kMasks[nbits][1];
-  return qcoeff;
-}
-
-float Encoder::ComputePSNR(const DCTCoeffs* coeffs,
-                           const RunLevel* rl) const {
+float Encoder::ComputePSNR() const {
   uint64_t error = 0;
-  int16_t* in = in_blocks_;
-  const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
-  int32_t DCs[3] = { 0, 0, 0 };
+  const int16_t* in = in_blocks_;
+  const size_t nb_mbs = mb_w_ * mb_h_;
   for (size_t n = 0; n < nb_mbs; ++n) {
-    const DCTCoeffs& c = coeffs[n];
-    const int c_idx = c.idx_;
-    const int q_idx = quant_idx_[c_idx];
-    const uint8_t* const Q = quants_[q_idx].quant_;
-    int pos = 0;
-    int32_t dq[64] = { 0 };
-    for (int i = 0; i < c.nb_coeffs_; ++i, ++rl) {
-      pos += rl->run_ + 1;
-      const int j = kZigzag[pos];
-      dq[j] = Q[j] * CodeToCoeff(rl->level_);
+    for (int c = 0; c < nb_comps_; ++c) {
+      const Quantizer* const Q = &quants_[quant_idx_[c]];
+      for (int i = 0; i < nb_blocks_[c]; ++i) {
+        error += quantize_error_(in, Q);
+        in += 64;
+      }
     }
-    dq[0] = (DCs[c_idx] += CodeToCoeff(c.dc_code_)) * Q[0];
-    for (int i = 0; i < 64; ++i) {
-      const int16_t v0 = in[i] / 16;  // fDCT output is upscaled
-      const int16_t v = dq[i];
-      error += ((uint64_t)(v0 - v) * (v0 - v));
-    }
-    in += 64;
   }
-  return GetPSNR(error, nb_mbs * 64ull);
+  return GetPSNR(error, 64ull * nb_mbs * mcu_blocks_);
 }
 
 }    // namespace sjpeg
