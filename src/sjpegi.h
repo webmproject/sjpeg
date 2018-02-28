@@ -277,6 +277,11 @@ struct Encoder {
                                   DCTCoeffs* const out,
                                   RunLevel* const rl);
 
+  typedef uint32_t (*QuantizeErrorFunc)(const int16_t in[64],
+                                        const Quantizer* const Q);
+  static QuantizeErrorFunc quantize_error_;
+  static QuantizeErrorFunc GetQuantizeErrorFunc();
+
   void CodeBlock(const DCTCoeffs* const coeffs, const RunLevel* const rl);
   // returns DC code (4bits for length, 12bits for suffix), updates DC_predictor
   static uint16_t GenerateDCDiffCode(int DC, int* const DC_predictor);
@@ -289,7 +294,7 @@ struct Encoder {
   void BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
                   const RunLevel* rl, sjpeg::BitCounter* const bc) const;
   float ComputeSize(const DCTCoeffs* coeffs, const RunLevel* rl);
-  float ComputePSNR(const DCTCoeffs* coeffs, const RunLevel* rl) const;
+  float ComputePSNR() const;
 
  protected:
   // format-specific parameters, set by virtual InitComponents()
