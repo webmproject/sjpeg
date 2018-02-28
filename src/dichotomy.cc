@@ -25,10 +25,13 @@
 
 using namespace sjpeg;
 
-// convergence is considered reached if |dq| < kdQLimit
-static const float kdQLimit = 0.2;
+// convergence is considered reached if |dq| < kdQLimit. 1% near target q.
+static const float kdQLimit = 20.;
 // maximal variation allowed on dQ
-static const float kdQThresh = 200.;
+static const float kdQThresh = 800.;
+// Scaling factor of dq at first step when searching psnr.
+static const float kdQScalePSNR = 1.;
+
 
 namespace sjpeg {
 
@@ -54,11 +57,15 @@ struct PassStats {  // struct for organizing convergence in either size or PSNR
 
 PassStats::PassStats(const Encoder& enc) {
   is_first = true;
-  dq = 50.f;
-  q = last_q = 100.;
+  dq = 130.f;
+  q = last_q = 500.;
   value = last_value = 0;
   target = enc.target_value_;
   do_size_search = (enc.target_mode_ == SjpegEncodeParam::TARGET_SIZE);
+  // Adaptive start search point for psnr search.
+  if (!do_size_search) {
+    q = last_q = 500. * 11 / (1. + fabs(enc.target_value_ - 31.));
+  }
 }
 
 static float Clamp(float v, float min, float max) {
@@ -71,16 +78,25 @@ bool PassStats::ComputeNextQ(float result) {
     if (do_size_search) {
       dq = (value < target) ? -dq : dq;
     } else {
-      dq = (value < target) ? -dq : dq;
+      // Change first dq based on distance from target.
+      dq = dq * (value - target) / kdQScalePSNR;
     }
     is_first = false;
   } else {
-    if (fabs(value - last_value) > 0.01 * value) {
+    if (fabs(value - last_value) > 0.02 * value) {
       const double slope = (target - value) / (last_value - value);
       dq = (float)(slope * (last_q - q));
     } else {
       dq = 0.;  // we're done?!
     }
+  }
+  // Prevent overshot.
+  if (target < value) {
+    dq = dq * 0.9;
+  }
+  // Slow down when close to target.
+  if (fabs(target - value) < 0.05 * value) {
+    dq = dq * 0.7;
   }
   // Limit variable to avoid large swings.
   dq = Clamp(dq, -kdQThresh, kdQThresh);
