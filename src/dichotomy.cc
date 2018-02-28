@@ -112,6 +112,7 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
 
   const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
                                                         : quantize_block_;
+  if (use_trellis_) InitCodes(true);
 
   ResetDCs();
   nb_run_levels_ = 0;
@@ -142,9 +143,6 @@ void Encoder::LoopScan() {
     CollectCoeffs();   // we just need the coeffs
   }
 
-  // We use the default Huffman tables as basis for bit-rate evaluation
-  if (use_trellis_) InitCodes(true);
-
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
   DCTCoeffs* const base_coeffs = new DCTCoeffs[nb_mbs];
 
@@ -173,12 +171,15 @@ void Encoder::LoopScan() {
         StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
         if (use_trellis_) InitCodes(true);
       }
-      result = ComputeSize(base_coeffs, all_run_levels_);
+      result = ComputeSize(base_coeffs);
     } else {
-      // if we're just targeting PSNR, we don't need to optimize
-      // for size within the loop.
+      // if we're just targeting PSNR, we don't need to compute the
+      // run/levels within the loop. We just need to quantize the coeffs
+      // and measure the distortion.
       result = ComputePSNR();
     }
+    if (DBG_PRINT) printf("pass #%d: q=%f value:%.2f\n", p, stats.q, result);
+
     if (p > 0 && min_psnr_ > 0.) {
       const float psnr = stats.do_size_search ? ComputePSNR() : result;
       if (psnr < min_psnr_) {
@@ -186,7 +187,6 @@ void Encoder::LoopScan() {
         continue;
       }
     }
-    if (DBG_PRINT) printf("pass #%d: q=%f value:%.2f\n", p, stats.q, result);
     for (int c = 0; c < 2; ++c) {
       CopyQuantMatrix(quants_[c].quant_, opt_quants[c]);
     }
@@ -208,6 +208,8 @@ void Encoder::LoopScan() {
   WriteDHT();
   WriteSOS();
   FinalPassScan(nb_mbs, base_coeffs);
+
+  delete[] base_coeffs;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -276,12 +278,11 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
   }
 }
 
-float Encoder::ComputeSize(const DCTCoeffs* coeffs,
-                                 const RunLevel* rl) {
+float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
   InitCodes(false);
   size_t size = HeaderSize();
   BitCounter bc;
-  BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, rl, &bc);
+  BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, all_run_levels_, &bc);
   size += bc.Size();
   return size / 8.f;
 }
