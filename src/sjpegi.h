@@ -251,6 +251,9 @@ struct Encoder {
 
   void SinglePassScan();           // finalizing scan
   void SinglePassScanOptimized();  // optimize the Huffman table + finalize scan
+
+  // quantize and compute run/levels from already stored coeffs
+  void StoreRunLevels(DCTCoeffs* coeffs);
   // just write already stored run_levels & coeffs:
   void FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs);
 

@@ -90,6 +90,32 @@ bool PassStats::ComputeNextQ(float result) {
   return fabs(q - last_q) < kdQLimit;
 }
 
+void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
+  assert(use_extra_memory_);
+  assert(reuse_run_levels_);
+
+  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
+                                                        : quantize_block_;
+
+  ResetDCs();
+  nb_run_levels_ = 0;
+  int16_t* in = in_blocks_;
+  for (int n = 0; n < mb_w_ * mb_h_; ++n) {
+    CheckBuffers();
+    for (int c = 0; c < nb_comps_; ++c) {
+      for (int i = 0; i < nb_blocks_[c]; ++i) {
+        RunLevel* const run_levels = all_run_levels_ + nb_run_levels_;
+        const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
+                                      coeffs, run_levels);
+        coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
+        nb_run_levels_ += coeffs->nb_coeffs_;
+        ++coeffs;
+        in += 64;
+      }
+    }
+  }
+}
+
 void Encoder::LoopScan() {
   assert(use_extra_memory_);
   assert(reuse_run_levels_);
@@ -100,13 +126,12 @@ void Encoder::LoopScan() {
     CollectCoeffs();   // we just need the coeffs
   }
 
-  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
-                                                        : quantize_block_;
   // We use the default Huffman tables as basis for bit-rate evaluation
   if (use_trellis_) InitCodes(true);
 
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
   DCTCoeffs* const base_coeffs = new DCTCoeffs[nb_mbs];
+
   uint8_t base_quant[2][64], opt_quants[2][64];
   for (int c = 0; c < 2; ++c) {
     CopyQuantMatrix(quants_[c].quant_, base_quant[c]);
@@ -124,28 +149,21 @@ void Encoder::LoopScan() {
       AnalyseHisto();   // adjust quant_[] matrices
     }
 
-    // compute pass to store coeffs / runs / dc_code_
-    ResetDCs();
-    nb_run_levels_ = 0;
-    int16_t* in = in_blocks_;
-    DCTCoeffs* coeffs = base_coeffs;
-    for (int n = 0; n < mb_w_ * mb_h_; ++n) {
-      CheckBuffers();
-      for (int c = 0; c < nb_comps_; ++c) {
-        for (int i = 0; i < nb_blocks_[c]; ++i) {
-          RunLevel* const run_levels = all_run_levels_ + nb_run_levels_;
-          const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
-                                        coeffs, run_levels);
-          coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
-          nb_run_levels_ += coeffs->nb_coeffs_;
-          ++coeffs;
-          in += 64;
-        }
-      }
+    if (stats.do_size_search) {
+      // compute pass to store coeffs / runs / dc_code_
+      StoreRunLevels(base_coeffs);
+    } else {
+      // TODO(skal): have a function that only sums error, not run/levels
+      StoreRunLevels(base_coeffs);
     }
+
     if (optimize_size_) {
-      StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
-      if (use_trellis_) InitCodes(true);
+      // if we're just targetting PSNR, we don't need to optimize
+      // for size within the loop.
+      if (stats.do_size_search || use_trellis_) {
+        StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
+        if (use_trellis_) InitCodes(true);
+      }
     }
 
     const float result =
@@ -167,6 +185,11 @@ void Encoder::LoopScan() {
     if (stats.ComputeNextQ(result)) break;
   }
   SetQuantMatrices(opt_quants);   // set the final matrix
+
+  // optimize Huffman table now, if we haven't already during the search
+  if (optimize_size_ && !stats.do_size_search && !use_trellis_) {
+    StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
+  }
 
   // finish bitstream
   WriteDQT();
@@ -210,8 +233,8 @@ size_t Encoder::HeaderSize() const {
 }
 
 void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
-                              const RunLevel* rl,
-                              BitCounter* const bc) const {
+                         const RunLevel* rl,
+                         BitCounter* const bc) const {
   for (int n = 0; n < nb_mbs; ++n) {
     const DCTCoeffs& c = coeffs[n];
     const int idx = c.idx_;
@@ -278,7 +301,7 @@ static int16_t CodeToCoeff(uint16_t code) {
 }
 
 float Encoder::ComputePSNR(const DCTCoeffs* coeffs,
-                                const RunLevel* rl) const {
+                           const RunLevel* rl) const {
   uint64_t error = 0;
   int16_t* in = in_blocks_;
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
