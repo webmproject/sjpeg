@@ -734,7 +734,8 @@ Encoder::QuantizeBlockFunc Encoder::GetQuantizeBlockFunc() {
 // Store eight 16b-words into *dst
 #define STORE_16(V, dst) _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), (V))
 
-static uint32_t QuantizeErrorSSE2(const int16_t in[64], const Quantizer* const Q) {
+static uint32_t QuantizeErrorSSE2(const int16_t in[64],
+                                  const Quantizer* const Q) {
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
   const uint8_t* const quant = Q->quant_;

@@ -159,7 +159,7 @@ void Encoder::LoopScan() {
       }
       result = ComputeSize(base_coeffs, all_run_levels_);
     } else {
-      // if we're just targetting PSNR, we don't need to optimize
+      // if we're just targeting PSNR, we don't need to optimize
       // for size within the loop.
       result = ComputePSNR();
     }
