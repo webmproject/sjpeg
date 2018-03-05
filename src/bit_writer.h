@@ -77,8 +77,9 @@ class BitWriter {
     // worst case: 3 escaped codes = 6 bytes
     assert(byte_pos_ + 6 <= max_pos_);
     while (nb_bits_ >= 8) {
-      buf_[byte_pos_++] = bits_ >> 24;
-      if ((bits_ & 0xff000000U) == 0xff000000U) {   // escaping
+      const uint8_t tmp = bits_ >> 24;
+      buf_[byte_pos_++] = tmp;
+      if (tmp == 0xff) {   // escaping
         buf_[byte_pos_++] = 0x00;
       }
       bits_ <<= 8;
