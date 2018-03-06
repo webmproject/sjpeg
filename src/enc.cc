@@ -1205,7 +1205,8 @@ void Encoder::AddEntropyStats(const DCTCoeffs* const coeffs,
   const int q_idx = quant_idx_[idx];
   for (int i = 0; i < coeffs->nb_coeffs_; ++i) {
     const int run = run_levels[i].run_;
-    freq_ac_[q_idx][0xf0] += (run >> 4);  // count escapes (all at once)
+    const int tmp = (run >> 4);
+    if (tmp) freq_ac_[q_idx][0xf0] += tmp;  // count escapes (all at once)
     const int suffix = run_levels[i].level_;
     const int sym = ((run & 0x0f) << 4) | (suffix & 0x0f);
     ++freq_ac_[q_idx][sym];
