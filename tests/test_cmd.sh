@@ -38,7 +38,7 @@ ${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -yuv_mode 99 -quiet
 ${SJPEG} ${BAD_FILE} -o ${TMP_FILE1} -quiet
 ${SJPEG} ${SRC_FILE1} -o ${BAD_FILE} -quiet
 
-${SJPEF} ${SRC_FILE2} -o
+${SJPEG} ${SRC_FILE2} -o
 ${SJPEG} -o ${BAD_FILE} -quiet
 
 echo "OK!"
