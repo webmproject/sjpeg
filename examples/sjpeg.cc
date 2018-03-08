@@ -103,8 +103,7 @@ int main(int argc, char * argv[]) {
     "\n"
     "If the input format is JPEG, the recompression will not go beyond the\n"
     "original quality, *except* if '-no_limit' option is used."
-    "\n"
-  ;
+    "\n";
 
 #if defined(ALT_HOOK_CLASS)
   ALT_HOOK_CLASS hook;

@@ -54,7 +54,7 @@ size_t SjpegCompress(const uint8_t* rgb, int width, int height, int quality,
 // or by calling SjpegBufferFree().
 //
 // Return parameter -if positive- is the size of the JPEG string,
-// or 0 if an error occured.
+// or 0 if an error occurred.
 //
 // Parameter 'quality' correspond to the usual quality factor in JPEG:
 //     0=very bad, 100=very good.
@@ -106,7 +106,7 @@ void SjpegFreeBuffer(const uint8_t* buffer);
 // JPEG-parsing tools
 
 // Decode the dimensions of a JPEG bitstream, doing as few read operations as
-// possible. Return false if an error occured (invalid bitstream, invalid
+// possible. Return false if an error occurred (invalid bitstream, invalid
 // parameter...).
 // The pointers 'width', 'height', 'is_yuv420' can be passed NULL.
 bool SjpegDimensions(const uint8_t* data, size_t size,
