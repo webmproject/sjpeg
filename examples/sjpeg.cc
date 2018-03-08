@@ -106,6 +106,11 @@ int main(int argc, char * argv[]) {
     "\n"
   ;
 
+#if defined(ALT_HOOK_CLASS)
+  ALT_HOOK_CLASS hook;
+  param.search_hook = &hook;
+#endif
+
   // parse command line
   if (argc <= 1) {
     fprintf(stderr, usage);
