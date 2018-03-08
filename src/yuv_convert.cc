@@ -658,7 +658,7 @@ static void PreprocessARGB(const uint8_t* const rgb,
                    y_plane, u_plane, v_plane);
 }
 
-}     // anonymous namespace
+}  // namespace sjpeg
 
 ////////////////////////////////////////////////////////////////////////////////
 // Entry point
