@@ -143,11 +143,10 @@ int SjpegRiskiness(const uint8_t* rgb, int width, int height, int step,
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
-// The following handy variants are equivalent to the functions defined above,
-// except that they are taking string argument for input/output data.
-// There is also a generic call using SjpegEncodeParam to pass encoding
-// parameters.
-// These are C++ only.
+// Advanced API, C++ only.
+//
+// Fine control over the encoding parameters using SjpegEncodeParam
+//
 
 // Structure for holding encoding parameter, to be passed to the unique
 // call to SjpegEncode() below. For a more detailed description of some fields,
