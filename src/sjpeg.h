@@ -148,6 +148,8 @@ int SjpegRiskiness(const uint8_t* rgb, int width, int height, int step,
 // Fine control over the encoding parameters using SjpegEncodeParam
 //
 
+struct SearchHook;
+
 // Structure for holding encoding parameter, to be passed to the unique
 // call to SjpegEncode() below. For a more detailed description of some fields,
 // see SjpegEncode()'s doc above.
@@ -195,7 +197,9 @@ struct SjpegEncodeParam {
   TargetMode target_mode;
   float target_value;           // size, psnr or SSIM
   int passes;                   // max number of passes to try and converge
-  float min_psnr;               // minimum psnr value to never go under
+  float tolerance;              // percentage of distance-to-target allowed
+  float qmin, qmax;             // Limits for the search quality values.
+                                // They take precedence over min_quant_[].
 
   // fine-grained control over compression parameters
   int quantization_bias;    // [0..255] Rounding bias for quantization.
@@ -203,6 +207,8 @@ struct SjpegEncodeParam {
   int qdelta_max_chroma;    // [0..12] How much to hurt chroma in adaptive quant
                             // A higher value might be useful for images
                             // encoded without chroma subsampling.
+
+  SearchHook* search_hook;  // if null, a default implementation will be used
 
   // metadata: extra EXIF/XMP/ICCP data that will be embedded in
   // APP1 or APP2 markers. They should contain only the raw payload and not
@@ -216,13 +222,34 @@ struct SjpegEncodeParam {
   void ResetMetadata();      // clears the above
 
   uint8_t quant_[2][64];         // quantization matrices to use
-  const uint8_t* min_quant_[2];  // if limit_quantization is true, these
-                                 // pointers should directo to the minimum
-                                 // quantizer values allowed for luma / chroma
+  const uint8_t* min_quant_[2];  // If limit_quantization is true, these
+                                 // pointers should direct to the minimum
+                                 // quantizer values allowed for luma / chroma.
+                                 // They are ignored when search is used.
   int min_quant_tolerance_;      // Tolerance going over min_quant_ ([0..100])
 
  protected:
   void Init(int quality_factor);
+};
+
+// This is the interface for customizing the search loop
+struct SearchHook {
+  float q;                // this is the current parameter used
+  float qmin, qmax;       // this is the current bracket for q
+  float target;           // target value (PSNR or size)
+  float tolerance;        // relative tolerance for reaching the 'target' value
+  bool for_size;          // true if we're searching for size
+  float value;            // result for the search after Update() is called
+
+  // Returns false in case of initialization error.
+  // Should always be called by sub-classes.
+  virtual bool Setup(const SjpegEncodeParam& param);
+  // Set up the next matrices to try, corresponding to the current q value.
+  // 'idx' is 0 for luma, 1 for chroma
+  virtual void NextMatrix(int idx, uint8_t dst[64]);
+  // return true if the search is finished
+  virtual bool Update(float result);
+  virtual ~SearchHook() {}
 };
 
 // Same as the first version of SjpegEncode(), except encoding parameters are

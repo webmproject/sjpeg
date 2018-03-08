@@ -46,7 +46,7 @@ option.
 .BI \-size " int
 Specify a target size to try and reach using several passes. By default, the
 internal search loop will try to get as close as possible to the specified
-size.
+size. This option has precedence over the \-pnsr one.
 See also the \-pass option.
 .TP
 .BI \-psnr " float
@@ -56,10 +56,19 @@ distortion. Note that the Peak-Signal-to-Noise is computed using the YUV
 samples, not the RGB ones.
 See also the \-pass option.
 .TP
-.BI \-min_psnr " float
-Minimum acceptable PSNR value for dichotomy (when \-psnr or \-size option
-is used). If possible, the search will try and avoid having a PSNR value
-lower than this threshold.
+.BI \-tolerance " float
+Tolerance (in percent) used during convergence to target value when \-psnr
+or \-size option is used.
+.TP
+.BI \-qmin " int
+Minimum acceptable quality factor used during the search (when \-psnr
+or \-size option is used). The search will halt if the quality adjustment
+would drop lower than the \fBqmin\fP value.
+.TP
+.BI \-qmax " int
+Maximum acceptable quality factor used during the search (when \-psnr
+or \-size option is used). The search will avoid using a quality factor
+larger than the \fBqmax\fP value.
 .TP
 .BI \-pass " int
 Specify the number of internal loop to use for convergence toward a target

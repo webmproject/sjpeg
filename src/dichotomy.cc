@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-//  Dichotomy loop
+//  Dichotomy loop and default search implementation
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
@@ -25,86 +25,55 @@
 
 using namespace sjpeg;
 
-// convergence is considered reached if |dq| < kdQLimit. 1% near target q.
-static const float kdQLimit = 20.;
-// maximal variation allowed on dQ
-static const float kdQThresh = 800.;
-// Scaling factor of dq at first step when searching psnr.
-static const float kdQScalePSNR = 1.;
-
-
-namespace sjpeg {
-
 ////////////////////////////////////////////////////////////////////////////////
 // dichotomy
 
 #define DBG_PRINT 0
 
-struct PassStats {  // struct for organizing convergence in either size or PSNR
-  bool is_first;
-  float dq, q, last_q;
-  double value, last_value, target;
-  bool do_size_search;
-
-  PassStats(const Encoder& enc);
-  bool ComputeNextQ(float result);   // returns true if finished
-  void BackTrack() {
-    q = last_q;
-    dq /= 2;
-    q += dq;
-  }
-};
-
-PassStats::PassStats(const Encoder& enc) {
-  is_first = true;
-  dq = 130.f;
-  q = last_q = 500.;
-  value = last_value = 0;
-  target = enc.target_value_;
-  do_size_search = (enc.target_mode_ == SjpegEncodeParam::TARGET_SIZE);
-  // Adaptive start search point for psnr search.
-  if (!do_size_search) {
-    q = last_q = 500. * 11 / (1. + fabs(enc.target_value_ - 31.));
-  }
-}
+// convergence is considered reached if |dq| < kdQLimit.
+static const float kdQLimit = 0.15;
 
 static float Clamp(float v, float min, float max) {
   return (v < min) ? min : (v > max) ? max : v;
 }
 
-bool PassStats::ComputeNextQ(float result) {
-  value = result;
-  if (is_first) {
-    if (do_size_search) {
-      dq = (value < target) ? -dq : dq;
-    } else {
-      // Change first dq based on distance from target.
-      dq = dq * (value - target) / kdQScalePSNR;
-    }
-    is_first = false;
-  } else {
-    if (fabs(value - last_value) > 0.02 * value) {
-      const double slope = (target - value) / (last_value - value);
-      dq = (float)(slope * (last_q - q));
-    } else {
-      dq = 0.;  // we're done?!
-    }
-  }
-  // Prevent overshot.
-  if (target < value) {
-    dq = dq * 0.9;
-  }
-  // Slow down when close to target.
-  if (fabs(target - value) < 0.05 * value) {
-    dq = dq * 0.7;
-  }
-  // Limit variable to avoid large swings.
-  dq = Clamp(dq, -kdQThresh, kdQThresh);
-  last_q = q;
-  last_value = value;
-  q = Clamp(q + dq, 0.f, 2000.f);
-  return fabs(q - last_q) < kdQLimit;
+bool SearchHook::Setup(const SjpegEncodeParam& param) {
+  for_size = (param.target_mode == SjpegEncodeParam::TARGET_SIZE);
+  target = param.target_value;
+  tolerance = param.tolerance / 100.;
+  qmin = (param.qmin < 0) ? 0 : param.qmin;
+  qmax = (param.qmax > 100) ? 100 :
+         (param.qmax < param.qmin) ? param.qmin : param.qmax;
+  q = Clamp(SjpegEstimateQuality(param.quant_[0], false), qmin, qmax);
+  value = 0;   // undefined for at this point
+  return true;
 }
+
+bool SearchHook::Update(float result) {
+  value = result;
+  bool done = (fabs(value - target) < tolerance * target);
+  if (done) return true;
+
+  if (value > target) {
+    qmax = q;
+  } else {
+    qmin = q;
+  }
+  const float last_q = q;
+  q = (qmin + qmax) / 2.;
+  done = (fabs(q - last_q) < kdQLimit);
+  if (DBG_PRINT) {
+    printf("q=%.2f value:%.1f -> next-q=%.2f\n", last_q, value, q);
+  }
+  return done;
+}
+
+void SearchHook::NextMatrix(int idx, uint8_t dst[64]) {
+  SetQuantMatrix(kDefaultMatrices[idx], GetQFactor(q), dst);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Helpers for the search
 
 void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   assert(use_extra_memory_);
@@ -146,25 +115,22 @@ void Encoder::LoopScan() {
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
   DCTCoeffs* const base_coeffs = new DCTCoeffs[nb_mbs];
 
-  uint8_t base_quant[2][64], opt_quants[2][64];
-  for (int c = 0; c < 2; ++c) {
-    CopyQuantMatrix(quants_[c].quant_, base_quant[c]);
-  }
+  uint8_t opt_quants[2][64];
 
   // Dichotomy passes
-  PassStats stats(*this);
+  float best = 0.;     // best distance
   for (int p = 0; p < passes_; ++p) {
+    // set new matrices to evaluate
     for (int c = 0; c < 2; ++c) {
-      SetQuantMatrix(base_quant[c], stats.q, quants_[c].quant_);
+      search_hook_->NextMatrix(c, quants_[c].quant_);
       FinalizeQuantMatrix(&quants_[c], q_bias_);
     }
-
     if (use_adaptive_quant_) {
       AnalyseHisto();   // adjust quant_[] matrices
     }
 
     float result;
-    if (stats.do_size_search) {
+    if (search_hook_->for_size) {
       // compute pass to store coeffs / runs / dc_code_
       StoreRunLevels(base_coeffs);
       if (optimize_size_) {
@@ -178,24 +144,23 @@ void Encoder::LoopScan() {
       // and measure the distortion.
       result = ComputePSNR();
     }
-    if (DBG_PRINT) printf("pass #%d: q=%f value:%.2f\n", p, stats.q, result);
+    if (DBG_PRINT) printf("pass #%d: q=%f value:%.2f\n",
+                          p, search_hook_->q, result);
 
-    if (p > 0 && min_psnr_ > 0.) {
-      const float psnr = stats.do_size_search ? ComputePSNR() : result;
-      if (psnr < min_psnr_) {
-        stats.BackTrack();
-        continue;
+    if (p == 0 || fabs(result - search_hook_->target) < best) {
+      // save the matrices for later, if they are better
+      for (int c = 0; c < 2; ++c) {
+        CopyQuantMatrix(quants_[c].quant_, opt_quants[c]);
       }
+      best = fabs(result - search_hook_->target);
     }
-    for (int c = 0; c < 2; ++c) {
-      CopyQuantMatrix(quants_[c].quant_, opt_quants[c]);
-    }
-    if (stats.ComputeNextQ(result)) break;
+    if (search_hook_->Update(result)) break;
   }
-  SetQuantMatrices(opt_quants);   // set the final matrix
+  // transfer back the final matrices
+  SetQuantMatrices(opt_quants);
 
   // optimize Huffman table now, if we haven't already during the search
-  if (!stats.do_size_search) {
+  if (!search_hook_->for_size) {
     StoreRunLevels(base_coeffs);
     if (optimize_size_) {
       StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
@@ -308,5 +273,3 @@ float Encoder::ComputePSNR() const {
   }
   return GetPSNR(error, 64ull * nb_mbs * mcu_blocks_);
 }
-
-}    // namespace sjpeg

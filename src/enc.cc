@@ -132,13 +132,13 @@ Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb)
     in_blocks_base_(NULL),
     in_blocks_(NULL),
     have_coeffs_(false),
-    passes_(1),
-    min_psnr_(0.),
     all_run_levels_(NULL),
     nb_run_levels_(0),
     max_run_levels_(0),
     qdelta_max_luma_(kDefaultDeltaMaxLuma),
-    qdelta_max_chroma_(kDefaultDeltaMaxChroma) {
+    qdelta_max_chroma_(kDefaultDeltaMaxChroma),
+    passes_(1),
+    search_hook_(nullptr) {
   SetCompressionMethod(kDefaultMethod);
   SetQuality(kDefaultQuality);
   SetYUVFormat(false);
@@ -175,10 +175,9 @@ void Encoder::SetCompressionMethod(int method) {
   assert(method >= 0 && method <= 8);
   use_adaptive_quant_ = (method >= 3);
   optimize_size_ = (method != 0) && (method != 3);
-  use_extra_memory_ = (method == 3) || (method == 4) || (method == 7)
-                   || (passes_ > 1);
+  use_extra_memory_ = (method == 3) || (method == 4) || (method == 7);
   reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5)
-                   || (method == 7) || (method == 8) || (passes_ > 1);
+                   || (method == 7) || (method == 8);
   use_trellis_ = (method >= 6);
 }
 
@@ -1900,7 +1899,9 @@ void SjpegEncodeParam::Init(int quality_factor) {
   target_mode = TARGET_NONE;
   target_value = 0;
   passes = 1;
-  min_psnr = 0.;
+  tolerance = 1.;
+  qmin = 0.;
+  qmax = 100.;
 }
 
 void SjpegEncodeParam::SetQuality(int quality_factor) {
@@ -1925,7 +1926,7 @@ void SjpegEncodeParam::SetReduction(int reduction) {
 }
 
 void SjpegEncodeParam::SetLimitQuantization(bool limit_quantization,
-                                            int tolerance) {
+                                            int min_quant_tolerance) {
   if (!limit_quantization) {
     min_quant_[0] = NULL;
     min_quant_[1] = NULL;
@@ -1933,9 +1934,9 @@ void SjpegEncodeParam::SetLimitQuantization(bool limit_quantization,
     min_quant_[0] = quant_[0];
     min_quant_[1] = quant_[1];
   }
-  min_quant_tolerance_ = tolerance < 0 ? 0
-                       : tolerance > 100 ? 100
-                       : tolerance;
+  min_quant_tolerance_ = min_quant_tolerance < 0 ? 0
+                       : min_quant_tolerance > 100 ? 100
+                       : min_quant_tolerance;
 }
 
 void SjpegEncodeParam::ResetMetadata() {
@@ -1948,15 +1949,6 @@ void SjpegEncodeParam::ResetMetadata() {
 bool Encoder::InitFromParam(const SjpegEncodeParam& param) {
   SetQuantMatrices(param.quant_);
   SetMinQuantMatrices(param.min_quant_, param.min_quant_tolerance_);
-
-  target_mode_ = param.target_mode;
-  target_value_ = param.target_value;
-  passes_ = (param.passes < 1) ? 1 : (param.passes > 20) ? 20 : param.passes;
-  min_psnr_ = (param.min_psnr > 0) ? param.min_psnr : 0.;
-  if (target_mode_ == SjpegEncodeParam::TARGET_PSNR &&
-      min_psnr_ > target_value_) {
-    min_psnr_ = target_value_;
-  }
 
   int method = param.Huffman_compress ? 1 : 0;
   if (param.adaptive_quantization) method += 3;
@@ -1972,6 +1964,15 @@ bool Encoder::InitFromParam(const SjpegEncodeParam& param) {
   SetMetadata(param.exif, Encoder::EXIF);
   SetMetadata(param.xmp, Encoder::XMP);
   SetMetadata(param.app_markers, Encoder::MARKERS);
+
+  passes_ = (param.passes < 1) ? 1 : (param.passes > 20) ? 20 : param.passes;
+  if (passes_ > 1) {
+    use_extra_memory_ = true;
+    reuse_run_levels_ = true;
+    search_hook_ = (param.search_hook == nullptr) ? &default_hook
+                                                  : param.search_hook;
+    if (!search_hook_->Setup(param)) return false;
+  }
 
   return true;
 }
