@@ -355,13 +355,6 @@ struct Encoder {
   void AllocateBlocks(size_t num_blocks);
   void DesallocateBlocks();
 
-  // multi-pass parameters
-  SjpegEncodeParam::TargetMode target_mode_;
-  float target_value_;
-  int passes_;
-  float min_psnr_;
-  friend struct PassStats;
-
   // these are for regular compression methods 0 or 2.
   RunLevel base_run_levels_[64];
 
@@ -403,6 +396,11 @@ struct Encoder {
   void AnalyseHisto();
   void ResetHisto();  // initialize histos_[]
   Histo histos_[2];
+
+  // multi-pass parameters
+  int passes_;
+  SearchHook default_hook;
+  SearchHook* search_hook_;
 
   static const float kHistoWeight[QSIZE];
 
