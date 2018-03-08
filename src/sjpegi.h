@@ -114,7 +114,7 @@ void ApplySharpYUVConversion(const uint8_t* const rgb,
 ///////////////////////////////////////////////////////////////////////////////
 // some useful helper functions around quant matrices
 
-extern int GetQFactor(int q);
+extern float GetQFactor(float q);   // convert quality factor -> scale factor
 extern void CopyQuantMatrix(const uint8_t in[64], uint8_t out[64]);
 extern void SetQuantMatrix(const uint8_t in[64], int q_factor, uint8_t out[64]);
 extern void SetMinQuantMatrix(const uint8_t* const m, uint8_t out[64],

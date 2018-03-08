@@ -90,7 +90,7 @@ const uint8_t kDefaultMatrices[2][64] = {
     99,  99,  99,  99,  99,  99,  99,  99 }
 };
 
-int GetQFactor(int q) {
+float GetQFactor(float q) {
   // we use the same mapping than jpeg-6b, for coherency
   return (q <= 0) ? 5000 : (q < 50) ? 5000 / q : (q < 100) ? 2 * (100 - q) : 0;
 }
