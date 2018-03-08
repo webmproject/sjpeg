@@ -241,7 +241,7 @@ void Encoder::InitializeStaticPointers() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// memory and internal buffers managment. We grow on demand.
+// memory and internal buffers management. We grow on demand.
 
 void Encoder::CheckBuffers() {
   // maximum macroblock size, worst-case, is 24bits*64*6 coeffs = 1152bytes
@@ -955,7 +955,7 @@ void Encoder::AnalyseHisto() {
     const int idx = quant_idx_[c];
     const Histo* const histo = &histos_[idx];
     // For chrominance, it can be visually damageable to be too
-    // agressive on the filesize. So with the default settings we
+    // aggressive on the filesize. So with the default settings we
     // restrict the algorithm to mainly try to *increase* the bitrate
     // (and quality) by using a smaller qdelta_max_chroma_.
     // delta_max is only use during the second phase, but not during
@@ -1255,8 +1255,9 @@ static void BuildOptimalTable(HuffmanTable* const t,
   for (int i = 0; i < size; ++i) {
     const uint64_t v = freq[i];
     if (v > 0) {
-      // we pack the sorted key (32bits) and index (9bits) into a single uint64_t,
-      // so we don't have to resort to structs (and we avoid tie-breaks, too)
+      // we pack the sorted key (32bits) and index (9bits) into a single
+      // uint64_t, so we don't have to resort to structs (and we avoid
+      // tie-breaks, too)
       sorted_freq[nb_syms++] = (v << 9) | i;
     }
     codesizes[i] = 0;
@@ -1774,12 +1775,12 @@ class EncoderSharp420 : public Encoder420 {
   }
 
  private:
-   uint8_t* y_plane_;
-   int y_step_;
-   uint8_t* u_plane_;
-   uint8_t* v_plane_;
-   int uv_step_;
-   uint8_t* yuv_memory_;
+  uint8_t* y_plane_;
+  int y_step_;
+  uint8_t* u_plane_;
+  uint8_t* v_plane_;
+  int uv_step_;
+  uint8_t* yuv_memory_;
 };
 
 void EncoderSharp420::GetSamples(int mb_x, int mb_y,

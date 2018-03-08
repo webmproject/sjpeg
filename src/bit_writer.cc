@@ -16,10 +16,11 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
-#include "sjpeg.h"
 #include "bit_writer.h"
 
 #include <string.h>
+
+#include "sjpeg.h"
 
 namespace sjpeg {
 
@@ -103,4 +104,4 @@ void BitCounter::AddBits(const uint32_t bits, size_t nbits) {
   }
 }
 
-}   // namespace jpeg
+}   // namespace sjpeg
