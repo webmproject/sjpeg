@@ -84,19 +84,21 @@ int main(int argc, char * argv[]) {
     "  -short .......... Print shorter 1-line info.\n"
     "\n"
     "Advanced options:\n"
-    "  -yuv_mode ....... YUV mode to use:\n"
-    "                    0: automatic decision (default)\n"
-    "                    1: use YUV 4:2:0\n"
-    "                    2: use 'Sharp' YUV 4:2:0 conversion\n"
-    "                    3: use YUV 4:4:4 (full resolution for U/V planes)\n"
-    "  -no_limit ....... If true, allow the quality factor to be larger\n"
-    "                    than the original (JPEG input only).\n"
-    "  -no_optim ....... Don't use Huffman optimization (=faster)\n"
-    "  -no_adapt ....... Don't use adaptive quantization (=faster)\n"
-    "  -trellis ........ use trellis-based quantization (=slower)\n"
-    "  -no_metadata .... Ignore metadata from the source.\n"
-    "  -pass <int> ..... number of passes for -size or -psnr (default: 10\n"
-    "  -min_psnr <float> minimum PSNR value limit during dichotomy\n"
+    "  -yuv_mode .......... YUV mode to use:\n"
+    "                       0: automatic decision (default)\n"
+    "                       1: use YUV 4:2:0\n"
+    "                       2: use 'Sharp' YUV 4:2:0 conversion\n"
+    "                       3: use YUV 4:4:4 (full resolution for U/V planes)\n"
+    "  -no_limit .......... If true, allow the quality factor to be larger\n"
+    "                       than the original (JPEG input only).\n"
+    "  -no_optim .......... Don't use Huffman optimization (=faster)\n"
+    "  -no_adapt .......... Don't use adaptive quantization (=faster)\n"
+    "  -trellis ........... use trellis-based quantization (=slower)\n"
+    "  -no_metadata ....... Ignore metadata from the source.\n"
+    "  -pass <int> ........ number of passes for -size or -psnr (default: 10\n"
+    "  -qmin <int> ........ minimum acceptable quality factor during search\n"
+    "  -qmax <int> ........ maximum acceptable quality factor during search\n"
+    "  -tolerance <float> . tolerance for convergence during search\n"
     "\n"
     "\n"
     "If the input format is JPEG, the recompression will not go beyond the\n"
@@ -146,8 +148,12 @@ int main(int argc, char * argv[]) {
     } else if (!strcmp(argv[c], "-psnr") && c + 1 < argc) {
       param.target_mode = SjpegEncodeParam::TARGET_PSNR;
       param.target_value = atof(argv[++c]);
-    } else if (!strcmp(argv[c], "-min_psnr")) {
-      param.min_psnr = atof(argv[++c]);
+    } else if (!strcmp(argv[c], "-tolerance")) {
+      param.tolerance = atof(argv[++c]);
+    } else if (!strcmp(argv[c], "-qmin")) {
+      param.qmin = atof(argv[++c]);
+    } else if (!strcmp(argv[c], "-qmax")) {
+      param.qmax = atof(argv[++c]);
     } else if (!strcmp(argv[c], "-size") && c + 1 < argc) {
       param.target_mode = SjpegEncodeParam::TARGET_SIZE;
       param.target_value = atof(argv[++c]);
