@@ -1881,7 +1881,7 @@ uint32_t SjpegVersion() {
 ////////////////////////////////////////////////////////////////////////////////
 // Parametrized call
 
-SjpegEncodeParam::SjpegEncodeParam() {
+SjpegEncodeParam::SjpegEncodeParam() : search_hook(nullptr) {
   Init(kDefaultQuality);
 }
 
