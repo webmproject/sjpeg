@@ -36,8 +36,8 @@
 
 // The intrinsics currently cause compiler errors with arm-nacl-gcc and the
 // inline assembly would need to be modified for use with Native Client.
-#if (defined(__ARM_NEON__) || defined(SJPEG_ANDROID_NEON) || \
-     defined(__aarch64__))
+#if (defined(__ARM_NEON__) || defined(__aarch64__)) && \
+    defined(SJPEG_ANDROID_NEON)
 #define SJPEG_USE_NEON
 #endif
 
