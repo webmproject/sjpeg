@@ -645,9 +645,9 @@ static bool SearchBestPrev(const TrellisNode* const nodes0, TrellisNode* node,
 #define NUM_TRELLIS_NODES 2
 
 int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
-                                       const Quantizer* const Q,
-                                       DCTCoeffs* const out,
-                                       RunLevel* const rl) {
+                                  const Quantizer* const Q,
+                                  DCTCoeffs* const out,
+                                  RunLevel* const rl) {
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
   TrellisNode nodes[1 + NUM_TRELLIS_NODES * 63];  // 1 sink + n channels
@@ -798,7 +798,7 @@ void Encoder::ResetDCs() {
 }
 
 void Encoder::CodeBlock(const DCTCoeffs* const coeffs,
-                             const RunLevel* const rl) {
+                        const RunLevel* const rl) {
   const int idx = coeffs->idx_;
   const int q_idx = quant_idx_[idx];
 
@@ -1196,7 +1196,7 @@ void Encoder::ResetEntropyStats() {
 }
 
 void Encoder::AddEntropyStats(const DCTCoeffs* const coeffs,
-                                   const RunLevel* const run_levels) {
+                              const RunLevel* const run_levels) {
   // freq_ac_[] and freq_dc_[] cannot overflow 32bits, since the maximum
   // resolution allowed is 65535 * 65535. The sum of all frequencies cannot
   // be greater than 32bits, either.
@@ -1416,7 +1416,7 @@ void Encoder::CompileEntropyStats() {
 }
 
 void Encoder::StoreOptimalHuffmanTables(size_t nb_mbs,
-                                             const DCTCoeffs* coeffs) {
+                                        const DCTCoeffs* coeffs) {
   // optimize Huffman tables
   ResetEntropyStats();
   const RunLevel* run_levels = all_run_levels_;
@@ -1588,9 +1588,9 @@ void Encoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
 }
 
 const uint8_t* Encoder::GetReplicatedSamples(const uint8_t* rgb,
-                                                  int rgb_step,
-                                                  int sub_w, int sub_h,
-                                                  int w, int h) {
+                                             int rgb_step,
+                                             int sub_w, int sub_h,
+                                             int w, int h) {
   assert(sub_w > 0 && sub_h > 0);
   if (sub_w > w) {
     sub_w = w;
@@ -1618,9 +1618,9 @@ const uint8_t* Encoder::GetReplicatedSamples(const uint8_t* rgb,
 
 // TODO(skal): merge with above function? Probably slower...
 const uint8_t* Encoder::GetReplicatedYUVSamples(const uint8_t* in,
-                                                     int step,
-                                                     int sub_w, int sub_h,
-                                                     int w, int h) {
+                                                int step,
+                                                int sub_w, int sub_h,
+                                                int w, int h) {
   assert(sub_w > 0 && sub_h > 0);
   if (sub_w > w) {
     sub_w = w;
@@ -1784,7 +1784,7 @@ class EncoderSharp420 : public Encoder420 {
 };
 
 void EncoderSharp420::GetSamples(int mb_x, int mb_y,
-                                      bool clipped, int16_t* out) {
+                                 bool clipped, int16_t* out) {
   GetLumaSamples(mb_x, mb_y, clipped, out);
 
   // Chroma
@@ -1957,7 +1957,7 @@ bool Encoder::InitFromParam(const SjpegEncodeParam& param) {
     method = (method == 4) ? 7 : (method == 6) ? 8 : method;
   }
 
-  SetCompressionMethod(method);  // depends on passes_
+  SetCompressionMethod(method);
   SetQuantizationBias(param.quantization_bias, param.adaptive_bias);
   SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);
 

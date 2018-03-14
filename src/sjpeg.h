@@ -39,7 +39,7 @@ uint32_t SjpegVersion();
 // deallocated by using 'delete[]' or SjpegFreeBuffer() calls.
 // Input data 'rgb' are the samples in sRGB format, in R/G/B memory order.
 // Picture dimension is width x height.
-// Retuns 0 in case of error.
+// Returns 0 in case of error.
 size_t SjpegCompress(const uint8_t* rgb, int width, int height, int quality,
                      uint8_t** out_data);
 
