@@ -961,7 +961,7 @@ void Encoder::AnalyseHisto() {
     // delta_max is only use during the second phase, but not during
     // the first phase of deriving an optimal lambda.
     assert(QDELTA_MAX >= qdelta_max_luma_);
-    assert(QDELTA_MAX >=qdelta_max_chroma_);
+    assert(QDELTA_MAX >= qdelta_max_chroma_);
     const int delta_max =
       ((idx == 0) ? qdelta_max_luma_ : qdelta_max_chroma_) - QDELTA_MIN;
     assert(delta_max < QSIZE);
@@ -1015,7 +1015,7 @@ void Encoder::AnalyseHisto() {
               // h[i] = this bin's weight
               const int v = (i << HSHIFT) + HHALF;
               const int qv = (v * idq + bias) >> FP_BITS;
-              // TODO(skal): for a given 'last' value, we know the upper imit
+              // TODO(skal): for a given 'last' value, we know the upper limit
               // on dq that will make *all* quantized 'qv' values be zero.
               // => We can restrict the loop on 'dq' using 'last'.
               if (qv) {
@@ -1078,12 +1078,12 @@ void Encoder::AnalyseHisto() {
       if (omit_channels & (1ULL << pos)) {
         continue;
       }
-      double best_score = FLT_MAX;
+      float best_score = FLT_MAX;
       int best_dq = 0;
       for (int delta = 0; delta <= delta_max; ++delta) {
         if (distortions[pos][delta] < FLT_MAX) {
-          const double score = distortions[pos][delta]
-                             + lambda * sizes[pos][delta];
+          const float score = distortions[pos][delta]
+                            + lambda * sizes[pos][delta];
           if (score < best_score) {
             best_score = score;
             best_dq = delta + QDELTA_MIN;
