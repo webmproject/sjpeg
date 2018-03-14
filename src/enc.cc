@@ -177,8 +177,8 @@ void Encoder::SetCompressionMethod(int method) {
   optimize_size_ = (method != 0) && (method != 3);
   use_extra_memory_ = (method == 3) || (method == 4) || (method == 7);
   reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5)
-                   || (method == 7) || (method == 8);
-  use_trellis_ = (method >= 6);
+                   || (method >= 7);
+  use_trellis_ = (method >= 7);
 }
 
 void Encoder::SetMetadata(const std::string& data, MetadataType type) {
