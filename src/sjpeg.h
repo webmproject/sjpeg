@@ -86,16 +86,23 @@ size_t SjpegCompress(const uint8_t* rgb, int width, int height, int quality,
 //  probably use method #4.
 //
 // Parameter 'yuv_mode': decides which colorspace to use. Possible values:
-//   * 0: automated decision between YUV 4:2:0 / sharp-YUV 4:2:0 and YUV 4:4:4
-//   * 1: YUV 4:2:0
-//   * 2: YUV 4:2:0 with 'sharp' conversion
-//   * 3: YUV 4:4:4
+//   * YUV_AUTO  (0): automated decision between YUV 4:2:0 / sharp-YUV 4:2:0 and YUV 4:4:4
+//   * YUV_420   (1): YUV 4:2:0
+//   * YUV_SHARP (2): YUV 4:2:0 with 'sharp' conversion
+//   * YUV_444   (3): YUV 4:4:4
+typedef enum {
+  SJPEG_YUV_AUTO = 0,
+  SJPEG_YUV_420,
+  SJPEG_YUV_SHARP,
+  SJPEG_YUV_444
+} SjpegYUVMode;
+
 size_t SjpegEncode(const uint8_t* rgb,
                    int width, int height, int stride,
                    uint8_t** out_data,
                    int quality,
                    int compression_method,
-                   int yuv_mode);
+                   SjpegYUVMode yuv_mode);
 
 // Deallocate a compressed bitstream by calling 'delete []'. These are the
 // bitstreams returned by SjpegEncode() or SjpegCompress(). Useful if the
@@ -130,13 +137,10 @@ int SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma);
 void SjpegQuantMatrix(int quality, bool for_chroma, uint8_t matrix[64]);
 
 // Returns the favored conversion mode to use (YUV420 / sharp-YUV420 / YUV444)
-// Return values:
-//   * 1: YUV 4:2:0
-//   * 2: sharp-YUV 4:2:0
-//   * 3: YUV 4:4:4
+// Return values: SJPEG_YUV_420, SJPEG_YUV_SHARP or SJPEG_YUV_444
 // If risk is not NULL, the riskiness score (between 0 and 100) is returned.
-int SjpegRiskiness(const uint8_t* rgb, int width, int height, int step,
-                   float* risk);
+SjpegYUVMode SjpegRiskiness(const uint8_t* rgb, int width, int height,
+                            int stride, float* risk);
 
 #if defined(__cplusplus) || defined(c_plusplus)
 }    // extern "C"
@@ -182,7 +186,7 @@ struct SjpegEncodeParam {
   void SetLimitQuantization(bool limit_quantization = true, int tolerance = 0);
 
   // main compression parameters
-  int yuv_mode;                 // YUV-420/444 decisions
+  SjpegYUVMode yuv_mode;        // YUV-420...444 decisions
   bool Huffman_compress;        // if true, use optimized Huffman tables.
   bool adaptive_quantization;   // if true, use optimized quantizer matrices.
   bool adaptive_bias;           // if true, use perceptual bias adaptation

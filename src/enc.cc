@@ -1820,15 +1820,15 @@ void EncoderSharp420::GetSamples(int mb_x, int mb_y,
 // all-in-one factory to pickup the right encoder instance
 
 Encoder* EncoderFactory(const uint8_t* rgb,
-                             int W, int H, int stride, int yuv_mode) {
-  if (yuv_mode <= 0) {
+                             int W, int H, int stride, SjpegYUVMode yuv_mode) {
+  if (yuv_mode == SJPEG_YUV_AUTO) {
     yuv_mode = SjpegRiskiness(rgb, W, H, stride, NULL);
   }
 
   Encoder* enc = NULL;
-  if (yuv_mode == 1) {
+  if (yuv_mode == SJPEG_YUV_420) {
     enc = new Encoder420(W, H, stride, rgb);
-  } else if (yuv_mode == 2) {
+  } else if (yuv_mode == SJPEG_YUV_SHARP) {
     enc = new EncoderSharp420(W, H, stride, rgb);
   } else {
     enc = new Encoder444(W, H, stride, rgb);
@@ -1842,7 +1842,8 @@ Encoder* EncoderFactory(const uint8_t* rgb,
 // public plain-C functions
 
 size_t SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
-                   uint8_t** out_data, int quality, int method, int yuv_mode) {
+                   uint8_t** out_data, int quality, int method,
+                   SjpegYUVMode yuv_mode) {
   if (rgb == NULL || out_data == NULL || W <= 0 || H <= 0 || stride < 3 * W) {
     return 0;
   }
@@ -1865,7 +1866,7 @@ size_t SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
 
 size_t SjpegCompress(const uint8_t* rgb, int W, int H, int quality,
                      uint8_t** out_data) {
-  return SjpegEncode(rgb, W, H, 3 * W, out_data, quality, 4, 0);
+  return SjpegEncode(rgb, W, H, 3 * W, out_data, quality, 4, SJPEG_YUV_AUTO);
 }
 
 void SjpegFreeBuffer(const uint8_t* buffer) {
@@ -1889,7 +1890,7 @@ void SjpegEncodeParam::Init(int quality_factor) {
   Huffman_compress = true;
   adaptive_quantization = true;
   use_trellis = false;
-  yuv_mode = 0;
+  yuv_mode = SJPEG_YUV_AUTO;
   quantization_bias = kDefaultBias;
   qdelta_max_luma = kDefaultDeltaMaxLuma;
   qdelta_max_chroma = kDefaultDeltaMaxChroma;
