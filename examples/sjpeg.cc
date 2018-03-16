@@ -64,7 +64,7 @@ int main(int argc, char * argv[]) {
   bool quiet = false;
   bool short_output = false;
   float riskiness = 0;
-  int yuv_mode_rec = 0;
+  SjpegYUVMode yuv_mode_rec = SJPEG_YUV_AUTO;
   const char* const usage =
     "sjpeg: Commandline utility to recompress or compress pictures to JPEG.\n"
     "Usage:  sjpeg infile [-o outfile.jpg] [-q quality] ...\n"
@@ -100,6 +100,9 @@ int main(int argc, char * argv[]) {
     "  -qmax <int> ........ maximum acceptable quality factor during search\n"
     "  -tolerance <float> . tolerance for convergence during search\n"
     "\n"
+    "  -444 ............... shortcut for '-yuv_mode 3'\n"
+    "  -sharp ............. shortcut for '-yuv_mode 2'\n"
+    "  -420 ............... shortcut for '-yuv_mode 1'\n"
     "\n"
     "If the input format is JPEG, the recompression will not go beyond the\n"
     "original quality, *except* if '-no_limit' option is used."
@@ -166,12 +169,13 @@ int main(int argc, char * argv[]) {
     } else if (!strcmp(argv[c], "-no_metadata")) {
       no_metadata = true;
     } else if (!strcmp(argv[c], "-yuv_mode") && c + 1 < argc) {
-      param.yuv_mode = atoi(argv[++c]);
-      if (param.yuv_mode < 0 || param.yuv_mode > 3) {
+      const int mode = atoi(argv[++c]);
+      if (mode < 0 || mode > 3) {
         fprintf(stdout, "Error: invalid range for option '%s': %s\n",
                 argv[c - 1], argv[c]);
         return 1;
       }
+      param.yuv_mode = (SjpegYUVMode)mode;
     } else if (!strcmp(argv[c], "-i") || !strcmp(argv[c], "-info")) {
       info = true;
     } else if (!strcmp(argv[c], "-quiet")) {

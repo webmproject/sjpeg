@@ -67,7 +67,7 @@ struct Params {
   int estimated_quality;
 
   float riskiness;
-  int yuv_mode_rec;
+  SjpegYUVMode yuv_mode_rec;
   uint32_t elapsed;      // encoding time in ms
   int quality;
   int reduction;
@@ -488,7 +488,7 @@ static void HandleKey(unsigned char key, int pos_x, int pos_y) {
     kParams.show = 3;
     glutPostRedisplay();
   } else if (key >= '0' && key <= '3') {
-    kParams.param.yuv_mode = key - '0';
+    kParams.param.yuv_mode = (SjpegYUVMode)(key - '0');
     FullRedraw();
   } else if (key == 'o') {
     kParams.param.Huffman_compress = !kParams.param.Huffman_compress;

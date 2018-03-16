@@ -185,8 +185,8 @@ static const int kNoiseLevel = 4;
 static const double kThreshYU420 = 40.0;
 static const double kThreshSharpYU420 = 70.0;
 
-int SjpegRiskiness(const uint8_t* rgb, int width, int height, int stride,
-                   float* risk) {
+SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
+                            int width, int height, int stride, float* risk) {
   static const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
 
   std::vector<uint16_t> row1(width), row2(width);
@@ -222,10 +222,10 @@ int SjpegRiskiness(const uint8_t* rgb, int width, int height, int stride,
   total_score = (total_score > 25.) ? 100. : total_score * 100. / 25.;
   if (risk != NULL) *risk = (float)total_score;
 
-  const int recommendation =
-      (total_score < kThreshYU420) ?      1 :   // YUV420
-      (total_score < kThreshSharpYU420) ? 2 :   // SharpYUV420
-                                          3;    // YUV444
+  const SjpegYUVMode recommendation =
+      (total_score < kThreshYU420) ?      SJPEG_YUV_420 :
+      (total_score < kThreshSharpYU420) ? SJPEG_YUV_SHARP :
+                                          SJPEG_YUV_444;
   return recommendation;
 }
 
