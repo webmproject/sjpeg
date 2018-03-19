@@ -116,7 +116,8 @@ void ApplySharpYUVConversion(const uint8_t* const rgb,
 
 extern float GetQFactor(float q);   // convert quality factor -> scale factor
 extern void CopyQuantMatrix(const uint8_t in[64], uint8_t out[64]);
-extern void SetQuantMatrix(const uint8_t in[64], int q_factor, uint8_t out[64]);
+extern void SetQuantMatrix(const uint8_t in[64], float q_factor,
+                           uint8_t out[64]);
 extern void SetMinQuantMatrix(const uint8_t* const m, uint8_t out[64],
                               int tolerance);
 
@@ -195,7 +196,7 @@ struct Encoder {
   virtual ~Encoder();
 
   // setters
-  void SetQuality(int q);
+  void SetQuality(float q);
   void SetQuantMatrices(const uint8_t m[2][64]);
   void SetMinQuantMatrices(const uint8_t* const m[2], int tolerance);
   void SetCompressionMethod(int method);
