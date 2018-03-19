@@ -34,7 +34,7 @@ using std::vector;
 ///////////////////////////////////////////////////////////////////////////////
 
 void PrintMatrix(const char name[], const uint8_t m[64], bool for_chroma) {
-  fprintf(stdout, " %s quantization matrix (estimated quality: %d)\n",
+  fprintf(stdout, " %s quantization matrix (estimated quality: %.1f)\n",
           name, SjpegEstimateQuality(m, for_chroma));
   for (int j = 0; j < 8; ++j) {
     for (int i = 0; i < 8; ++i) fprintf(stdout, "%3d ", m[i + j * 8]);
@@ -54,8 +54,8 @@ int main(int argc, char * argv[]) {
   const char* input_file = NULL;
   const char* output_file = NULL;
   SjpegEncodeParam param;
-  int reduction = 100;
-  int quality = 75;
+  float reduction = 100;
+  float quality = 75;
   bool use_reduction = true;  // until '-q' is used...
   bool no_metadata = false;
   bool estimate = false;
@@ -68,10 +68,10 @@ int main(int argc, char * argv[]) {
   const char* const usage =
     "sjpeg: Commandline utility to recompress or compress pictures to JPEG.\n"
     "Usage:  sjpeg infile [-o outfile.jpg] [-q quality] ...\n"
-    "  -q quality ...... Quality factor in [0..100] range.\n"
+    "  -q <float> ...... Quality factor in [0..100] range.\n"
     "                    Value of 100 gives the best quality, largest file.\n"
     "                    Default value is 75.\n"
-    "  -r reduction .... Reduction factor in [0..100] range.\n"
+    "  -r <float> ...... Reduction factor in [0..100] range.\n"
     "                    Default value is 100. Lower value will reduce the \n"
     "                    file size.\n"
     "  -o filename ..... specifies the output file name.\n"
@@ -96,8 +96,8 @@ int main(int argc, char * argv[]) {
     "  -trellis ........... use trellis-based quantization (=slower)\n"
     "  -no_metadata ....... Ignore metadata from the source.\n"
     "  -pass <int> ........ number of passes for -size or -psnr (default: 10\n"
-    "  -qmin <int> ........ minimum acceptable quality factor during search\n"
-    "  -qmax <int> ........ maximum acceptable quality factor during search\n"
+    "  -qmin <float> ...... minimum acceptable quality factor during search\n"
+    "  -qmax <float> ...... maximum acceptable quality factor during search\n"
     "  -tolerance <float> . tolerance for convergence during search\n"
     "\n"
     "  -444 ............... shortcut for '-yuv_mode 3'\n"
@@ -125,7 +125,7 @@ int main(int argc, char * argv[]) {
     } else if (!strcmp(argv[c], "-o") && c + 1 < argc) {
       output_file = argv[++c];
     } else if (!strcmp(argv[c], "-q") && c + 1 < argc) {
-      quality = atoi(argv[++c]);
+      quality = atof(argv[++c]);
       use_reduction = false;
       if (quality < 0 || quality > 100) {
         fprintf(stdout, "Error: invalid range for option '%s': %s\n",
@@ -133,7 +133,7 @@ int main(int argc, char * argv[]) {
         return 1;
       }
     } else if (!strcmp(argv[c], "-r") && c + 1 < argc) {
-      reduction = atoi(argv[++c]);
+      reduction = atof(argv[++c]);
       use_reduction = true;
       if (reduction <= 0 || reduction > 100) {
         fprintf(stdout, "Error: invalid range for option '%s': %s\n",
@@ -278,13 +278,13 @@ int main(int argc, char * argv[]) {
 
   if (param.target_mode != SjpegEncodeParam::TARGET_NONE &&
       param.search_hook != nullptr) {
-    quality = (int)param.search_hook->q;  // retrieve the final quality used
+    quality = param.search_hook->q;  // retrieve the final quality used
   }
 
   if (!short_output && !quiet) {
     yuv_mode_rec = SjpegRiskiness(&in_bytes[0], W, H, 3 * W, &riskiness);
     fprintf(stdout, "new size:   %ld bytes (%.2lf%% of original)\n"
-                    "%s%d (adaptive: %s, Huffman: %s)\n"
+                    "%s%.1f (adaptive: %s, Huffman: %s)\n"
                     "yuv mode:   %s (riskiness: %.1lf%%)\n"
                     "elapsed:    %d ms\n",
                     (long)out.size(), 100. * out.size() / input.size(),
@@ -293,7 +293,7 @@ int main(int argc, char * argv[]) {
                     kNoYes[param.adaptive_quantization],
                     kNoYes[param.Huffman_compress],
                     kYUVModeNames[yuv_mode_rec], riskiness,
-                    (int)(1000. * encode_time));
+                    static_cast<int>(1000. * encode_time));
     if (param.iccp.size()) {
       fprintf(stdout, "ICCP:       %ld bytes\n", (long)param.iccp.size());
     }

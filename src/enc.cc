@@ -27,7 +27,7 @@
 using namespace sjpeg;
 
 // Some general default values:
-static const int kDefaultQuality = 75;
+static const float kDefaultQuality = 75.f;
 static const int kDefaultMethod = 4;
 // Rounding bias for AC coefficients, as 8bit fixed point.
 // A default value 0x78 leans toward filesize reduction.
@@ -92,17 +92,20 @@ const uint8_t kDefaultMatrices[2][64] = {
 
 float GetQFactor(float q) {
   // we use the same mapping than jpeg-6b, for coherency
-  return (q <= 0) ? 5000 : (q < 50) ? 5000 / q : (q < 100) ? 2 * (100 - q) : 0;
+  q = (q <= 0) ? 5000 : (q < 50) ? 5000 / q : (q < 100) ? 2 * (100 - q) : 0;
+  // We floor-round to integer here just to preserve compatibility with jpeg6b.
+  return floorf(q);
 }
 
 void CopyQuantMatrix(const uint8_t in[64], uint8_t out[64]) {
   memcpy(out, in, 64 * sizeof(out[0]));
 }
 
-void SetQuantMatrix(const uint8_t in[64], int q_factor, uint8_t out[64]) {
+void SetQuantMatrix(const uint8_t in[64], float q_factor, uint8_t out[64]) {
   if (in == NULL || out == NULL) return;
+  q_factor /= 100.f;
   for (int i = 0; i < 64; ++i) {
-    const int v = (in[i] * q_factor + 50) / 100;
+    const int v = static_cast<int>(in[i] * q_factor + .5f);
     // clamp to prevent illegal quantizer values
     out[i] = (v < 1) ? 1 : (v > 255) ? 255u : v;
   }
@@ -112,7 +115,7 @@ void SetMinQuantMatrix(const uint8_t* const m, uint8_t out[64], int tolerance) {
   assert(out != NULL);
   if (m != NULL) {
     for (int i = 0; i < 64; ++i) {
-      const int v = (int)m[i] * (256 - tolerance) >> 8;
+      const int v = static_cast<int>(m[i] * (256 - tolerance) >> 8);
       out[i] = (v < 1) ? 1u : (v > 255) ? 255u : v;
     }
   } else {
@@ -157,7 +160,7 @@ Encoder::~Encoder() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void Encoder::SetQuality(int q) {
+void Encoder::SetQuality(float q) {
   q = GetQFactor(q);
   SetQuantMatrix(kDefaultMatrices[0], q, quants_[0].quant_);
   SetQuantMatrix(kDefaultMatrices[1], q, quants_[1].quant_);
@@ -1029,8 +1032,8 @@ void Encoder::AnalyseHisto() {
               }
             }
           }   // end of 'i' loop
-          distortions[pos][delta] = (float)dsum;
-          sizes[pos][delta] = (float)bsum;
+          distortions[pos][delta] = static_cast<float>(dsum);
+          sizes[pos][delta] = static_cast<float>(bsum);
           const double w = kHistoWeight[delta];   // Gaussian weight
           if (w > 0.) {
             const double x = static_cast<double>(delta + QDELTA_MIN);
@@ -1842,7 +1845,7 @@ Encoder* EncoderFactory(const uint8_t* rgb,
 // public plain-C functions
 
 size_t SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
-                   uint8_t** out_data, int quality, int method,
+                   uint8_t** out_data, float quality, int method,
                    SjpegYUVMode yuv_mode) {
   if (rgb == NULL || out_data == NULL || W <= 0 || H <= 0 || stride < 3 * W) {
     return 0;
@@ -1864,7 +1867,7 @@ size_t SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-size_t SjpegCompress(const uint8_t* rgb, int W, int H, int quality,
+size_t SjpegCompress(const uint8_t* rgb, int W, int H, float quality,
                      uint8_t** out_data) {
   return SjpegEncode(rgb, W, H, 3 * W, out_data, quality, 4, SJPEG_YUV_AUTO);
 }
@@ -1886,7 +1889,7 @@ SjpegEncodeParam::SjpegEncodeParam() : search_hook(nullptr) {
   Init(kDefaultQuality);
 }
 
-void SjpegEncodeParam::Init(int quality_factor) {
+void SjpegEncodeParam::Init(float quality_factor) {
   Huffman_compress = true;
   adaptive_quantization = true;
   use_trellis = false;
@@ -1906,23 +1909,23 @@ void SjpegEncodeParam::Init(int quality_factor) {
   qmax = 100.;
 }
 
-void SjpegEncodeParam::SetQuality(int quality_factor) {
-  const int q = GetQFactor(quality_factor);
+void SjpegEncodeParam::SetQuality(float quality_factor) {
+  const float q = GetQFactor(quality_factor);
   sjpeg::SetQuantMatrix(kDefaultMatrices[0], q, quant_[0]);
   sjpeg::SetQuantMatrix(kDefaultMatrices[1], q, quant_[1]);
 }
 
 void SjpegEncodeParam::SetQuantMatrix(const uint8_t m[64], int idx,
-                                      int reduction) {
-  if (reduction <= 1) reduction = 1;
+                                      float reduction) {
+  if (reduction <= 1.f) reduction = 1.f;
   if (m == NULL) return;
   for (int i = 0; i < 64; ++i) {
-    const int v = m[i] * 100 / reduction;
+    const int v = static_cast<int>(m[i] * 100. / reduction + .5);
     quant_[idx][i] = (v > 255) ? 255u : (v < 1) ? 1u : v;
   }
 }
 
-void SjpegEncodeParam::SetReduction(int reduction) {
+void SjpegEncodeParam::SetReduction(float reduction) {
   SetQuantMatrix(quant_[0], 0, reduction);
   SetQuantMatrix(quant_[1], 1, reduction);
 }
@@ -2006,7 +2009,7 @@ std::string SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
 ////////////////////////////////////////////////////////////////////////////////
 // std::string variants
 
-std::string SjpegCompress(const uint8_t* rgb, int W, int H, int quality) {
+std::string SjpegCompress(const uint8_t* rgb, int W, int H, float quality) {
   std::string output;
   uint8_t* data = NULL;
   size_t size = SjpegCompress(rgb, W, H, quality, &data);
