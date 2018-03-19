@@ -125,46 +125,28 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size,
 
 ///////////////////////////////////////////////////////////////////////////////
 
-
-static int QToQFactor(int q) {   // we use the same mapping as jpeg-6b
-  return (q <= 0) ? 5000 : (q < 50) ? 5000 / q : (q < 100) ? 2 * (100 - q) : 0;
-}
-
-void SjpegQuantMatrix(int q, bool for_chroma, uint8_t matrix[64]) {
-  const int q_factor = QToQFactor(q);
+void SjpegQuantMatrix(float quality, bool for_chroma, uint8_t matrix[64]) {
+  const float q_factor = sjpeg::GetQFactor(quality) / 100.f;
   const uint8_t* const matrix0 = sjpeg::kDefaultMatrices[for_chroma];
   for (int i = 0; i < 64; ++i) {
-    const uint64_t v = matrix0[i] * q_factor;
-    // (x*335545) >> 25 is bit-wise equal to x/100 for all x we care about.
-    // We're short by 1 bit (because of >>25), so can't use uint32. We really
-    // need uint64.
-    matrix[i] = (v < 50ULL) ? 1
-              : (v > 25449ULL) ? 255
-              : (uint8_t)(((v + 50) * 335545ULL) >> 25);
+    const int v = static_cast<int>(matrix0[i] * q_factor + .5f);
+    matrix[i] = (v < 1) ? 1u : (v > 255) ? 255u : v;
   }
 }
 
-int SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
+float SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
   // There's a lot of way to speed up this search (dichotomy, Newton, ...)
   // but also a lot of way to fabricate a twisted input to fool it.
   // So we're better off trying all the 100 possibilities since it's not
   // a lot after all.
   int best_quality = 0;
-  int best_score = 256 * 256 * 64 + 1;
-  const uint8_t* const matrix0 = sjpeg::kDefaultMatrices[for_chroma];
+  float best_score = 256 * 256 * 64 + 1;
   for (int quality = 0; quality <= 100; ++quality) {
-    // this is the jpeg6b way of mapping quality_factor to quantization scale.
-    const int q_factor = QToQFactor(quality);
-    int score = 0;
-    for (int i = 0; i < 64; ++i) {
-      const uint64_t v = matrix0[i] * q_factor;
-      // (x*335545) >> 25 is bit-wise equal to x/100 for all x we care about.
-      // We're short by 1 bit (because of >>25), so can't use uint32. We really
-      // need uint64.
-      const int clipped_quant = (v < 50ULL) ? 1
-                              : (v > 25449ULL) ? 255
-                              : (int)(((v + 50) * 335545ULL) >> 25);
-      const int diff = clipped_quant - matrix[i];
+    uint8_t m[64];
+    SjpegQuantMatrix(quality, for_chroma, m);
+    float score = 0;
+    for (size_t i = 0; i < 64; ++i) {
+      const float diff = m[sjpeg::kZigzag[i]] - matrix[i];
       score += diff * diff;
       if (score > best_score) {
         break;

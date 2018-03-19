@@ -40,7 +40,7 @@ uint32_t SjpegVersion();
 // Input data 'rgb' are the samples in sRGB format, in R/G/B memory order.
 // Picture dimension is width x height.
 // Returns 0 in case of error.
-size_t SjpegCompress(const uint8_t* rgb, int width, int height, int quality,
+size_t SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
                      uint8_t** out_data);
 
 // Encodes an RGB picture to JPEG.
@@ -100,7 +100,7 @@ typedef enum {
 size_t SjpegEncode(const uint8_t* rgb,
                    int width, int height, int stride,
                    uint8_t** out_data,
-                   int quality,
+                   float quality,
                    int compression_method,
                    SjpegYUVMode yuv_mode);
 
@@ -130,11 +130,14 @@ int SjpegFindQuantizer(const uint8_t* data, size_t size,
 
 // Returns an estimation of the quality factor that would best approximate
 // the quantization coefficients in matrix[].
-int SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma);
+// Note that matrix[] must be in zigzag order (the order used in the byte
+// stream). With this restriction, one can then pass the result of
+// SjpegFindQuantizer() directly to SjpegEstimateQuality().
+float SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma);
 
 // Generate a default quantization matrix for the given quality factor,
 // in a libjpeg-6b fashion.
-void SjpegQuantMatrix(int quality, bool for_chroma, uint8_t matrix[64]);
+void SjpegQuantMatrix(float quality, bool for_chroma, uint8_t matrix[64]);
 
 // Returns the favored conversion mode to use (YUV420 / sharp-YUV420 / YUV444)
 // Return values: SJPEG_YUV_420, SJPEG_YUV_SHARP or SJPEG_YUV_444
@@ -159,26 +162,26 @@ struct SearchHook;
 // see SjpegEncode()'s doc above.
 struct SjpegEncodeParam {
   SjpegEncodeParam();
-  explicit SjpegEncodeParam(int quality_factor) {
+  explicit SjpegEncodeParam(float quality_factor) {
     Init(quality_factor);
   }
-  // Sets the compression factor. 0 = bad quality, 100 = best quality.
+  // Sets the compression factor. 0 = lowest quality, 100 = best quality.
   // The call will actually initialize quant[][].
-  void SetQuality(int quality_factor);
+  void SetQuality(float quality_factor);
 
   // Reduce the output size by a factor 'reduction'
   //  reduction ~= 100 -> small size reduction
   //  reduction ~=   1 -> large size reduction
   // Note: 'reduction' can be larger than 100.
   // This function is incompatible with SetQuality()
-  void SetQuantMatrix(const uint8_t m[64], int idx, int reduction = 100);
+  void SetQuantMatrix(const uint8_t m[64], int idx, float reduction = 100);
 
-  // This function is reduce the size
+  // Modify the output size using a 'reduction' parameter in [0, 100]:
   //   reduction ~= 100: small reduction
   //   reduction ~= 1: large reduction
   // This function will affect the content of 'quant[][]' and hence must
   // be called after SetQuality() or SetQuantMatrix() in order to be effective.
-  void SetReduction(int reduction);
+  void SetReduction(float reduction);
 
   // Limit the quantization by setting up some minimal quantization matrices
   // based on the current content of quant[][] matrices.
@@ -233,7 +236,7 @@ struct SjpegEncodeParam {
   int min_quant_tolerance_;      // Tolerance going over min_quant_ ([0..100])
 
  protected:
-  void Init(int quality_factor);
+  void Init(float quality_factor);
 };
 
 // This is the interface for customizing the search loop
@@ -267,7 +270,7 @@ std::string SjpegEncode(const uint8_t* rgb,
 // Variant of the function above, but using std::string as interface.
 
 std::string SjpegCompress(const uint8_t* rgb,
-                          int width, int height, int quality);
+                          int width, int height, float quality);
 
 bool SjpegDimensions(const std::string& jpeg_data,
                      int* width, int* height, int* is_yuv420);

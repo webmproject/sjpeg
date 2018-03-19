@@ -55,7 +55,7 @@ using std::vector;
 struct Params {
   ImageType type;
   int done;
-  int decoding_error;
+  bool decoding_error;
   int show;  // 0 = compressed, 1 = original, 2 = info, 3 = help
              // 4 = error map, 5 = riskiness map, 6 = alt
   int fade;  // [0..100]
@@ -64,13 +64,12 @@ struct Params {
   std::vector<std::string> files;
   std::string input;     // input file
   std::string jpeg;      // currently encoded file
-  int estimated_quality;
+  float estimated_quality;
 
   float riskiness;
   SjpegYUVMode yuv_mode_rec;
   uint32_t elapsed;      // encoding time in ms
-  int quality;
-  int reduction;
+  float quality;
   uint8_t quant[2][64];
   bool limit_quantization;
   SjpegEncodeParam param;
@@ -86,7 +85,6 @@ struct Params {
   Params() : current_file(~0u) {
     limit_quantization = true;
     quality = 75;
-    reduction = 100;
   }
   bool SetCurrentFile(size_t file_number);
   bool SetAltFile(const char* const file_name);
@@ -194,12 +192,12 @@ static void PrintInfo() {
              kParams.is_yuv420 ? " (yuv420)" : "");
     msg.push_back(tmp);
     if (kParams.type == SJPEG_JPEG) {
-      snprintf(tmp, sizeof(tmp), "  (estimated quality: %d)",
+      snprintf(tmp, sizeof(tmp), "  (estimated quality: %.1f)",
                kParams.estimated_quality);
       msg.back() += tmp;
     }
 
-    snprintf(tmp, sizeof(tmp), "Quality: %d", kParams.quality);
+    snprintf(tmp, sizeof(tmp), "Quality: %.1f", kParams.quality);
     msg.push_back(tmp);
 
     if (!kParams.param.Huffman_compress) {
@@ -341,7 +339,7 @@ static void EncodeAndDecode() {
       SjpegEncode(&kParams.rgb[0],
                   kParams.width, kParams.height, kParams.width * 3,
                   kParams.param);
-  kParams.elapsed = (uint32_t)(1000. * (GetStopwatchTime() - start));
+  kParams.elapsed = static_cast<uint32_t>(1000. * (GetStopwatchTime() - start));
   kParams.out_rgb = ReadJPEG(kParams.jpeg, NULL, NULL, NULL);
   assert(kParams.jpeg.size() > 0);
   assert(kParams.out_rgb.size() > 0);
@@ -371,12 +369,12 @@ bool Params::SetCurrentFile(size_t file) {
     type = GuessImageType(input);
     rgb = ReadImage(input, &width, &height, &param);
     decoding_error = rgb.empty();
-
     if (decoding_error) {
       fprintf(stderr, "Could not decode the input file %s\n",
               file_name.c_str());
       return false;
     }
+
     if (type == SJPEG_JPEG) {
       if (SjpegFindQuantizer(input, quant)) {
         estimated_quality = SjpegEstimateQuality(quant[0], false);
@@ -422,7 +420,7 @@ bool Params::SetAltFile(const char* const file_name) {
 //------------------------------------------------------------------------------
 
 void PrintMatrix(const char name[], const uint8_t m[64], bool for_chroma) {
-  printf(" %s quantization matrix (estimated quality: %d)\n",
+  printf(" %s quantization matrix (estimated quality: %.1f)\n",
          name, SjpegEstimateQuality(m, for_chroma));
   for (int j = 0; j < 8; ++j) {
     for (int i = 0; i < 8; ++i) printf("%3d ", m[i + j * 8]);
@@ -488,7 +486,7 @@ static void HandleKey(unsigned char key, int pos_x, int pos_y) {
     kParams.show = 3;
     glutPostRedisplay();
   } else if (key >= '0' && key <= '3') {
-    kParams.param.yuv_mode = (SjpegYUVMode)(key - '0');
+    kParams.param.yuv_mode = reinterpret_cast<SjpegYUVMode>(key - '0');
     FullRedraw();
   } else if (key == 'o') {
     kParams.param.Huffman_compress = !kParams.param.Huffman_compress;
@@ -530,7 +528,7 @@ static void HandleKeyUp(unsigned char key, int pos_x, int pos_y) {
 }
 
 static void SetQuality(int incr) {
-  int q = kParams.quality + incr;
+  float q = kParams.quality + incr;
   if (q < 0) q = 0;
   else if (q > 100) q = 100;
   if (kParams.quality == q) return;
@@ -668,7 +666,7 @@ int main(int argc, char *argv[]) {
     } else if (!strcmp(argv[c], "--")) {
       if (c < argc - 1) kParams.files.push_back(argv[++c]);
     } else if (!strcmp(argv[c], "-q")) {
-      if (c < argc - 1) kParams.quality = atoi(argv[++c]);
+      if (c < argc - 1) kParams.quality = atof(argv[++c]);
     } else if (argv[c][0] == '-') {
       printf("Unknown option '%s'\n", argv[c]);
       parse_error = 1;

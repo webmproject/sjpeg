@@ -25,7 +25,7 @@ A summary of all the possible options.
 .B \-version
 Print the version number (as major.minor.revision) and exit.
 .TP
-.BI \-q " int
+.BI \-q " float
 Specify the compression factor between 0 and 100. The default
 is 75.
 A small factor produces a smaller file
@@ -35,7 +35,7 @@ to never exceed the source's quality unless the -no_limit option is used.
 This option is disabled by subsequent use (in parsing order) of the \-r
 option.
 .TP
-.BI \-r " int
+.BI \-r " float
 Specify the reduction factor for JPEG source. The default is 100 (no reduction).
 A small reduction factor produces a smaller file with lower quality.
 When using a value of 100, the source JPEG file is only recompressed with

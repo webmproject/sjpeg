@@ -15,17 +15,17 @@ LIST="source1.png \
 
 set -e
 for f in ${LIST}; do
-  ${SJPEG} testdata/${f} -o ${TMP_JPEG2} -info
+  ${SJPEG} testdata/${f} -o ${TMP_JPEG2} -info -q 56.7
 done
 
 for f in ${LIST}; do
   ${SJPEG} testdata/${f} -o ${TMP_JPEG1} -quiet
-  ${SJPEG} ${TMP_JPEG1} -o ${TMP_JPEG2} -r 90 -short -info
+  ${SJPEG} ${TMP_JPEG1} -o ${TMP_JPEG2} -r 88.7 -short -info
 done
 
 for f in ${LIST}; do
-  ${SJPEG} testdata/${f} -o ${TMP_JPEG1} -quiet -no_metadata -q 30
-  ${SJPEG} ${TMP_JPEG1} -r 90 -o ${TMP_JPEG2} -short -info
+  ${SJPEG} testdata/${f} -o ${TMP_JPEG1} -quiet -no_metadata -q 30.3
+  ${SJPEG} ${TMP_JPEG1} -r 76.6542 -o ${TMP_JPEG2} -short -info
 done
 
 echo "OK!"
