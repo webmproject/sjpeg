@@ -272,8 +272,13 @@ int main(int argc, char * argv[]) {
   const double encode_time = GetStopwatchTime() - start;
 
   if (out.size() == 0) {
-    fprintf(stderr, "ERROR: call to SjpegEncode() failed");
+    fprintf(stderr, "ERROR: call to SjpegEncode() failed.\n");
     return -1;
+  }
+
+  if (param.target_mode != SjpegEncodeParam::TARGET_NONE &&
+      param.search_hook != nullptr) {
+    quality = (int)param.search_hook->q;  // retrieve the final quality used
   }
 
   if (!short_output && !quiet) {

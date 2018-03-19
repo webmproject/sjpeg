@@ -119,6 +119,8 @@ void Encoder::LoopScan() {
 
   // Dichotomy passes
   float best = 0.;     // best distance
+  float best_q = 0.;  // informative value to return to the user
+  float best_result = 0.;
   for (int p = 0; p < passes_; ++p) {
     // set new matrices to evaluate
     for (int c = 0; c < 2; ++c) {
@@ -153,11 +155,16 @@ void Encoder::LoopScan() {
         CopyQuantMatrix(quants_[c].quant_, opt_quants[c]);
       }
       best = fabs(result - search_hook_->target);
+      best_q = search_hook_->q;
+      best_result = result;
     }
     if (search_hook_->Update(result)) break;
   }
   // transfer back the final matrices
   SetQuantMatrices(opt_quants);
+  // return informative values to the user
+  search_hook_->q = best_q;
+  search_hook_->value = best_result;
 
   // optimize Huffman table now, if we haven't already during the search
   if (!search_hook_->for_size) {
