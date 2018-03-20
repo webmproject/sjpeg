@@ -266,6 +266,10 @@ std::string SjpegEncode(const uint8_t* rgb,
                         int width, int height, int stride,
                         const SjpegEncodeParam& param);
 
+// This version return data in *out_data. Returns 0 in case of error.
+size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                   const SjpegEncodeParam& param, uint8_t** out_data);
+
 ////////////////////////////////////////////////////////////////////////////////
 // Variant of the function above, but using std::string as interface.
 

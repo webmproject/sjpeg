@@ -102,7 +102,7 @@ void CopyQuantMatrix(const uint8_t in[64], uint8_t out[64]) {
 }
 
 void SetQuantMatrix(const uint8_t in[64], float q_factor, uint8_t out[64]) {
-  if (in == NULL || out == NULL) return;
+  if (in == nullptr || out == nullptr) return;
   q_factor /= 100.f;
   for (int i = 0; i < 64; ++i) {
     const int v = static_cast<int>(in[i] * q_factor + .5f);
@@ -112,8 +112,8 @@ void SetQuantMatrix(const uint8_t in[64], float q_factor, uint8_t out[64]) {
 }
 
 void SetMinQuantMatrix(const uint8_t* const m, uint8_t out[64], int tolerance) {
-  assert(out != NULL);
-  if (m != NULL) {
+  assert(out != nullptr);
+  if (m != nullptr) {
     for (int i = 0; i < 64; ++i) {
       const int v = static_cast<int>(m[i] * (256 - tolerance) >> 8);
       out[i] = (v < 1) ? 1u : (v > 255) ? 255u : v;
@@ -132,10 +132,10 @@ Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb)
   : W_(W), H_(H), step_(step),
     rgb_(rgb),
     bw_(W_ * H_ / 4),      // very reasonable guess about final size
-    in_blocks_base_(NULL),
-    in_blocks_(NULL),
+    in_blocks_base_(nullptr),
+    in_blocks_(nullptr),
     have_coeffs_(false),
-    all_run_levels_(NULL),
+    all_run_levels_(nullptr),
     nb_run_levels_(0),
     max_run_levels_(0),
     qdelta_max_luma_(kDefaultDeltaMaxLuma),
@@ -146,7 +146,7 @@ Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb)
   SetQuality(kDefaultQuality);
   SetYUVFormat(false);
   SetQuantizationBias(kDefaultBias, false);
-  const uint8_t* tmp[2] = { NULL, NULL };
+  const uint8_t* tmp[2] = { nullptr, nullptr };
   SetMinQuantMatrices(tmp, 0);
   InitializeStaticPointers();
   memset(dc_codes_, 0, sizeof(dc_codes_));  // safety
@@ -227,14 +227,14 @@ bool SupportsNEON() {
 ////////////////////////////////////////////////////////////////////////////////
 // static pointers to architecture-dependant implementation
 
-Encoder::QuantizeErrorFunc Encoder::quantize_error_ = NULL;
-Encoder::QuantizeBlockFunc Encoder::quantize_block_ = NULL;
-void (*Encoder::fDCT_)(int16_t* in, int num_blocks) = NULL;
-Encoder::StoreHistoFunc Encoder::store_histo_ = NULL;
-RGBToYUVBlockFunc Encoder::get_yuv444_block_ = NULL;
+Encoder::QuantizeErrorFunc Encoder::quantize_error_ = nullptr;
+Encoder::QuantizeBlockFunc Encoder::quantize_block_ = nullptr;
+void (*Encoder::fDCT_)(int16_t* in, int num_blocks) = nullptr;
+Encoder::StoreHistoFunc Encoder::store_histo_ = nullptr;
+RGBToYUVBlockFunc Encoder::get_yuv444_block_ = nullptr;
 
 void Encoder::InitializeStaticPointers() {
-  if (fDCT_ == NULL) {
+  if (fDCT_ == nullptr) {
     store_histo_ = GetStoreHistoFunc();
     quantize_block_ = GetQuantizeBlockFunc();
     quantize_error_ = GetQuantizeErrorFunc();
@@ -268,7 +268,7 @@ void Encoder::CheckBuffers() {
 }
 
 void Encoder::AllocateBlocks(size_t num_blocks) {
-  assert(in_blocks_ == NULL);
+  assert(in_blocks_ == nullptr);
   in_blocks_base_ =
       new uint8_t[num_blocks * 64 * sizeof(*in_blocks_) + ALIGN_CST];
   in_blocks_ = reinterpret_cast<int16_t*>(
@@ -278,8 +278,8 @@ void Encoder::AllocateBlocks(size_t num_blocks) {
 
 void Encoder::DesallocateBlocks() {
   delete[] in_blocks_base_;
-  in_blocks_base_ = NULL;
-  in_blocks_ = NULL;          // sanity
+  in_blocks_base_ = nullptr;
+  in_blocks_ = nullptr;          // sanity
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -604,7 +604,7 @@ struct TrellisNode {
   int pos;
   int rank;
 
-  TrellisNode() : score(kMaxScore), best_prev(NULL) {}
+  TrellisNode() : score(kMaxScore), best_prev(nullptr) {}
   void InitSink() {
     score = 0u;
     disto = 0;
@@ -1230,7 +1230,7 @@ static void BuildOptimalTable(HuffmanTable* const t,
                               const uint32_t* const freq, int size) {
   enum { MAX_BITS = 32, MAX_CODE_SIZE = 16 };
   assert(size <= 256);
-  assert(t != NULL);
+  assert(t != nullptr);
 
   // The celebrated merging algorithm from Huffman, with some restrictions:
   // * codes with all '1' are forbidden, to avoid trailing marker emulation
@@ -1510,7 +1510,7 @@ bool Encoder::Encode() {
   assert(nb_comps_ <= MAX_COMP);
   assert(mcu_blocks_ <= 6);
   // validate some input parameters
-  if (W_ <= 0 || H_ <= 0 || rgb_ == NULL) {
+  if (W_ <= 0 || H_ <= 0 || rgb_ == nullptr) {
     bw_.DeleteOutputBuffer();    // release output_ memory
     return false;
   }
@@ -1738,7 +1738,7 @@ class Encoder444 : public Encoder {
 class EncoderSharp420 : public Encoder420 {
  public:
   EncoderSharp420(int W, int H, int step, const uint8_t* const rgb)
-      : Encoder420(W, H, step, rgb), yuv_memory_(NULL) {
+      : Encoder420(W, H, step, rgb), yuv_memory_(nullptr) {
     const int uv_w = (W + 1) >> 1;
     const int uv_h = (H + 1) >> 1;
     yuv_memory_ = new uint8_t[W * H + 2 * uv_w * uv_h];
@@ -1825,10 +1825,10 @@ void EncoderSharp420::GetSamples(int mb_x, int mb_y,
 Encoder* EncoderFactory(const uint8_t* rgb,
                              int W, int H, int stride, SjpegYUVMode yuv_mode) {
   if (yuv_mode == SJPEG_YUV_AUTO) {
-    yuv_mode = SjpegRiskiness(rgb, W, H, stride, NULL);
+    yuv_mode = SjpegRiskiness(rgb, W, H, stride, nullptr);
   }
 
-  Encoder* enc = NULL;
+  Encoder* enc = nullptr;
   if (yuv_mode == SJPEG_YUV_420) {
     enc = new Encoder420(W, H, stride, rgb);
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
@@ -1844,32 +1844,29 @@ Encoder* EncoderFactory(const uint8_t* rgb,
 ////////////////////////////////////////////////////////////////////////////////
 // public plain-C functions
 
-size_t SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
+size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
                    uint8_t** out_data, float quality, int method,
                    SjpegYUVMode yuv_mode) {
-  if (rgb == NULL || out_data == NULL || W <= 0 || H <= 0 || stride < 3 * W) {
-    return 0;
-  }
-  *out_data = NULL;  // safety
+  if (rgb == nullptr || out_data == nullptr) return 0;
+  if (width <= 0 || height <= 0 || stride < 3 * width) return 0;
+  *out_data = nullptr;  // safety
 
-  Encoder* const enc = EncoderFactory(rgb, W, H, stride, yuv_mode);
+  Encoder* const enc = EncoderFactory(rgb, width, height, stride, yuv_mode);
   enc->SetQuality(quality);
   enc->SetCompressionMethod(method);
   size_t size = 0;
-  if (enc->Encode()) {
-    *out_data = enc->Grab(&size);
-  } else {
-    *out_data = NULL;
-  }
+  *out_data = nullptr;
+  if (enc->Encode()) *out_data = enc->Grab(&size);
   delete enc;
   return size;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-size_t SjpegCompress(const uint8_t* rgb, int W, int H, float quality,
+size_t SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
                      uint8_t** out_data) {
-  return SjpegEncode(rgb, W, H, 3 * W, out_data, quality, 4, SJPEG_YUV_AUTO);
+  return SjpegEncode(rgb, width, height, 3 * width, out_data,
+                     quality, 4, SJPEG_YUV_AUTO);
 }
 
 void SjpegFreeBuffer(const uint8_t* buffer) {
@@ -1918,7 +1915,7 @@ void SjpegEncodeParam::SetQuality(float quality_factor) {
 void SjpegEncodeParam::SetQuantMatrix(const uint8_t m[64], int idx,
                                       float reduction) {
   if (reduction <= 1.f) reduction = 1.f;
-  if (m == NULL) return;
+  if (m == nullptr) return;
   for (int i = 0; i < 64; ++i) {
     const int v = static_cast<int>(m[i] * 100. / reduction + .5);
     quant_[idx][i] = (v > 255) ? 255u : (v < 1) ? 1u : v;
@@ -1933,8 +1930,8 @@ void SjpegEncodeParam::SetReduction(float reduction) {
 void SjpegEncodeParam::SetLimitQuantization(bool limit_quantization,
                                             int min_quant_tolerance) {
   if (!limit_quantization) {
-    min_quant_[0] = NULL;
-    min_quant_[1] = NULL;
+    min_quant_[0] = nullptr;
+    min_quant_[1] = nullptr;
   } else {
     min_quant_[0] = quant_[0];
     min_quant_[1] = quant_[1];
@@ -1982,37 +1979,42 @@ bool Encoder::InitFromParam(const SjpegEncodeParam& param) {
   return true;
 }
 
+size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                   const SjpegEncodeParam& param, uint8_t** out) {
+  if (rgb == nullptr || out == nullptr) return 0;
+  if (width <= 0 || height <= 0 || stride < 3 * width) return 0;
+
+  Encoder* const enc = EncoderFactory(rgb,
+                                      width, height, stride, param.yuv_mode);
+  if (enc == nullptr) return 0;
+
+  size_t size = 0;
+  *out = nullptr;
+  if (enc->InitFromParam(param) && enc->Encode()) *out = enc->Grab(&size);
+  delete enc;
+  return size;
+}
+
 std::string SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
                         const SjpegEncodeParam& param) {
-  if (rgb == NULL || W <= 0 || H <= 0 || stride < 3 * W) return "";
-
-  Encoder* const enc = EncoderFactory(rgb, W, H, stride, param.yuv_mode);
-  if (enc == NULL) return "";
-
-  if (!enc->InitFromParam(param)) goto Error;
-
-  if (!enc->Encode()) {
- Error:
-    delete enc;
-    return "";
-  }
-  size_t size;
-  uint8_t* const buf = enc->Grab(&size);
-  delete enc;
+  uint8_t* out = nullptr;
+  const size_t size = SjpegEncode(rgb, W, H, stride, param, &out);
+  if (size == 0) return "";
 
   std::string output;
-  output.append(reinterpret_cast<const char*>(buf), size);
-  SjpegFreeBuffer(buf);
+  output.append(reinterpret_cast<const char*>(out), size);
+  SjpegFreeBuffer(out);
   return output;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // std::string variants
 
-std::string SjpegCompress(const uint8_t* rgb, int W, int H, float quality) {
+std::string SjpegCompress(const uint8_t* rgb, int width, int height,
+                          float quality) {
   std::string output;
-  uint8_t* data = NULL;
-  size_t size = SjpegCompress(rgb, W, H, quality, &data);
+  uint8_t* data = nullptr;
+  size_t size = SjpegCompress(rgb, width, height, quality, &data);
   if (size > 0) output.append(reinterpret_cast<const char*>(data), size);
   SjpegFreeBuffer(data);
   return output;
