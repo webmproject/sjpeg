@@ -486,7 +486,10 @@ static void HandleKey(unsigned char key, int pos_x, int pos_y) {
     kParams.show = 3;
     glutPostRedisplay();
   } else if (key >= '0' && key <= '3') {
-    kParams.param.yuv_mode = reinterpret_cast<SjpegYUVMode>(key - '0');
+    static const SjpegYUVMode kMap[] = {
+      SJPEG_YUV_AUTO, SJPEG_YUV_420, SJPEG_YUV_SHARP, SJPEG_YUV_444
+    };
+    kParams.param.yuv_mode = kMap[key - '0'];
     FullRedraw();
   } else if (key == 'o') {
     kParams.param.Huffman_compress = !kParams.param.Huffman_compress;
