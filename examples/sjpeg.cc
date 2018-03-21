@@ -176,6 +176,12 @@ int main(int argc, char * argv[]) {
         return 1;
       }
       param.yuv_mode = (SjpegYUVMode)mode;
+    } else if (!strcmp(argv[c], "-444")) {
+      param.yuv_mode = SJPEG_YUV_444;
+    } else if (!strcmp(argv[c], "-sharp")) {
+      param.yuv_mode = SJPEG_YUV_SHARP;
+    } else if (!strcmp(argv[c], "-420")) {
+      param.yuv_mode = SJPEG_YUV_420;
     } else if (!strcmp(argv[c], "-i") || !strcmp(argv[c], "-info")) {
       info = true;
     } else if (!strcmp(argv[c], "-quiet")) {
