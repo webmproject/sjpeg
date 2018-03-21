@@ -575,7 +575,6 @@ static int QuantizeBlock(const int16_t in[64], int idx,
       const uint16_t code = (v ^ mask) & ((1 << n) - 1);
       rl[nb].level_ = (code << 4) | n;
       rl[nb].run_ = i - prev;
-      printf("i=%d j=%d run=%d level=%d\n", i, j, rl[nb].run_, v);
       prev = i + 1;
       ++nb;
     }
@@ -587,6 +586,7 @@ static int QuantizeBlock(const int16_t in[64], int idx,
   out->nb_coeffs_ = nb;
   return dc;
 }
+
 ////////////////////////////////////////////////////////////////////////////////
 // Trellis-based quantization
 
