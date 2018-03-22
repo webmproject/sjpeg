@@ -14,6 +14,10 @@
 //
 //  RGB -> YUV conversion
 //
+// Y       = ( 19595 * r + 38469 * g +  7471 * b + HALF) >> FRAC
+// U - 128 = (-11059 * r - 21709 * g + 32768 * b + HALF) >> FRAC
+// V - 128 = ( 32768 * r - 27439 * g -  5329 * b + HALF) >> FRAC
+//
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <string.h>
@@ -31,7 +35,7 @@ enum { FRAC = 16, HALF = 1 << FRAC >> 1,
 
 // Load eight 16b-words from *src.
 #define LOAD_16(src) _mm_loadu_si128(reinterpret_cast<const __m128i*>(src))
-// Store either 16b-words into *dst
+// Store eight 16b-words into *dst
 #define STORE_16(V, dst) _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), (V))
 
 // Convert 8 packed RGB samples to r[], g[], b[]
@@ -120,13 +124,11 @@ inline void ConvertRGBToUV(const __m128i* const R,
   // Warning! 32768 is overflowing int16, so we're actually multiplying
   // by -32768 instead of 32768. We compensate by subtracting the result
   // instead of adding, thus restoring the sign.
-  // NOTE! The constants are slightly adjusted (+/-1), to match RGBtoYUV16()
   const __m128i kRG_u = MK_CST_16(-11059, -21709);
   const __m128i kGB_u = MK_CST_16(0, -32768);
   const __m128i kRG_v = MK_CST_16(-32768, 0);
   const __m128i kGB_v = MK_CST_16(-27439, -5329);
-  // NOTE! The rounding is different! This is to match RGBtoYUV16()
-  const __m128i kRound = _mm_set1_epi32((offset << FRAC) + HALF - 1);
+  const __m128i kRound = _mm_set1_epi32((offset << FRAC) + HALF);
 
   const __m128i RG_lo = _mm_unpacklo_epi16(*R, *G);
   const __m128i RG_hi = _mm_unpackhi_epi16(*R, *G);
@@ -150,10 +152,10 @@ inline void ConvertRGBToUVAccumulated(const __m128i* const R,
   // Warning! 32768 is overflowing int16, so we're actually multiplying
   // by -32768 instead of 32768. We compensate by subtracting the result
   // instead of adding, thus restoring the sign.
-  const __m128i kRG_u = MK_CST_16(-11058, -21709);
+  const __m128i kRG_u = MK_CST_16(-11059, -21709);
   const __m128i kGB_u = MK_CST_16(0, -32768);
   const __m128i kRG_v = MK_CST_16(-32768, 0);
-  const __m128i kGB_v = MK_CST_16(-27439, -5328);
+  const __m128i kGB_v = MK_CST_16(-27439, -5329);
   const __m128i kRound = _mm_set1_epi32(ROUND_UV);
 
   const __m128i RG_lo = _mm_unpacklo_epi16(*R, *G);
@@ -273,7 +275,7 @@ static void Get16x16Block_SSE2(const uint8_t* data, int step,
 #if defined(SJPEG_USE_NEON)
 
 static const int16_t kCoeff1[4] = { (int16_t)38469, 19595, 7471, 0 };
-static const int16_t kCoeff2[4] = { 21709, 11058, 27439, 5328 };
+static const int16_t kCoeff2[4] = { 21709, 11059, 27439, 5329 };
 
 // Convert 8 packed RGB or BGR samples to r[], g[], b[]
 static void RGB24PackedToPlanar(const uint8_t* const rgb,
@@ -373,13 +375,13 @@ static inline int16_t ToY(const uint8_t* const rgb_in, int* const rgb_sum) {
 
 // convert sum of four rgb triplets to U
 static inline int16_t ToU(const int* const rgb) {
-  const int u = -11058 * rgb[0] - 21709 * rgb[1] + 32768 * rgb[2] + ROUND_UV;
+  const int u = -11059 * rgb[0] - 21709 * rgb[1] + 32768 * rgb[2] + ROUND_UV;
   return static_cast<int16_t>(u >> (FRAC + 2));
 }
 
 // convert sum of four rgb triplets to V
 static inline int16_t ToV(const int* const rgb) {
-  const int v = 32768 * rgb[0] - 27439 * rgb[1] -  5328 * rgb[2] + ROUND_UV;
+  const int v = 32768 * rgb[0] - 27439 * rgb[1] -  5329 * rgb[2] + ROUND_UV;
   return static_cast<int16_t>(v >> (FRAC + 2));
 }
 
@@ -389,8 +391,8 @@ static inline void ToYUV(const uint8_t* const rgb, int16_t* const out) {
   const int g = rgb[1];
   const int b = rgb[2];
   const int y =  19595 * r + 38469 * g +  7471 * b + ROUND_Y;
-  const int u = -11058 * r - 21709 * g + 32768 * b + HALF;
-  const int v =  32768 * r - 27439 * g -  5328 * b + HALF;
+  const int u = -11059 * r - 21709 * g + 32768 * b + HALF;
+  const int v =  32768 * r - 27439 * g -  5329 * b + HALF;
   out[0 * 64] = static_cast<int16_t>(y >> FRAC);
   out[1 * 64] = static_cast<int16_t>(u >> FRAC);
   out[2 * 64] = static_cast<int16_t>(v >> FRAC);
@@ -465,7 +467,7 @@ int ToY(int r, int g, int b) {
 }
 
 uint32_t clip_uv(int v) {
-  return clip_8b(128 + ((v + HALF - 1) >> FRAC));
+  return clip_8b(128 + ((v + HALF) >> FRAC));
 }
 
 uint32_t ToU(int r, int g, int b) {
