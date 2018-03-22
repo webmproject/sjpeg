@@ -30,7 +30,7 @@
 #define SJPEG_USE_SSE2
 #endif
 
-#if defined(__ANDROID__) && defined(__ARM_ARCH_7A__)
+#if defined(__ARM_NEON__) || defined(__ARM_NEON) || defined(__aarch64__)
 #define SJPEG_ANDROID_NEON  // Android targets that might support NEON
 #endif
 
