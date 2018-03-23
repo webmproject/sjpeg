@@ -30,14 +30,7 @@
 #define SJPEG_USE_SSE2
 #endif
 
-#if defined(__ARM_NEON__) || defined(__ARM_NEON) || defined(__aarch64__)
-#define SJPEG_ANDROID_NEON  // Android targets that might support NEON
-#endif
-
-// The intrinsics currently cause compiler errors with arm-nacl-gcc and the
-// inline assembly would need to be modified for use with Native Client.
-#if (defined(__ARM_NEON__) || defined(__aarch64__)) && \
-    defined(SJPEG_ANDROID_NEON)
+#if defined(__ARM_NEON__) || defined(__aarch64__)
 #define SJPEG_USE_NEON
 #endif
 
