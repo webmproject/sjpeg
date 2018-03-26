@@ -294,6 +294,10 @@ void Encoder::DesallocateBlocks() {
 #define QUANTIZE(A, M, B) (DIV_BY_MULT((A) + (B), (M)) >> AC_BITS)
 
 void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
+  // first, clamp the quant matrix:
+  for (size_t i = 0; i < 64; ++i) {
+    if (q->quant_[i] < q->min_quant_[i]) q->quant_[i] = q->min_quant_[i];
+  }
   // Special case! for v=1 we can't represent the multiplier with 16b precision.
   // So, instead we max out the multiplier to 0xffffu, and twist the bias to the
   // value 0x80. The overall precision isn't affected: it's bit-exact the same
@@ -301,7 +305,7 @@ void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
   // Note that quant=1 can start appearing at quality as low as 93.
   const uint16_t bias_1 = 0x80;
   const uint16_t iquant_1 = 0xffffu;
-  for (int i = 0; i < 64; ++i) {
+  for (size_t i = 0; i < 64; ++i) {
     const uint16_t v = q->quant_[i];
     const uint16_t iquant = (v == 1) ? iquant_1 : MAKE_INV_QUANT(v);
     const uint16_t bias = (v == 1) ? bias_1 : (i == 0) ? BIAS_DC : q_bias;
