@@ -106,12 +106,13 @@ static const int kMinDimensionIterativeConversion = 4;
 
 // size of the interpolation table for linear-to-gamma
 #define GAMMA_TABLE_SIZE 32
-static float kLinearToGammaTabF[GAMMA_TABLE_SIZE + 2];
-static float kGammaToLinearTabF[MAX_Y_T + 1];   // size scales with Y_FIX
-
+static uint32_t kLinearToGammaTab[GAMMA_TABLE_SIZE + 2];
+#define GAMMA_TO_LINEAR_BITS 14
+static uint32_t kGammaToLinearTab[MAX_Y_T + 1];   // size scales with Y_FIX
 
 static void InitGammaTablesF(void) {
   static bool done = false;
+  assert(2 * GAMMA_TO_LINEAR_BITS < 32);  // we use uint32_t intermediate values
   if (!done) {
     int v;
     const double norm = 1. / MAX_Y_T;
@@ -119,14 +120,17 @@ static void InitGammaTablesF(void) {
     const double a = 0.099;
     const double thresh = 0.018;
     const double gamma = 1. / 0.45;
+    const double final_scale = 1 << GAMMA_TO_LINEAR_BITS;
     for (v = 0; v <= MAX_Y_T; ++v) {
       const double g = norm * v;
+      double value;
       if (g <= thresh * 4.5) {
-        kGammaToLinearTabF[v] = static_cast<float>(g / 4.5);
+        value = g / 4.5;
       } else {
         const double a_rec = 1. / (1. + a);
-        kGammaToLinearTabF[v] = static_cast<float>(pow(a_rec * (g + a), gamma));
+        value = pow(a_rec * (g + a), gamma);
       }
+      kGammaToLinearTab[v] = static_cast<uint32_t>(value * final_scale + .5);
     }
     for (v = 0; v <= GAMMA_TABLE_SIZE; ++v) {
       const double g = scale * v;
@@ -136,25 +140,34 @@ static void InitGammaTablesF(void) {
       } else {
         value = (1. + a) * pow(g, 1. / gamma) - a;
       }
-      kLinearToGammaTabF[v] = static_cast<float>(MAX_Y_T * value);
+      // we already incorporate the 1/2 rounding constant here
+      kLinearToGammaTab[v] =
+          static_cast<uint32_t>(MAX_Y_T * value)
+            + (1 << GAMMA_TO_LINEAR_BITS >> 1);
     }
     // to prevent small rounding errors to cause read-overflow:
-    kLinearToGammaTabF[GAMMA_TABLE_SIZE + 1] =
-        kLinearToGammaTabF[GAMMA_TABLE_SIZE];
+    kLinearToGammaTab[GAMMA_TABLE_SIZE + 1] =
+        kLinearToGammaTab[GAMMA_TABLE_SIZE];
     done = true;
   }
 }
 
-static float GammaToLinearF(int v) { return kGammaToLinearTabF[v]; }
+// return value has a fixed-point precision of GAMMA_TO_LINEAR_BITS
+static uint32_t GammaToLinear(int v) { return kGammaToLinearTab[v]; }
 
-static int LinearToGammaF(float value) {
-  const float v = value * GAMMA_TABLE_SIZE;
-  const int tab_pos = static_cast<int>(v);
-  const float x = v - static_cast<float>(tab_pos);      // fractional part
-  const float v0 = kLinearToGammaTabF[tab_pos + 0];
-  const float v1 = kLinearToGammaTabF[tab_pos + 1];
-  const float y = v1 * x + v0 * (1.f - x);  // interpolate
-  return static_cast<int>(y + .5);
+static uint32_t LinearToGamma(uint32_t value) {
+  // 'value' is in GAMMA_TO_LINEAR_BITS fractional precision
+  const uint32_t v = value * GAMMA_TABLE_SIZE;
+  const uint32_t tab_pos = v >> GAMMA_TO_LINEAR_BITS;
+  // fractional part, in GAMMA_TO_LINEAR_BITS fixed-point precision
+  const uint32_t x = v - (tab_pos << GAMMA_TO_LINEAR_BITS);  // fractional part
+  // v0 / v1 are in GAMMA_TO_LINEAR_BITS fixed-point precision (range [0..1])
+  const uint32_t v0 = kLinearToGammaTab[tab_pos + 0];
+  const uint32_t v1 = kLinearToGammaTab[tab_pos + 1];
+  // Final interpolation. Note that rounding is already included.
+  const uint32_t v2 = (v1 - v0) * x;    // note: v1 >= v0.
+  const uint32_t result = v0 + (v2 >> GAMMA_TO_LINEAR_BITS);
+  return result;
 }
 
 //------------------------------------------------------------------------------
@@ -420,32 +433,28 @@ static void InitFunctionPointers() {
 
 //------------------------------------------------------------------------------
 
-static int RGBToGray(int r, int g, int b) {
-  const int luma = 13933 * r + 46871 * g + 4732 * b + (1 << YUV_FIX >> 1);
+static uint32_t RGBToGray(uint32_t r, uint32_t g, uint32_t b) {
+  const uint32_t luma = 13933 * r + 46871 * g + 4732 * b + (1u << YUV_FIX >> 1);
   return (luma >> YUV_FIX);
 }
 
-static float RGBToGrayF(float r, float g, float b) {
-  return (float)(0.2126 * r + 0.7152 * g + 0.0722 * b);
-}
-
-static int ScaleDown(int a, int b, int c, int d) {
-  const float A = GammaToLinearF(a);
-  const float B = GammaToLinearF(b);
-  const float C = GammaToLinearF(c);
-  const float D = GammaToLinearF(d);
-  return LinearToGammaF(0.25f * (A + B + C + D));
+static uint32_t ScaleDown(int a, int b, int c, int d) {
+  const uint32_t A = GammaToLinear(a);
+  const uint32_t B = GammaToLinear(b);
+  const uint32_t C = GammaToLinear(c);
+  const uint32_t D = GammaToLinear(d);
+  return LinearToGamma((A + B + C + D + 2) >> 2);
 }
 
 static void UpdateChroma(const fixed_y_t* src1, const fixed_y_t* src2,
-                         fixed_t* dst, int uv_w) {
-  for (int i = 0; i < uv_w; ++i) {
-    const int r = ScaleDown(src1[0 * uv_w + 0], src1[0 * uv_w + 1],
-                            src2[0 * uv_w + 0], src2[0 * uv_w + 1]);
-    const int g = ScaleDown(src1[2 * uv_w + 0], src1[2 * uv_w + 1],
-                            src2[2 * uv_w + 0], src2[2 * uv_w + 1]);
-    const int b = ScaleDown(src1[4 * uv_w + 0], src1[4 * uv_w + 1],
-                            src2[4 * uv_w + 0], src2[4 * uv_w + 1]);
+                         fixed_t* dst, size_t uv_w) {
+  for (size_t i = 0; i < uv_w; ++i) {
+    const uint32_t r = ScaleDown(src1[0 * uv_w + 0], src1[0 * uv_w + 1],
+                                 src2[0 * uv_w + 0], src2[0 * uv_w + 1]);
+    const uint32_t g = ScaleDown(src1[2 * uv_w + 0], src1[2 * uv_w + 1],
+                                 src2[2 * uv_w + 0], src2[2 * uv_w + 1]);
+    const uint32_t b = ScaleDown(src1[4 * uv_w + 0], src1[4 * uv_w + 1],
+                                 src2[4 * uv_w + 0], src2[4 * uv_w + 1]);
     const int W = RGBToGray(r, g, b);
     dst[0 * uv_w] = (fixed_t)(r - W);
     dst[1 * uv_w] = (fixed_t)(g - W);
@@ -458,11 +467,11 @@ static void UpdateChroma(const fixed_y_t* src1, const fixed_y_t* src2,
 
 static void UpdateW(const fixed_y_t* src, fixed_y_t* dst, int w) {
   for (int i = 0; i < w; ++i) {
-    const float R = GammaToLinearF(src[0 * w + i]);
-    const float G = GammaToLinearF(src[1 * w + i]);
-    const float B = GammaToLinearF(src[2 * w + i]);
-    const float Y = RGBToGrayF(R, G, B);
-    dst[i] = (fixed_y_t)LinearToGammaF(Y);
+    const uint32_t R = GammaToLinear(src[0 * w + i]);
+    const uint32_t G = GammaToLinear(src[1 * w + i]);
+    const uint32_t B = GammaToLinear(src[2 * w + i]);
+    const uint32_t Y = RGBToGray(R, G, B);
+    dst[i] = (fixed_y_t)LinearToGamma(Y);
   }
 }
 
@@ -570,7 +579,7 @@ static void ConvertWRGBToYUV(const fixed_y_t* best_y,
 // Main function
 
 static void PreprocessARGB(const uint8_t* const rgb,
-                           int width, int height, int stride,
+                           int width, int height, size_t stride,
                            uint8_t* y_plane,
                            uint8_t* u_plane, uint8_t* v_plane) {
   // we expand the right/bottom border if needed
