@@ -264,7 +264,7 @@ float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
 static float GetPSNR(uint64_t err, uint64_t size) {
   // This expression is written such that it gives the same result on ARM
   // and x86 (for large values of err/size in particular). Don't change it!
-  return (err > 0 && size > 0) ? -4.3429448f * log(size / (err / 255. / 255.))
+  return (err > 0 && size > 0) ? 4.3429448f * log(size / (err / 255. / 255.))
                                : 99.f;
 }
 
