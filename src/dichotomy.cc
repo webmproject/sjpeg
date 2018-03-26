@@ -63,7 +63,7 @@ bool SearchHook::Update(float result) {
   q = (qmin + qmax) / 2.;
   done = (fabs(q - last_q) < kdQLimit);
   if (DBG_PRINT) {
-    printf("q=%.2f value:%.1f -> next-q=%.2f\n", last_q, value, q);
+    printf(" -> next-q=%.2f\n", last_q);
   }
   return done;
 }
@@ -146,7 +146,7 @@ void Encoder::LoopScan() {
       // and measure the distortion.
       result = ComputePSNR();
     }
-    if (DBG_PRINT) printf("pass #%d: q=%f value:%.2f\n",
+    if (DBG_PRINT) printf("pass #%d: q=%.2f value:%.2f ",
                           p, search_hook_->q, result);
 
     if (p == 0 || fabs(result - search_hook_->target) < best) {
@@ -162,6 +162,8 @@ void Encoder::LoopScan() {
   }
   // transfer back the final matrices
   SetQuantMatrices(opt_quants);
+  for (int c = 0; c < 2; ++c) FinalizeQuantMatrix(&quants_[c], q_bias_);
+
   // return informative values to the user
   search_hook_->q = best_q;
   search_hook_->value = best_result;
