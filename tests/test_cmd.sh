@@ -41,5 +41,17 @@ ${SJPEG} ${SRC_FILE1} -o ${BAD_FILE} -quiet
 ${SJPEG} ${SRC_FILE2} -o
 ${SJPEG} -o ${BAD_FILE} -quiet
 
+# this test does not work for very low quality values (q<4)
+for q in `seq 4 100`; do
+  ${SJPEG} -q $q ${SRC_FILE1} -o ${TMP_FILE1} -no_adapt -no_optim &> /dev/null
+  # parse the 'estimated quality' result string, and compare to expected quality
+  a=(`${SJPEG} -i ${TMP_FILE1} | grep estimated | grep -Eo '[+-]?[0-9]+(\.0)'`)
+  q1="${a[0]}"
+  q2="${a[1]}"
+  q3="${q}.0"
+  if [ "x${q1}" != "x${q3}" ]; then echo "Y-Quality mismatch!"; exit 1; fi
+  if [ "x${q2}" != "x${q3}" ]; then echo "UV-Quality mismatch!"; exit 1; fi
+done
+
 echo "OK!"
 exit 0
