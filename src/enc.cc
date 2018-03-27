@@ -530,10 +530,8 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
     const uint16x8_t B = vreinterpretq_u16_s16(vabsq_s16(A));        // abs(in)
     const int16x8_t sign = vshrq_n_s16(A, 15);                       // sign
     const uint16x8_t C = vaddq_u16(B, m_bias);                       // + bias
-    const uint32x4_t D0 = vmull_u16(vget_low_u16(C),
-                                    vget_low_u16(m_mult));
-    const uint32x4_t D1 = vmull_u16(vget_high_u16(C),
-                                    vget_high_u16(m_mult));
+    const uint32x4_t D0 = vmull_u16(vget_low_u16(C), vget_low_u16(m_mult));
+    const uint32x4_t D1 = vmull_u16(vget_high_u16(C), vget_high_u16(m_mult));
     // collect hi-words of the 32b mult result using 'unzip'
     const uint16x8x2_t E = vuzpq_u16(vreinterpretq_u16_u32(D0),
                                      vreinterpretq_u16_u32(D1));
@@ -783,30 +781,29 @@ static uint32_t QuantizeErrorNEON(const int16_t in[64],
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
   const uint8_t* const quant = Q->quant_;
-  uint32x4_t sum = vdupq_n_u32(0);
+  uint32x4_t sum1 = vdupq_n_u32(0);
+  uint32x4_t sum2 = vdupq_n_u32(0);
   for (int i = 0; i < 64; i += 8) {
     const uint16x8_t m_bias = vld1q_u16(bias + i);
     const uint16x8_t m_mult = vld1q_u16(iquant + i);
     const uint16x8_t m_quant = vmovl_u8(vld1_u8(quant + i));
-    const int16x8_t A = vabsq_s16(vld1q_s16(in + i));      // abs(in[i])
-    const uint16x8_t B = vshrq_n_u16(vreinterpretq_s16_u16(A), AC_BITS);
-    const uint16x8_t C = vaddq_s16(B, m_bias);             // v' = v0 + bias
-    const uint32x4_t C0 = vmull_u16(vget_low_u16(C), vget_low_u16(m_mult));
-    const uint32x4_t C1 = vmull_u16(vget_high_u16(C), vget_high_u16(m_mult));
+    const uint16x8_t A = vreinterpretq_u16_s16(vabsq_s16(vld1q_s16(in + i)));
+    const uint16x8_t B = vaddq_u16(A, m_bias);
+    const uint32x4_t C0 = vmull_u16(vget_low_u16(B), vget_low_u16(m_mult));
+    const uint32x4_t C1 = vmull_u16(vget_high_u16(B), vget_high_u16(m_mult));
     // collect hi-words of the 32b mult result using 'unzip'
-    const uint16x8x2_t D =
-        vuzpq_u16(vreinterpretq_u16_u32(C0), vreinterpretq_u16_u32(C1));
+    const uint16x8x2_t D = vuzpq_u16(vreinterpretq_u16_u32(C0),
+                                     vreinterpretq_u16_u32(C1));
     const uint16x8_t E = vshrq_n_u16(D.val[1], AC_BITS);
-    const uint16x8_t F = vmulq_u16(E, m_quant);        // v = dequantized coeff
-    const uint16x8_t G = vabdq_u16(F, B);              // abs(v0-v)
-    const uint32x4_t G0 = vmull_u16(vget_low_u16(G), vget_low_u16(G));
-    const uint32x4_t G1 = vmull_u16(vget_high_u16(G), vget_high_u16(G));
-    const uint32x4_t H = vaddq_u32(G0, G1);
-    sum = vaddq_s32(sum, H);
+    const uint16x8_t F = vmulq_u16(E, m_quant);        // dequantized coeff
+    const uint16x8_t G = vabdq_u16(F, vshrq_n_u16(A, AC_BITS));
+    sum1 = vmlal_u16(sum1, vget_low_u16(G), vget_low_u16(G));
+    sum2 = vmlal_u16(sum2, vget_high_u16(G), vget_high_u16(G));
   }
-  const uint64x2_t sum2 = vpaddlq_u32(sum);
-  const uint64_t sum3 = vgetq_lane_u64(sum2, 0) + vgetq_lane_u64(sum2, 1);
-  const uint32_t err = (uint32_t)sum3;
+  const uint32x4_t sum3 = vaddq_u32(sum1, sum2);
+  const uint64x2_t sum4 = vpaddlq_u32(sum3);
+  const uint64_t sum5 = vgetq_lane_u64(sum4, 0) + vgetq_lane_u64(sum4, 1);
+  const uint32_t err = (uint32_t)sum5;
   return err;
 }
 
