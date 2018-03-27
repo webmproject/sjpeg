@@ -156,6 +156,7 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb, int width, int height,
 // Fine control over the encoding parameters using SjpegEncodeParam
 //
 
+namespace sjpeg { class Encoder; }
 struct SearchHook;
 
 // Structure for holding encoding parameter, to be passed to the unique
@@ -175,7 +176,8 @@ struct SjpegEncodeParam {
   //  reduction ~=   1 -> large size reduction
   // Note: 'reduction' can be larger than 100.
   // This function is incompatible with SetQuality()
-  void SetQuantMatrix(const uint8_t m[64], int idx, float reduction = 100);
+  void SetQuantization(const uint8_t m[2][64], float reduction = 100);
+  const uint8_t* GetQuantMatrix(int idx) const { return quant_[idx]; }
 
   // Modify the output size using a 'reduction' parameter in [0, 100]:
   //   reduction ~= 100: small reduction
@@ -185,9 +187,13 @@ struct SjpegEncodeParam {
   void SetReduction(float reduction);
 
   // Limit the quantization by setting up some minimal quantization matrices
-  // based on the current content of quant[][] matrices.
+  // based on the current content of quant_[][] matrices.
   // Hence, this function must be called after SetQuality() or SetQuantMatrix().
   void SetLimitQuantization(bool limit_quantization = true, int tolerance = 0);
+
+  // Set the minimal quantization matrices directly, irrespective of the value
+  // of quant_[][].
+  void SetMinQuantization(const uint8_t m[2][64], int min_quant_tolerance = 0);
 
   // main compression parameters
   SjpegYUVMode yuv_mode;        // YUV-420...444 decisions
@@ -207,7 +213,8 @@ struct SjpegEncodeParam {
   int passes;                   // max number of passes to try and converge
   float tolerance;              // percentage of distance-to-target allowed
   float qmin, qmax;             // Limits for the search quality values.
-                                // They take precedence over min_quant_[].
+                                // If set, min_quant_[] matrices will take
+                                // precedence and limit qmax further.
 
   // fine-grained control over compression parameters
   int quantization_bias;    // [0..255] Rounding bias for quantization.
@@ -229,15 +236,17 @@ struct SjpegEncodeParam {
   std::string app_markers;
   void ResetMetadata();      // clears the above
 
+ protected:
   uint8_t quant_[2][64];         // quantization matrices to use
-  const uint8_t* min_quant_[2];  // If limit_quantization is true, these
+  uint8_t min_quant_[2][64];     // If limit_quantization is true, these
                                  // pointers should direct to the minimum
                                  // quantizer values allowed for luma / chroma.
-                                 // They are ignored when search is used.
+  bool use_min_quant_;           // True if min_quant_[][] has been set.
   int min_quant_tolerance_;      // Tolerance going over min_quant_ ([0..100])
 
  protected:
   void Init(float quality_factor);
+  friend class sjpeg::Encoder;
 };
 
 // This is the interface for customizing the search loop

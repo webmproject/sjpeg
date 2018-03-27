@@ -228,12 +228,15 @@ int main(int argc, char * argv[]) {
     use_reduction = false;
   }
   if (use_reduction) {   // use 'reduction' factor for JPEG source
-    param.SetQuantMatrix(quant_matrices[0], 0, reduction);
-    param.SetQuantMatrix(quant_matrices[1], 1, reduction);
+    param.SetQuantization(quant_matrices, reduction);
     param.SetLimitQuantization(true);
   } else {    // the '-q' option has been used.
     param.SetQuality(quality);
-    param.SetLimitQuantization(false);
+    if (is_jpeg) {
+      param.SetMinQuantization(quant_matrices);
+    } else {
+      param.SetLimitQuantization(false);
+    }
   }
 
   if (estimate) {

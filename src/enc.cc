@@ -104,25 +104,24 @@ void CopyQuantMatrix(const uint8_t in[64], uint8_t out[64]) {
 void SetQuantMatrix(const uint8_t in[64], float q_factor, uint8_t out[64]) {
   if (in == nullptr || out == nullptr) return;
   q_factor /= 100.f;
-  for (int i = 0; i < 64; ++i) {
+  for (size_t i = 0; i < 64; ++i) {
     const int v = static_cast<int>(in[i] * q_factor + .5f);
     // clamp to prevent illegal quantizer values
     out[i] = (v < 1) ? 1 : (v > 255) ? 255u : v;
   }
 }
 
-void SetMinQuantMatrix(const uint8_t* const m, uint8_t out[64], int tolerance) {
-  assert(out != nullptr);
-  if (m != nullptr) {
-    for (int i = 0; i < 64; ++i) {
-      const int v = static_cast<int>(m[i] * (256 - tolerance) >> 8);
-      out[i] = (v < 1) ? 1u : (v > 255) ? 255u : v;
-    }
-  } else {
-    for (int i = 0; i < 64; ++i) {
-      out[i] = 1u;
-    }
+void SetMinQuantMatrix(const uint8_t m[64], uint8_t out[64], int tolerance) {
+  assert(out != nullptr && m != nullptr);
+  for (size_t i = 0; i < 64; ++i) {
+    const int v = static_cast<int>(m[i] * (256 - tolerance) >> 8);
+    out[i] = (v < 1) ? 1u : (v > 255) ? 255u : v;
   }
+}
+
+void SetDefaultMinQuantMatrix(uint8_t out[64]) {
+  assert(out != nullptr);
+  for (size_t i = 0; i < 64; ++i) out[i] = 1u;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -146,8 +145,7 @@ Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb)
   SetQuality(kDefaultQuality);
   SetYUVFormat(false);
   SetQuantizationBias(kDefaultBias, false);
-  const uint8_t* tmp[2] = { nullptr, nullptr };
-  SetMinQuantMatrices(tmp, 0);
+  SetDefaultMinQuantMatrices();
   InitializeStaticPointers();
   memset(dc_codes_, 0, sizeof(dc_codes_));  // safety
   memset(ac_codes_, 0, sizeof(ac_codes_));
@@ -165,13 +163,20 @@ void Encoder::SetQuality(float q) {
   SetQuantMatrix(kDefaultMatrices[0], q, quants_[0].quant_);
   SetQuantMatrix(kDefaultMatrices[1], q, quants_[1].quant_);
 }
+
 void Encoder::SetQuantMatrices(const uint8_t m[2][64]) {
   SetQuantMatrix(m[0], 100, quants_[0].quant_);
   SetQuantMatrix(m[1], 100, quants_[1].quant_);
 }
-void Encoder::SetMinQuantMatrices(const uint8_t* const m[2], int tolerance) {
+
+void Encoder::SetMinQuantMatrices(const uint8_t m[2][64], int tolerance) {
   SetMinQuantMatrix(m[0], quants_[0].min_quant_, tolerance);
   SetMinQuantMatrix(m[1], quants_[1].min_quant_, tolerance);
+}
+
+void Encoder::SetDefaultMinQuantMatrices() {
+  SetDefaultMinQuantMatrix(quants_[0].min_quant_);
+  SetDefaultMinQuantMatrix(quants_[1].min_quant_);
 }
 
 void Encoder::SetCompressionMethod(int method) {
@@ -1951,32 +1956,35 @@ void SjpegEncodeParam::SetQuality(float quality_factor) {
   sjpeg::SetQuantMatrix(kDefaultMatrices[1], q, quant_[1]);
 }
 
-void SjpegEncodeParam::SetQuantMatrix(const uint8_t m[64], int idx,
-                                      float reduction) {
+void SjpegEncodeParam::SetQuantization(const uint8_t m[2][64],
+                                       float reduction) {
   if (reduction <= 1.f) reduction = 1.f;
   if (m == nullptr) return;
-  for (int i = 0; i < 64; ++i) {
-    const int v = static_cast<int>(m[i] * 100. / reduction + .5);
-    quant_[idx][i] = (v > 255) ? 255u : (v < 1) ? 1u : v;
+  for (int c = 0; c < 2; ++c) {
+    for (size_t i = 0; i < 64; ++i) {
+      const int v = static_cast<int>(m[c][i] * 100. / reduction + .5);
+      quant_[c][i] = (v > 255) ? 255u : (v < 1) ? 1u : v;
+    }
   }
 }
 
 void SjpegEncodeParam::SetReduction(float reduction) {
-  SetQuantMatrix(quant_[0], 0, reduction);
-  SetQuantMatrix(quant_[1], 1, reduction);
+  SetQuantization(quant_, reduction);
 }
 
 void SjpegEncodeParam::SetLimitQuantization(bool limit_quantization,
                                             int min_quant_tolerance) {
-  if (!limit_quantization) {
-    min_quant_[0] = nullptr;
-    min_quant_[1] = nullptr;
-  } else {
-    min_quant_[0] = quant_[0];
-    min_quant_[1] = quant_[1];
-  }
-  min_quant_tolerance_ = min_quant_tolerance < 0 ? 0
-                       : min_quant_tolerance > 100 ? 100
+  use_min_quant_ = limit_quantization;
+  if (limit_quantization) SetMinQuantization(quant_, min_quant_tolerance);
+}
+
+void SjpegEncodeParam::SetMinQuantization(const uint8_t m[2][64],
+                                          int min_quant_tolerance) {
+  use_min_quant_ = true;
+  CopyQuantMatrix(m[0], min_quant_[0]);
+  CopyQuantMatrix(m[1], min_quant_[1]);
+  min_quant_tolerance_ = (min_quant_tolerance < 0) ? 0
+                       : (min_quant_tolerance > 100) ? 100
                        : min_quant_tolerance;
 }
 
@@ -1989,7 +1997,11 @@ void SjpegEncodeParam::ResetMetadata() {
 
 bool Encoder::InitFromParam(const SjpegEncodeParam& param) {
   SetQuantMatrices(param.quant_);
-  SetMinQuantMatrices(param.min_quant_, param.min_quant_tolerance_);
+  if (param.use_min_quant_) {
+    SetMinQuantMatrices(param.min_quant_, param.min_quant_tolerance_);
+  } else {
+    SetDefaultMinQuantMatrices();
+  }
 
   int method = param.Huffman_compress ? 1 : 0;
   if (param.adaptive_quantization) method += 3;

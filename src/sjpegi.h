@@ -190,14 +190,7 @@ struct Encoder {
 
   // setters
   void SetQuality(float q);
-  void SetQuantMatrices(const uint8_t m[2][64]);
-  void SetMinQuantMatrices(const uint8_t* const m[2], int tolerance);
   void SetCompressionMethod(int method);
-  void SetQuantizationBias(int bias, bool use_adaptive);
-  void SetQuantizationDeltas(int qdelta_luma, int qdelta_chroma);
-
-  typedef enum { ICC, EXIF, XMP, MARKERS } MetadataType;
-  void SetMetadata(const std::string& data, MetadataType type);
 
   // all-in-one init from SjpegEncodeParam.
   bool InitFromParam(const SjpegEncodeParam& param);
@@ -216,6 +209,18 @@ struct Encoder {
   // clipped is true if the MCU is clipped and needs replication
   virtual void GetSamples(int mb_x, int mb_y, bool clipped,
                           int16_t* out_blocks) = 0;
+
+ private:
+  // setters
+  void SetQuantMatrices(const uint8_t m[2][64]);
+  void SetMinQuantMatrices(const uint8_t m[2][64], int tolerance);
+  void SetDefaultMinQuantMatrices();
+
+  void SetQuantizationBias(int bias, bool use_adaptive);
+  void SetQuantizationDeltas(int qdelta_luma, int qdelta_chroma);
+
+  typedef enum { ICC, EXIF, XMP, MARKERS } MetadataType;
+  void SetMetadata(const std::string& data, MetadataType type);
 
  private:
   void CheckBuffers();
