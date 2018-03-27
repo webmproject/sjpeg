@@ -44,7 +44,7 @@ bool SearchHook::Setup(const SjpegEncodeParam& param) {
   qmin = (param.qmin < 0) ? 0 : param.qmin;
   qmax = (param.qmax > 100) ? 100 :
          (param.qmax < param.qmin) ? param.qmin : param.qmax;
-  q = Clamp(SjpegEstimateQuality(param.quant_[0], false), qmin, qmax);
+  q = Clamp(SjpegEstimateQuality(param.GetQuantMatrix(0), false), qmin, qmax);
   value = 0;   // undefined for at this point
   return true;
 }
