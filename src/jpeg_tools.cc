@@ -108,7 +108,7 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size,
                       | src[i + 1 + 2 * j + 1];
               v = (v > 255) ? 255 : v;
             }
-            quant[Tq][j] = (v < 1) ? 1u : (uint8_t)v;
+            quant[Tq][sjpeg::kZigzag[j]] = (v < 1) ? 1u : (uint8_t)v;
           }
         } else {
           // we don't store the pointer, but we record the component
@@ -146,7 +146,7 @@ float SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
     SjpegQuantMatrix(quality, for_chroma, m);
     float score = 0;
     for (size_t i = 0; i < 64; ++i) {
-      const float diff = m[sjpeg::kZigzag[i]] - matrix[i];
+      const float diff = m[i] - matrix[i];
       score += diff * diff;
       if (score > best_score) {
         break;

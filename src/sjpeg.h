@@ -121,6 +121,7 @@ bool SjpegDimensions(const uint8_t* data, size_t size,
 
 // Finds the location of the first two quantization matrices within a JPEG
 // 'data' bitstream. Matrices are 64 coefficients stored as uint8_t.
+// The matrices are returned in natural order (not zigzag order).
 // Note that the input can be truncated to include the headers only, but still
 // must start as a valid JPEG with an 0xffd8 marker.
 // Returns the number of matrices detected.
@@ -130,9 +131,9 @@ int SjpegFindQuantizer(const uint8_t* data, size_t size,
 
 // Returns an estimation of the quality factor that would best approximate
 // the quantization coefficients in matrix[].
-// Note that matrix[] must be in zigzag order (the order used in the byte
-// stream). With this restriction, one can then pass the result of
-// SjpegFindQuantizer() directly to SjpegEstimateQuality().
+// Note that matrix[] must be in natural order (not the zigzag order used
+// in the byte stream). With this restriction, one can then pass the result
+// of SjpegFindQuantizer() directly to SjpegEstimateQuality().
 float SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma);
 
 // Generate a default quantization matrix for the given quality factor,
