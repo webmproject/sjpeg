@@ -205,7 +205,7 @@ static inline void ToY_16x16(const __m128i* const r,
                              __m128i* const R_acc,
                              __m128i* const G_acc,
                              __m128i* const B_acc,
-                             int do_add) {
+                             bool do_add) {
   __m128i Y;
   ConvertRGBToY(r, g, b, -128, &Y);
   STORE_16(Y, y_out);
@@ -239,38 +239,40 @@ static void Condense16To8(const __m128i* const acc1, __m128i* const acc2) {
 
 // convert two 16x8 RGB blocks into two blocks of luma, and 2 blocks of U/V
 static void Get16x8_SSE2(const uint8_t* src1, int src_stride,
-                         int16_t yblock[4 * 64], int16_t uvblock[2 * 64]) {
+                         int16_t y[4 * 64], int16_t uv[2 * 64]) {
   for (int i = 4; i > 0; --i, src1 += 2 * src_stride) {
     __m128i r_acc1, r_acc2, g_acc1, g_acc2, b_acc1, b_acc2;
     __m128i r, g, b;
     const uint8_t* const src2 = src1 + src_stride;
     RGB24PackedToPlanar(src1 + 0 * 8, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, yblock + 0 * 64 + 0, &r_acc1, &g_acc1, &b_acc1, 0);
+    ToY_16x16(&r, &g, &b, y + 0 * 64 + 0, &r_acc1, &g_acc1, &b_acc1, false);
     RGB24PackedToPlanar(src1 + 3 * 8, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, yblock + 1 * 64 + 0, &r_acc2, &g_acc2, &b_acc2, 0);
+    ToY_16x16(&r, &g, &b, y + 1 * 64 + 0, &r_acc2, &g_acc2, &b_acc2, false);
     RGB24PackedToPlanar(src2 + 0 * 8, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, yblock + 0 * 64 + 8, &r_acc1, &g_acc1, &b_acc1, 1);
+    ToY_16x16(&r, &g, &b, y + 0 * 64 + 8, &r_acc1, &g_acc1, &b_acc1, true);
     RGB24PackedToPlanar(src2 + 3 * 8, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, yblock + 1 * 64 + 8, &r_acc2, &g_acc2, &b_acc2, 1);
+    ToY_16x16(&r, &g, &b, y + 1 * 64 + 8, &r_acc2, &g_acc2, &b_acc2, true);
     Condense16To8(&r_acc1, &r_acc2);
     Condense16To8(&g_acc1, &g_acc2);
     Condense16To8(&b_acc1, &b_acc2);
-    ToUV_8x8(&r_acc2, &g_acc2, &b_acc2, uvblock);
-    yblock += 2 * 8;
-    uvblock += 8;
+    ToUV_8x8(&r_acc2, &g_acc2, &b_acc2, uv);
+    y += 2 * 8;
+    uv += 8;
   }
 }
 
-static void Get16x16Block_SSE2(const uint8_t* data, int step,
-                               int16_t* blocks) {
-  Get16x8_SSE2(data, step, blocks, blocks + 4 * 64);
+static void Get16x16Block_SSE2(const uint8_t* data, int step, int16_t* blocks) {
+  Get16x8_SSE2(data + 0 * step, step, blocks + 0 * 64, blocks + 4 * 64 + 0 * 8);
   Get16x8_SSE2(data + 8 * step, step, blocks + 2 * 64, blocks + 4 * 64 + 4 * 8);
 }
+
+#undef LOAD_16
+#undef STORE_16
 
 #endif    // SJPEG_USE_SSE2
 
 ///////////////////////////////////////////////////////////////////////////////
-// NEON-version for 8x8 block
+// NEON-version for 8x8 and 16x16 blocks
 
 #if defined(SJPEG_USE_NEON)
 
@@ -310,17 +312,28 @@ static inline void ConvertRGBToY(const int16x8_t R,
 }
 
 // Compute ((V0<<15) - V1 * C1 - V2 * C2 + round) >> SHIFT
-// SHIFT must be <= 16
-#define DOT_PROD(V0, V1, V2, COEFF, LANE1, LANE2, SHIFT, OUT) do {     \
-  int32x4_t lo, hi;                                                    \
-  lo = vshll_n_s16(vget_low_s16(V0), 15);                              \
-  hi = vshll_n_s16(vget_high_s16(V0), 15);                             \
-  lo = vmlsl_lane_s16(lo, vget_low_s16(V1), COEFF, LANE1);             \
-  hi = vmlsl_lane_s16(hi, vget_high_s16(V1), COEFF, LANE1);            \
-  lo = vmlsl_lane_s16(lo, vget_low_s16(V2), COEFF, LANE2);             \
-  hi = vmlsl_lane_s16(hi, vget_high_s16(V2), COEFF, LANE2);            \
-  (OUT) = vcombine_s16(vrshrn_n_s32(lo, SHIFT),                        \
-                       vrshrn_n_s32(hi, SHIFT));                       \
+#define DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2)                  \
+  int32x4_t lo, hi;                                                         \
+  do {                                                                      \
+    lo = vshll_n_s16(vget_low_s16(V0), 15);                                 \
+    hi = vshll_n_s16(vget_high_s16(V0), 15);                                \
+    lo = vmlsl_lane_s16(lo, vget_low_s16(V1), COEFF, LANE1);                \
+    hi = vmlsl_lane_s16(hi, vget_high_s16(V1), COEFF, LANE1);               \
+    lo = vmlsl_lane_s16(lo, vget_low_s16(V2), COEFF, LANE2);                \
+    hi = vmlsl_lane_s16(hi, vget_high_s16(V2), COEFF, LANE2);               \
+} while (0)
+
+// This version assumes SHIFT <= 16
+#define DOT_PROD1(V0, V1, V2, COEFF, LANE1, LANE2, SHIFT, OUT) do {         \
+  DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2);                       \
+  (OUT) = vcombine_s16(vrshrn_n_s32(lo, SHIFT), vrshrn_n_s32(hi, SHIFT));   \
+} while (0)
+
+// alternate version for SHIFT > 16
+#define DOT_PROD2(V0, V1, V2, COEFF, LANE1, LANE2, SHIFT, OUT) do {         \
+  DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2);                       \
+  (OUT) = vcombine_s16(vqmovn_s32(vrshrq_n_s32(lo, SHIFT)),                 \
+                       vqmovn_s32(vrshrq_n_s32(hi, SHIFT)));                \
 } while (0)
 
 static inline void ConvertRGBToUV(const int16x8_t R,
@@ -328,8 +341,18 @@ static inline void ConvertRGBToUV(const int16x8_t R,
                                   const int16x8_t B,
                                   const int16x4_t coeffs,
                                   int16x8_t* const U, int16x8_t* const V) {
-  DOT_PROD(B, G, R, coeffs, 0, 1, FRAC, *U);
-  DOT_PROD(R, G, B, coeffs, 2, 3, FRAC, *V);
+  DOT_PROD1(B, G, R, coeffs, 0, 1, FRAC, *U);
+  DOT_PROD1(R, G, B, coeffs, 2, 3, FRAC, *V);
+}
+
+static inline void ConvertRGBToUVAccumulated(const int16x8_t R,
+                                             const int16x8_t G,
+                                             const int16x8_t B,
+                                             const int16x4_t coeffs,
+                                             int16x8_t* const U,
+                                             int16x8_t* const V) {
+  DOT_PROD2(B, G, R, coeffs, 0, 1, FRAC + 2, *U);
+  DOT_PROD2(R, G, B, coeffs, 2, 3, FRAC + 2, *V);
 }
 
 // Convert 8 RGB samples to YUV. out[] points to a 3*64 data block.
@@ -355,6 +378,84 @@ static void Get8x8Block_NEON(const uint8_t* data, int step, int16_t* out) {
     data += step;
   }
 }
+
+// Convert 16x16 RGB samples to YUV420
+static inline void ToY_16x16(const int16x8_t r,
+                             const int16x8_t g,
+                             const int16x8_t b,
+                             int16_t* const y_out,
+                             int16x8_t* const R_acc,
+                             int16x8_t* const G_acc,
+                             int16x8_t* const B_acc,
+                             const int16x4_t coeffs,
+                             bool do_add) {
+  int16x8_t Y;
+  ConvertRGBToY(r, g, b, coeffs, &Y);
+  vst1q_s16(y_out, Y);
+  if (do_add) {
+    *R_acc = vaddq_s16(*R_acc, r);
+    *G_acc = vaddq_s16(*G_acc, g);
+    *B_acc = vaddq_s16(*B_acc, b);
+  } else {  // just store
+    *R_acc = r;
+    *G_acc = g;
+    *B_acc = b;
+  }
+}
+
+static inline void ToUV_8x8(const int16x8_t R,
+                            const int16x8_t G,
+                            const int16x8_t B,
+                            const int16x4_t coeffs,
+                            int16_t* const uv_out) {
+  int16x8_t U, V;
+  ConvertRGBToUVAccumulated(R, G, B, coeffs, &U, &V);
+  vst1q_s16(uv_out + 0 * 64, U);
+  vst1q_s16(uv_out + 1 * 64, V);
+}
+
+static void Condense16To8(const int16x8_t acc1, int16x8_t* const acc2) {
+  const int32x4_t lo = vpaddlq_s16(acc1);
+  const int32x4_t hi = vpaddlq_s16(*acc2);
+  *acc2 = vcombine_s16(vqmovn_s32(lo), vqmovn_s32(hi));  // pack-saturate
+}
+
+// convert two 16x8 RGB blocks into two blocks of luma, and 2 blocks of U/V
+static void Get16x8_NEON(const uint8_t* src1, int src_stride,
+                         int16_t y[4 * 64], int16_t uv[2 * 64]) {
+  const int16x4_t kC1 = vld1_s16(kCoeff1);
+  const int16x4_t kC2 = vld1_s16(kCoeff2);
+  for (int i = 4; i > 0; --i, src1 += 2 * src_stride) {
+    int16x8_t r_acc1, r_acc2, g_acc1, g_acc2, b_acc1, b_acc2;
+    int16x8_t r, g, b;
+    const uint8_t* const src2 = src1 + src_stride;
+    RGB24PackedToPlanar(src1 + 0 * 8, &r, &g, &b);
+    ToY_16x16(r, g, b, y + 0 * 64 + 0, &r_acc1, &g_acc1, &b_acc1, kC1, false);
+    RGB24PackedToPlanar(src1 + 3 * 8, &r, &g, &b);
+    ToY_16x16(r, g, b, y + 1 * 64 + 0, &r_acc2, &g_acc2, &b_acc2, kC1, false);
+    RGB24PackedToPlanar(src2 + 0 * 8, &r, &g, &b);
+    ToY_16x16(r, g, b, y + 0 * 64 + 8, &r_acc1, &g_acc1, &b_acc1, kC1, true);
+    RGB24PackedToPlanar(src2 + 3 * 8, &r, &g, &b);
+    ToY_16x16(r, g, b, y + 1 * 64 + 8, &r_acc2, &g_acc2, &b_acc2, kC1, true);
+    Condense16To8(r_acc1, &r_acc2);
+    Condense16To8(g_acc1, &g_acc2);
+    Condense16To8(b_acc1, &b_acc2);
+    ToUV_8x8(r_acc2, g_acc2, b_acc2, kC2, uv);
+    y += 2 * 8;
+    uv += 8;
+  }
+}
+
+static void Get16x16Block_NEON(const uint8_t* data, int step, int16_t* yuv) {
+  int16_t* const uv = yuv + 4 * 64;
+  Get16x8_NEON(data + 0 * step, step, yuv + 0 * 64, uv + 0 * 8);
+  Get16x8_NEON(data + 8 * step, step, yuv + 2 * 64, uv + 4 * 8);
+}
+
+#undef MULT_S32_S16_LARGE
+#undef DOT_PROD_PREAMBLE
+#undef DOT_PROD1
+#undef DOT_PROD2
 
 #endif    // SJPEG_USE_NEON
 
@@ -434,10 +535,9 @@ void Get16x8Block_C(const uint8_t* src1, int src_stride,
   }
 }
 
-static void Get16x16Block_C(const uint8_t* data, int step, int16_t* blocks) {
-  Get16x8Block_C(data, step, blocks, blocks + 4 * 64);
-  Get16x8Block_C(data + 8 * step, step,
-                 blocks + 2 * 64, blocks + 4 * 64 + 4 * 8);
+static void Get16x16Block_C(const uint8_t* rgb, int step, int16_t* yuv) {
+  Get16x8Block_C(rgb + 0 * step, step, yuv + 0 * 64, yuv + 4 * 64 + 0 * 8);
+  Get16x8Block_C(rgb + 8 * step, step, yuv + 2 * 64, yuv + 4 * 64 + 4 * 8);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -448,7 +548,7 @@ RGBToYUVBlockFunc GetBlockFunc(bool use_444) {
                                      : Get16x16Block_SSE2;
 #elif defined(SJPEG_USE_NEON)
   if (SupportsNEON()) return use_444 ? Get8x8Block_NEON
-                                     : Get16x16Block_C;
+                                     : Get16x16Block_NEON;
 #endif
   return use_444 ? Get8x8Block_C : Get16x16Block_C;  // default
 }
