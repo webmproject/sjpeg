@@ -231,7 +231,7 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
     const int dc_len = c.dc_code_ & 0x0f;
     const uint32_t code = dc_codes_[q_idx][dc_len];
     bc->AddPackedCode(code);
-    bc->AddBits(c.dc_code_ >> 4, dc_len);
+    if (dc_len) bc->AddBits(c.dc_code_ >> 4, dc_len);
 
     // AC
     const uint32_t* const codes = ac_codes_[q_idx];
