@@ -325,12 +325,14 @@ static inline void ConvertRGBToY(const int16x8_t R,
 
 // This version assumes SHIFT <= 16
 #define DOT_PROD1(V0, V1, V2, COEFF, LANE1, LANE2, SHIFT, OUT) do {         \
+  assert(SHIFT <= 16);                                                      \
   DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2);                       \
   (OUT) = vcombine_s16(vrshrn_n_s32(lo, SHIFT), vrshrn_n_s32(hi, SHIFT));   \
 } while (0)
 
 // alternate version for SHIFT > 16
 #define DOT_PROD2(V0, V1, V2, COEFF, LANE1, LANE2, SHIFT, OUT) do {         \
+  assert(SHIFT > 16);                                                       \
   DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2);                       \
   (OUT) = vcombine_s16(vqmovn_s32(vrshrq_n_s32(lo, SHIFT)),                 \
                        vqmovn_s32(vrshrq_n_s32(hi, SHIFT)));                \
