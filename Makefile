@@ -17,6 +17,7 @@ UTILS_LIBS= -lpng -ljpeg
 ifeq ($(strip $(shell uname)), Darwin)
   EXTRA_FLAGS += -I/opt/local/include
   EXTRA_LIBS  += -L/opt/local/lib
+  EXTRA_FLAGS += -Wno-deprecated-declarations
   GL_LIBS = -framework GLUT -framework OpenGL
   EXTRA_FLAGS += -DHAVE_GLUT_GLUT_H
 else
