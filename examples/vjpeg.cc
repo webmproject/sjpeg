@@ -239,7 +239,8 @@ static void PrintInfo() {
     msg.push_back("- Riskiness Map -");
   } else if (kParams.show == 6) {
     char tmp[80];
-    snprintf(tmp, sizeof(tmp), "- Alt Pic (%d bytes) -", kParams.alt_size);
+    snprintf(tmp, sizeof(tmp), "- Alt Pic (%ld bytes) -",
+             static_cast<long int>(kParams.alt_size));
     msg.push_back(tmp);
   }
 
