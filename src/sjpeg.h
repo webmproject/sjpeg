@@ -156,7 +156,7 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb, int width, int height,
 // Fine control over the encoding parameters using SjpegEncodeParam
 //
 
-namespace sjpeg { class Encoder; }
+namespace sjpeg { struct Encoder; }
 struct SearchHook;
 
 // Structure for holding encoding parameter, to be passed to the unique
@@ -246,7 +246,7 @@ struct SjpegEncodeParam {
 
  protected:
   void Init(float quality_factor);
-  friend class sjpeg::Encoder;
+  friend struct sjpeg::Encoder;
 };
 
 // This is the interface for customizing the search loop
