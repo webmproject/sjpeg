@@ -20,9 +20,10 @@
 #include "./utils.h"
 
 #include <stdlib.h>
-#include <string.h>
 #include <assert.h>
 #include <stdio.h>
+#include <string>
+#include <vector>
 
 #ifdef SJPEG_HAVE_PNG
 #include <png.h>
@@ -98,6 +99,21 @@ double GetStopwatchTime() {
 }
 
 #endif   /* _WIN32 */
+
+////////////////////////////////////////////////////////////////////////////////
+
+uint32_t GetCRC32(const std::string& data, uint32_t crc) {
+  // CRC32's polynomial 0x4c11db7, reversed
+  const uint32_t kPolynomial = 0xedb88320u;
+  crc = ~crc;
+  for (size_t n = 0; n < data.size(); ++n) {
+    crc ^= static_cast<uint8_t>(data[n]);
+    for (size_t j = 0; j < 8; ++j) {
+      crc = (crc >> 1) ^ ((crc & 1) ? kPolynomial : 0u);
+    }
+  }
+  return ~crc;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // JPEG reading

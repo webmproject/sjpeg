@@ -22,6 +22,7 @@ ${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -q 3 -no_adapt -no_optim -quiet
 ${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -r 30 -no_adapt -no_optim -quiet
 ${SJPEG} ${SRC_FILE2} -o ${TMP_FILE1} -r 30 -no_adapt -no_optim -quiet
 ${SJPEG} ${SRC_FILE3} -o ${TMP_FILE1} -r 30 -no_adapt -no_optim -quiet
+${SJPEG} ${SRC_FILE1} -crc
 
 # negative tests (should fail)
 echo "NEGATIVE TESTS"

@@ -37,6 +37,9 @@ extern std::vector<uint8_t> ReadImage(const std::string& in,
                                       int* const width, int* const height,
                                       SjpegEncodeParam* const param);
 
+// Return CRC32 signature for data block. 'crc' is the current checksum value.
+extern uint32_t GetCRC32(const std::string& data, uint32_t crc = 0);
+
 ///////////////////////////////////////////////////////////////////////////////
 // guessed image types
 
