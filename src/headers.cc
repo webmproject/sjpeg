@@ -118,7 +118,7 @@ bool Encoder::WriteXMP(const std::string& data) {
 }
 
 void Encoder::WriteDQT() {
-  const int data_size = 2 * 65 + 2;
+  const size_t data_size = 2 * 65 + 2;
   const uint8_t kDQTHeader[] = { 0xff, 0xdb, 0x00, (uint8_t)data_size };
   bw_.Reserve(data_size + 2);
   bw_.PutBytes(kDQTHeader, sizeof(kDQTHeader));
@@ -159,7 +159,7 @@ void Encoder::WriteDHT() {
   for (int c = 0; c < nb_tables; ++c) {   // luma, chroma
     for (int type = 0; type <= 1; ++type) {               // dc, ac
       const HuffmanTable* const h = Huffman_tables_[type * 2 + c];
-      const int data_size = 3 + 16 + h->nb_syms_;
+      const size_t data_size = 3 + 16 + h->nb_syms_;
       assert(data_size <= 255);
       bw_.Reserve(data_size + 2);
       bw_.PutByte(0xff);
@@ -176,7 +176,7 @@ void Encoder::WriteDHT() {
 ////////////////////////////////////////////////////////////////////////////////
 
 void Encoder::WriteSOS() {   // SOS
-  const int data_size = 3 + nb_comps_ * 2 + 3;
+  const size_t data_size = 3 + nb_comps_ * 2 + 3;
   assert(data_size <= 255);
   const uint8_t kHeader[] = {
       0xff, 0xda, DATA_16b(data_size), (uint8_t)nb_comps_
