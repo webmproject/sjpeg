@@ -59,8 +59,12 @@ endif
 AR = ar
 ARFLAGS = r
 CXX = g++
-CXXFLAGS = -Isrc/ -Wall
-CXXFLAGS += -O3 -DNDEBUG $(EXTRA_FLAGS)
+CXXFLAGS = -Isrc/ -Wall $(EXTRA_FLAGS)
+ifeq ($(DEBUG), 1)
+  CXXFLAGS += -g
+else
+  CXXFLAGS += -O3 -DNDEBUG
+endif
 INSTALL = install
 GROFF = /usr/bin/groff
 COL = /usr/bin/col
