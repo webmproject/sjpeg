@@ -342,7 +342,6 @@ struct Encoder {
   sjpeg::BitWriter bw_;    // output buffer
 
   std::string iccp_, xmp_, exif_, app_markers_;   // metadata
-  const uint8_t* metadata_;
 
   // compression tools. See sjpeg.h for description of methods.
   bool optimize_size_;        // Huffman-optimize the codes  (method 0, 3)
