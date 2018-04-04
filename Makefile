@@ -33,6 +33,7 @@ endif
 
 # Extra strictness flags
 EXTRA_FLAGS += -Wextra
+EXTRA_FLAGS += -Wunused
 EXTRA_FLAGS += -Wshadow
 EXTRA_FLAGS += -Wformat-security -Wformat-nonliteral
 
