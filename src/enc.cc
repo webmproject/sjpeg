@@ -127,10 +127,12 @@ void SetDefaultMinQuantMatrix(uint8_t out[64]) {
 ////////////////////////////////////////////////////////////////////////////////
 // Encoder main class
 
-Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb)
+Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb,
+                 ByteSink* const sink)
   : W_(W), H_(H), step_(step),
     rgb_(rgb),
-    bw_(W_ * H_ / 4),      // very reasonable guess about final size
+    ok_(true),
+    bw_(sink),
     in_blocks_base_(nullptr),
     in_blocks_(nullptr),
     have_coeffs_(false),
@@ -152,7 +154,7 @@ Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb)
 }
 
 Encoder::~Encoder() {
-  delete[] all_run_levels_;
+  Free(all_run_levels_);
   DesallocateBlocks();   // clean-up leftovers in case of we had an error
 }
 
@@ -251,38 +253,51 @@ void Encoder::InitializeStaticPointers() {
 ////////////////////////////////////////////////////////////////////////////////
 // memory and internal buffers management. We grow on demand.
 
-void Encoder::CheckBuffers() {
+bool Encoder::SetError() {
+  ok_ = false;
+  return false;
+}
+
+void* Encoder::MemoryAlloc(size_t size) { return malloc(size); }
+void Encoder::MemoryFree(void* ptr) { free(ptr); }
+
+bool Encoder::CheckBuffers() {
   // maximum macroblock size, worst-case, is 24bits*64*6 coeffs = 1152bytes
-  bw_.ReserveLarge(2048);
+  ok_ = ok_ && bw_.Reserve(2048);
+  if (!ok_) return false;
 
   if (reuse_run_levels_) {
     if (nb_run_levels_ + 6*64 > max_run_levels_) {
       // need to grow storage for run/levels
       const size_t new_size = max_run_levels_ ? max_run_levels_ * 2 : 8192;
-      RunLevel* const new_rl = new RunLevel[new_size];
+      RunLevel* const new_rl = Alloc<RunLevel>(new_size);
+      if (new_rl == nullptr) return false;
       if (nb_run_levels_ > 0) {
         memcpy(new_rl, all_run_levels_,
                nb_run_levels_ * sizeof(new_rl[0]));
       }
-      delete[] all_run_levels_;
+      Free(all_run_levels_);
       all_run_levels_ = new_rl;
       max_run_levels_ = new_size;
       assert(nb_run_levels_ + 6 * 64 <= max_run_levels_);
     }
   }
+  return true;
 }
 
-void Encoder::AllocateBlocks(size_t num_blocks) {
+bool Encoder::AllocateBlocks(size_t num_blocks) {
   assert(in_blocks_ == nullptr);
-  in_blocks_base_ =
-      new uint8_t[num_blocks * 64 * sizeof(*in_blocks_) + ALIGN_CST];
+  have_coeffs_ = false;
+  const size_t size = num_blocks * 64 * sizeof(*in_blocks_);
+  in_blocks_base_ = Alloc<uint8_t>(size + ALIGN_CST);
+  if (in_blocks_base_ == nullptr) return false;
   in_blocks_ = reinterpret_cast<int16_t*>(
       (ALIGN_CST + reinterpret_cast<uintptr_t>(in_blocks_base_)) & ~ALIGN_CST);
-  have_coeffs_ = false;
+  return true;
 }
 
 void Encoder::DesallocateBlocks() {
-  delete[] in_blocks_base_;
+  Free(in_blocks_base_);
   in_blocks_base_ = nullptr;
   in_blocks_ = nullptr;          // sanity
 }
@@ -1199,7 +1214,7 @@ void Encoder::SinglePassScan() {
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     const bool yclip = (mb_y == mb_y_max);
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      CheckBuffers();
+      if (!CheckBuffers()) return;
       if (!have_coeffs_) {
         in = in_blocks_;
         GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
@@ -1221,11 +1236,11 @@ void Encoder::SinglePassScan() {
 
 void Encoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
   DesallocateBlocks();     // we can free up some coeffs memory at this point
-  CheckBuffers();   // this call is needed to finalize all_run_levels_.
+  if (!CheckBuffers()) return;  // call needed to finalize all_run_levels_
   assert(reuse_run_levels_);
   const RunLevel* run_levels = all_run_levels_;
   for (size_t n = 0; n < nb_mbs; ++n) {
-    CheckBuffers();
+    if (!CheckBuffers()) return;
     CodeBlock(&coeffs[n], run_levels);
     run_levels += coeffs[n].nb_coeffs_;
   }
@@ -1476,7 +1491,8 @@ void Encoder::StoreOptimalHuffmanTables(size_t nb_mbs,
 void Encoder::SinglePassScanOptimized() {
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
   DCTCoeffs* const base_coeffs =
-      new DCTCoeffs[reuse_run_levels_ ? nb_mbs : 1];
+      Alloc<DCTCoeffs>(reuse_run_levels_ ? nb_mbs : 1);
+  if (base_coeffs == nullptr) return;
   DCTCoeffs* coeffs = base_coeffs;
   RunLevel base_run_levels[64];
   const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
@@ -1499,7 +1515,7 @@ void Encoder::SinglePassScanOptimized() {
         GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
         fDCT_(in, mcu_blocks_);
       }
-      CheckBuffers();
+      if (!CheckBuffers()) return;
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           RunLevel* const run_levels =
@@ -1531,13 +1547,15 @@ void Encoder::SinglePassScanOptimized() {
     // Re-use the saved run/levels for fast 2nd-pass.
     FinalPassScan(nb_mbs, base_coeffs);
   }
-  delete[] base_coeffs;
+  Free(base_coeffs);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // main call
 
 bool Encoder::Encode() {
+  if (!ok_) return false;
+
   FinalizeQuantMatrix(&quants_[0], q_bias_);
   FinalizeQuantMatrix(&quants_[1], q_bias_);
   SetCostCodes(0);
@@ -1551,14 +1569,12 @@ bool Encoder::Encode() {
   assert(nb_comps_ <= MAX_COMP);
   assert(mcu_blocks_ <= 6);
   // validate some input parameters
-  if (W_ <= 0 || H_ <= 0 || rgb_ == nullptr) {
-    bw_.DeleteOutputBuffer();    // release output_ memory
-    return false;
-  }
+  if (W_ <= 0 || H_ <= 0 || rgb_ == nullptr) return false;
+
   mb_w_ = (W_ + (block_w_ - 1)) / block_w_;
   mb_h_ = (H_ + (block_h_ - 1)) / block_h_;
   const size_t nb_blocks = use_extra_memory_ ? mb_w_ * mb_h_ : 1;
-  AllocateBlocks(nb_blocks * mcu_blocks_);
+  if (!AllocateBlocks(nb_blocks * mcu_blocks_)) return false;
 
   WriteAPP0();
 
@@ -1589,9 +1605,10 @@ bool Encoder::Encode() {
     }
   }
   WriteEOI();
+  ok_ = ok_ && bw_.Finalize();
 
   DesallocateBlocks();
-  return true;
+  return ok_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1696,8 +1713,9 @@ const uint8_t* Encoder::GetReplicatedYUVSamples(const uint8_t* in,
 
 class Encoder420 : public Encoder {
  public:
-  Encoder420(int W, int H, int step, const uint8_t* const rgb)
-    : Encoder(W, H, step, rgb) {}
+  Encoder420(int W, int H, int step, const uint8_t* const rgb,
+             ByteSink* const sink)
+    : Encoder(W, H, step, rgb, sink) {}
   virtual ~Encoder420() {}
   virtual void InitComponents() {
     nb_comps_ = 3;
@@ -1738,8 +1756,9 @@ class Encoder420 : public Encoder {
 
 class Encoder444 : public Encoder {
  public:
-  Encoder444(int W, int H, int step, const uint8_t* const rgb)
-      : Encoder(W, H, step, rgb) {
+  Encoder444(int W, int H, int step, const uint8_t* const rgb,
+             ByteSink* const sink)
+      : Encoder(W, H, step, rgb, sink) {
     SetYUVFormat(true);
   }
   virtual ~Encoder444() {}
@@ -1778,11 +1797,13 @@ class Encoder444 : public Encoder {
 
 class EncoderSharp420 : public Encoder420 {
  public:
-  EncoderSharp420(int W, int H, int step, const uint8_t* const rgb)
-      : Encoder420(W, H, step, rgb), yuv_memory_(nullptr) {
+  EncoderSharp420(int W, int H, int step, const uint8_t* const rgb,
+                  ByteSink* const sink)
+      : Encoder420(W, H, step, rgb, sink), yuv_memory_(nullptr) {
     const int uv_w = (W + 1) >> 1;
     const int uv_h = (H + 1) >> 1;
-    yuv_memory_ = new uint8_t[W * H + 2 * uv_w * uv_h];
+    yuv_memory_ = Alloc<uint8_t>(W * H + 2 * uv_w * uv_h);
+    if (yuv_memory_ == nullptr) return;
     y_plane_ = yuv_memory_;
     y_step_ = W;
     u_plane_ = yuv_memory_ + W * H;
@@ -1790,7 +1811,7 @@ class EncoderSharp420 : public Encoder420 {
     uv_step_ = uv_w;
     ApplySharpYUVConversion(rgb, W, H, step, y_plane_, u_plane_, v_plane_);
   }
-  virtual ~EncoderSharp420() { delete[] yuv_memory_; }
+  virtual ~EncoderSharp420() { Free(yuv_memory_); }
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out);
 
  protected:
@@ -1864,18 +1885,23 @@ void EncoderSharp420::GetSamples(int mb_x, int mb_y,
 // all-in-one factory to pickup the right encoder instance
 
 Encoder* EncoderFactory(const uint8_t* rgb,
-                             int W, int H, int stride, SjpegYUVMode yuv_mode) {
+                             int W, int H, int stride, SjpegYUVMode yuv_mode,
+                             ByteSink* const sink) {
   if (yuv_mode == SJPEG_YUV_AUTO) {
     yuv_mode = SjpegRiskiness(rgb, W, H, stride, nullptr);
   }
 
   Encoder* enc = nullptr;
   if (yuv_mode == SJPEG_YUV_420) {
-    enc = new Encoder420(W, H, stride, rgb);
+    enc = new (std::nothrow) Encoder420(W, H, stride, rgb, sink);
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
-    enc = new EncoderSharp420(W, H, stride, rgb);
+    enc = new (std::nothrow) EncoderSharp420(W, H, stride, rgb, sink);
   } else {
-    enc = new Encoder444(W, H, stride, rgb);
+    enc = new (std::nothrow) Encoder444(W, H, stride, rgb, sink);
+  }
+  if (enc == nullptr || !enc->Ok()) {
+    delete enc;
+    enc = nullptr;
   }
   return enc;
 }
@@ -1892,12 +1918,14 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
   if (width <= 0 || height <= 0 || stride < 3 * width) return 0;
   *out_data = nullptr;  // safety
 
-  Encoder* const enc = EncoderFactory(rgb, width, height, stride, yuv_mode);
+  MemorySink sink(width * height / 4);
+  Encoder* const enc = EncoderFactory(rgb, width, height, stride, yuv_mode,
+                                      &sink);
   enc->SetQuality(quality);
   enc->SetCompressionMethod(method);
   size_t size = 0;
   *out_data = nullptr;
-  if (enc->Encode()) *out_data = enc->Grab(&size);
+  if (enc->Encode()) sink.Release(out_data, &size);
   delete enc;
   return size;
 }
@@ -2027,46 +2055,56 @@ bool Encoder::InitFromParam(const SjpegEncodeParam& param) {
   return true;
 }
 
-size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                   const SjpegEncodeParam& param, uint8_t** out) {
-  if (rgb == nullptr || out == nullptr) return 0;
-  if (width <= 0 || height <= 0 || stride < 3 * width) return 0;
+bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                 const SjpegEncodeParam& param, ByteSink* sink) {
+  if (rgb == nullptr || sink == nullptr) return false;
+  if (width <= 0 || height <= 0 || stride < 3 * width) return false;
 
-  Encoder* const enc = EncoderFactory(rgb,
-                                      width, height, stride, param.yuv_mode);
-  if (enc == nullptr) return 0;
-
-  size_t size = 0;
-  *out = nullptr;
-  if (enc->InitFromParam(param) && enc->Encode()) *out = enc->Grab(&size);
+  Encoder* const enc = EncoderFactory(rgb, width, height, stride,
+                                      param.yuv_mode, sink);
+  const bool ok = (enc != nullptr) &&
+                  enc->InitFromParam(param) &&
+                  enc->Encode();
   delete enc;
-  return size;
+  return ok;
 }
 
-std::string SjpegEncode(const uint8_t* rgb, int W, int H, int stride,
-                        const SjpegEncodeParam& param) {
-  uint8_t* out = nullptr;
-  const size_t size = SjpegEncode(rgb, W, H, stride, param, &out);
-  if (size == 0) return "";
-
-  std::string output;
-  output.append(reinterpret_cast<const char*>(out), size);
-  SjpegFreeBuffer(out);
-  return output;
+size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                   const SjpegEncodeParam& param, uint8_t** out_data) {
+  MemorySink sink(width * height / 4);    // estimation of output size
+  if (!SjpegEncode(rgb, width, height, stride, param, &sink)) return 0;
+  size_t size;
+  sink.Release(out_data, &size);
+  return size;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // std::string variants
 
-std::string SjpegCompress(const uint8_t* rgb, int width, int height,
-                          float quality) {
-  std::string output;
-  uint8_t* data = nullptr;
-  size_t size = SjpegCompress(rgb, width, height, quality, &data);
-  if (size > 0) output.append(reinterpret_cast<const char*>(data), size);
-  SjpegFreeBuffer(data);
-  return output;
+// TODO(skal): remove this API
+std::string SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                        const SjpegEncodeParam& param) {
+  std::string tmp;
+  if (!SjpegEncode(rgb, width, height, stride, param, &tmp)) return "";
+  return tmp;
 }
+
+bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                 const SjpegEncodeParam& param, std::string* output) {
+  output->clear();
+  output->reserve(width * height / 4);
+  StringSink sink(output);
+  return SjpegEncode(rgb, width, height, stride, param, &sink);
+}
+
+bool SjpegCompress(const uint8_t* rgb, int width, int height,
+                   float quality, std::string* output) {
+  SjpegEncodeParam param;
+  param.SetQuality(quality);
+  return SjpegEncode(rgb, width, height, 3 * width, param, output);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 bool SjpegDimensions(const std::string& jpeg_data,
                      int* width, int* height, int* is_yuv420) {
