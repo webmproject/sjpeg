@@ -113,7 +113,8 @@ void Encoder::LoopScan() {
   }
 
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
-  DCTCoeffs* const base_coeffs = new DCTCoeffs[nb_mbs];
+  DCTCoeffs* const base_coeffs = Alloc<DCTCoeffs>(nb_mbs);
+  if (base_coeffs == nullptr) return;
 
   uint8_t opt_quants[2][64];
 
@@ -183,7 +184,7 @@ void Encoder::LoopScan() {
   WriteSOS();
   FinalPassScan(nb_mbs, base_coeffs);
 
-  delete[] base_coeffs;
+  Free(base_coeffs);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

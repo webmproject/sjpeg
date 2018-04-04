@@ -185,8 +185,9 @@ struct Histo {
 
 struct Encoder {
  public:
-  Encoder(int W, int H, int step, const uint8_t* rgb);
+  Encoder(int W, int H, int step, const uint8_t* rgb, ByteSink* sink);
   virtual ~Encoder();
+  bool Ok() const { return ok_; }
 
   // setters
   void SetQuality(float q);
@@ -194,11 +195,6 @@ struct Encoder {
 
   // all-in-one init from SjpegEncodeParam.
   bool InitFromParam(const SjpegEncodeParam& param);
-
-  // getters
-  int Size() const { return bw_.BytePos(); }
-  uint8_t* Bits() const { return const_cast<uint8_t*>(bw_.Data()); }
-  uint8_t* Grab(size_t *size) { return bw_.Grab(size); }
 
   // Main call. Return false in case of parameter error (setting empty output).
   bool Encode();
@@ -223,7 +219,7 @@ struct Encoder {
   void SetMetadata(const std::string& data, MetadataType type);
 
  private:
-  void CheckBuffers();
+  bool CheckBuffers();  // returns false in case of memory alloc error
 
   void WriteAPP0();
   bool WriteAPPMarkers(const std::string& data);
@@ -296,6 +292,8 @@ struct Encoder {
   float ComputePSNR() const;
 
  protected:
+  bool SetError();   // sets ok_ to true
+
   // format-specific parameters, set by virtual InitComponents()
   enum { MAX_COMP = 3 };
   int nb_comps_;
@@ -329,7 +327,18 @@ struct Encoder {
   }
   bool adaptive_bias_;   // if true, use per-block perceptual bias modulation
 
+  // Memory management
+  template<class T> T* Alloc(size_t num) {
+    T* const ptr = reinterpret_cast<T*>(MemoryAlloc(sizeof(T) * num));
+    if (ptr == nullptr) SetError();
+    return ptr;
+  }
+  template<class T> static void Free(T* ptr) {
+    MemoryFree(reinterpret_cast<void*>(ptr));
+  }
+
  private:
+  bool ok_;                // set to false if a new[] fails
   sjpeg::BitWriter bw_;    // output buffer
 
   std::string iccp_, xmp_, exif_, app_markers_;   // metadata
@@ -351,7 +360,7 @@ struct Encoder {
   uint8_t* in_blocks_base_;   // base memory for blocks
   int16_t* in_blocks_;        // aligned pointer to in_blocks_base_
   bool have_coeffs_;          // true if the Fourier coefficients are stored
-  void AllocateBlocks(size_t num_blocks);
+  bool AllocateBlocks(size_t num_blocks);  // returns false in case of error
   void DesallocateBlocks();
 
   // these are for regular compression methods 0 or 2.
@@ -400,6 +409,10 @@ struct Encoder {
   int passes_;
   SearchHook default_hook;
   SearchHook* search_hook_;
+
+  // lower memory management
+  static void* MemoryAlloc(size_t size);
+  static void MemoryFree(void* ptr);
 
   static const float kHistoWeight[QSIZE];
 

@@ -269,12 +269,27 @@ struct SearchHook {
   virtual ~SearchHook() {}
 };
 
+// Generic call taking a byte-sink
+//   Same as SjpegEncode(), except encoding parameters are passed in a
+//   SjpegEncodeParam. Upon failure (memory allocation or invalid parameter),
+//   the function returns false.
+namespace sjpeg { struct ByteSink; }
+bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                 const SjpegEncodeParam& param, sjpeg::ByteSink* sink);
+
 // Same as the first version of SjpegEncode(), except encoding parameters are
 // delivered in a SjpegEncodeParam. Upon failure (memory allocation or
 // invalid parameter), the function returns an empty string.
+// TODO(skal): left for compatibility for now. Remove!
 std::string SjpegEncode(const uint8_t* rgb,
                         int width, int height, int stride,
                         const SjpegEncodeParam& param);
+
+// Same as the first version of SjpegEncode(), except encoding parameters are
+// passed in a SjpegEncodeParam. Upon failure (memory allocation or
+// invalid parameter), the function returns false.
+bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                 const SjpegEncodeParam& param, std::string* output);
 
 // This version return data in *out_data. Returns 0 in case of error.
 size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
@@ -283,8 +298,8 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
 ////////////////////////////////////////////////////////////////////////////////
 // Variant of the function above, but using std::string as interface.
 
-std::string SjpegCompress(const uint8_t* rgb,
-                          int width, int height, float quality);
+bool SjpegCompress(const uint8_t* rgb,
+                   int width, int height, float quality, std::string* output);
 
 bool SjpegDimensions(const std::string& jpeg_data,
                      int* width, int* height, int* is_yuv420);

@@ -25,59 +25,70 @@
 namespace sjpeg {
 
 ///////////////////////////////////////////////////////////////////////////////
-// BitWriter
+// MemorySink
 
-BitWriter::BitWriter() : buf_(NULL), max_pos_(0) {
-  Reset(0);
+MemorySink::MemorySink(size_t expected_size)
+    : buf_(nullptr), pos_(0), max_pos_(0) {
+  // The following call can fail, with no harm: it'll be reported during the
+  // next call to Commit() if needed (we don't want to fail in a constructor).
+  (void)Commit(0, expected_size);
 }
 
-BitWriter::BitWriter(size_t output_size_hint) : buf_(NULL), max_pos_(0) {
-  Reset(0);
-  Reserve(output_size_hint);
-}
+MemorySink::~MemorySink() { Reset(); }
 
-BitWriter::~BitWriter() {
+void MemorySink::Reset() {
   delete[] buf_;
+  buf_ = nullptr;
+  pos_ = 0;
+  max_pos_ = 0;
 }
 
-void BitWriter::GrowBuffer(size_t max_size) {
-  assert(max_size > max_pos_);
+void MemorySink::Release(uint8_t** buf_ptr, size_t* size_ptr) {
+  *buf_ptr = buf_;
+  *size_ptr = pos_;
+  buf_ = nullptr;
+  Reset();
+}
+
+uint8_t* MemorySink::Commit(size_t used_size, size_t extra_size) {
+  pos_ += used_size;
+  assert(pos_ <= max_pos_);
+  size_t new_size = pos_ + extra_size;
+  if (new_size > max_pos_) {
   // TODO(skal): the x2 growth is probably over-shooting. Need to tune
   // depending on use-case (ie.: what is the expected average final size?)
-  max_size += 256;
-  if (max_size < 2 * max_pos_) {
-    max_size = 2 * max_pos_;
+    new_size += 256;
+    if (new_size < 2 * max_pos_) {
+      new_size = 2 * max_pos_;
   }
-  uint8_t* const new_buf = new uint8_t[max_size];
-  if (byte_pos_ > 0) {
-    memcpy(new_buf, buf_, byte_pos_);
-  }
+    uint8_t* const new_buf = new (std::nothrow) uint8_t[new_size];
+    if (new_buf == nullptr) return nullptr;
+
+    if (pos_ > 0) memcpy(new_buf, buf_, pos_);
   delete[] buf_;
   buf_ = new_buf;
-  max_pos_ = max_size;
+    max_pos_ = new_size;
+  }
+  return buf_ + pos_;
 }
 
-uint8_t* BitWriter::Grab(size_t *size) {
-  assert(size != NULL);
-  uint8_t *buf = buf_;
-  *size = byte_pos_;
-  buf_ = NULL;
-  max_pos_ = 0;
-  Reset(0);
-  return buf;
+///////////////////////////////////////////////////////////////////////////////
+// StringSink
+
+uint8_t* StringSink::Commit(size_t used_size, size_t extra_size) {
+  pos_ += used_size;
+  assert(pos_ <= str_->size());
+  str_->resize(pos_ + extra_size);
+  return reinterpret_cast<uint8_t*>(&(*str_)[pos_]);
 }
 
-void BitWriter::DeleteOutputBuffer() {
-  delete[] buf_;
-  buf_ = NULL;
-  max_pos_ = 0;
-  Reset(0);
-}
+///////////////////////////////////////////////////////////////////////////////
+// BitWriter
 
-void BitWriter::Reset(size_t byte_pos) {
+BitWriter::BitWriter(ByteSink* const sink) : sink_(sink), buf_(nullptr) {
   nb_bits_ = 0;
   bits_ = 0x00000000U;
-  byte_pos_ = byte_pos;
+  byte_pos_ = 0;
 }
 
 void BitWriter::Flush() {

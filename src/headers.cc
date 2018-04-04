@@ -23,8 +23,6 @@
 
 #include "sjpegi.h"
 
-using namespace sjpeg;
-
 namespace sjpeg {
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -35,23 +33,26 @@ namespace sjpeg {
 // That's why you often find these 'Reserve(data_size + 2)' below, the '+2'
 // accounting for the 0xff?? startcode size.
 
-void Encoder::WriteAPP0() {  // SOI + APP0
-  const uint8_t kHeader0[] = {
+static const uint8_t kHeaderAPP0[] = {
     0xff, 0xd8,                     // SOI
     0xff, 0xe0, 0x00, 0x10,         // APP0
     0x4a, 0x46, 0x49, 0x46, 0x00,   // 'JFIF'
     0x01, 0x01,                     // v1.01
     0x00, 0x00, 0x01, 0x00, 0x01,   // aspect ratio = 1:1
     0x00, 0x00                      // thumbnail width/height
-  };
-  bw_.Reserve(sizeof(kHeader0));
-  bw_.PutBytes(kHeader0, sizeof(kHeader0));
+};
+
+void Encoder::WriteAPP0() {  // SOI + APP0
+  ok_ = ok_ && bw_.Reserve(sizeof(kHeaderAPP0));
+  if (!ok_) return;
+  bw_.PutBytes(kHeaderAPP0, sizeof(kHeaderAPP0));
 }
 
 bool Encoder::WriteAPPMarkers(const std::string& data) {
   if (data.size() == 0) return true;
   const size_t data_size = data.size();
-  bw_.Reserve(data_size);
+  ok_ = ok_ && bw_.Reserve(data_size);
+  if (!ok_) return false;
   bw_.PutBytes(reinterpret_cast<const uint8_t*>(data.data()), data.size());
   return true;
 }
@@ -62,7 +63,8 @@ bool Encoder::WriteEXIF(const std::string& data) {
   const size_t kEXIF_len = 6;  // includes the \0's
   const size_t data_size = data.size() + kEXIF_len + 2;
   if (data_size > 0xffff) return false;
-  bw_.Reserve(data_size + 2);
+  ok_ = ok_ && bw_.Reserve(data_size + 2);
+  if (!ok_) return false;
   bw_.PutByte(0xff);
   bw_.PutByte(0xe1);
   bw_.PutByte((data_size >> 8) & 0xff);
@@ -85,7 +87,8 @@ bool Encoder::WriteICCP(const std::string& data) {
   while (data_size > 0) {
     size_t size = data_size;
     if (size > chunk_size_max) size = chunk_size_max;
-    bw_.Reserve(size + kICCP_len + 4 + 2);
+    ok_ = ok_ && bw_.Reserve(size + kICCP_len + 4 + 2);
+    if (!ok_) return false;
     bw_.PutByte(0xff);
     bw_.PutByte(0xe2);
     bw_.PutByte(((size + kICCP_len + 4) >> 8) & 0xff);
@@ -107,7 +110,8 @@ bool Encoder::WriteXMP(const std::string& data) {
   const size_t kXMP_size = 29;
   const size_t data_size = 2 + data.size() + kXMP_size;
   if (data_size > 0xffff) return false;  // error
-  bw_.Reserve(data_size + 2);
+  ok_ = ok_ && bw_.Reserve(data_size + 2);
+  if (!ok_) return false;
   bw_.PutByte(0xff);
   bw_.PutByte(0xe1);
   bw_.PutByte((data_size >> 8) & 0xff);
@@ -120,7 +124,8 @@ bool Encoder::WriteXMP(const std::string& data) {
 void Encoder::WriteDQT() {
   const size_t data_size = 2 * 65 + 2;
   const uint8_t kDQTHeader[] = { 0xff, 0xdb, 0x00, (uint8_t)data_size };
-  bw_.Reserve(data_size + 2);
+  ok_ = ok_ && bw_.Reserve(data_size + 2);
+  if (!ok_) return;
   bw_.PutBytes(kDQTHeader, sizeof(kDQTHeader));
   for (int n = 0; n <= 1; ++n) {
     bw_.PutByte(n);
@@ -144,7 +149,8 @@ void Encoder::WriteSOF() {   // SOF
     DATA_16b(H_), DATA_16b(W_),              // height, width
     (uint8_t)nb_comps_                       // number of components
   };
-  bw_.Reserve(data_size + 2);
+  ok_ = ok_ && bw_.Reserve(data_size + 2);
+  if (!ok_) return;
   bw_.PutBytes(kHeader, sizeof(kHeader));
   for (int c = 0; c < nb_comps_; ++c) {
     bw_.PutByte(c + 1);
@@ -161,7 +167,8 @@ void Encoder::WriteDHT() {
       const HuffmanTable* const h = Huffman_tables_[type * 2 + c];
       const size_t data_size = 3 + 16 + h->nb_syms_;
       assert(data_size <= 255);
-      bw_.Reserve(data_size + 2);
+      ok_ = ok_ && bw_.Reserve(data_size + 2);
+      if (!ok_) return;
       bw_.PutByte(0xff);
       bw_.PutByte(0xc4);
       bw_.PutByte(0x00 /*data_size >> 8*/);
@@ -181,7 +188,8 @@ void Encoder::WriteSOS() {   // SOS
   const uint8_t kHeader[] = {
       0xff, 0xda, DATA_16b(data_size), (uint8_t)nb_comps_
   };
-  bw_.Reserve(data_size + 2);
+  ok_ = ok_ && bw_.Reserve(data_size + 2);
+  if (!ok_) return;
   bw_.PutBytes(kHeader, sizeof(kHeader));
   for (int c = 0; c < nb_comps_; ++c) {
     bw_.PutByte(c + 1);
@@ -197,9 +205,14 @@ void Encoder::WriteSOS() {   // SOS
 void Encoder::WriteEOI() {   // EOI
   bw_.Flush();
   // append EOI
-  bw_.Reserve(2);
+  ok_ = ok_ && bw_.Reserve(2);
+  if (!ok_) return;
   bw_.PutByte(0xff);
   bw_.PutByte(0xd9);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+#undef DATA_16b
 
 }    // namespace sjpeg
