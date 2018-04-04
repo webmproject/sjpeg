@@ -20,62 +20,90 @@
 #define SJPEG_BIT_WRITER_H_
 
 #include <assert.h>
-#include <string.h>
 #include <stdint.h>
+#include <string.h>   // for memcpy
+#include <string>
+
+#include "sjpeg.h"
 
 namespace sjpeg {
+
+////////////////////////////////////////////////////////////////////////////////
+// Generic byte-sink
+
+// Protocol:
+//  . Commit(used_size, extra_size): specify that 'used_size' bytes were
+//       used since the last call to Commit(). Also reserve 'extra_size' bytes
+//       for the next cycle. 'extra_size' can be 0. Most of the time (except
+//       during header writing), 'extra_size' will be less than 2048.
+//  . Finalize(): indicates that calls to Commit() are finished until the
+//       destruction (and the assembled byte-stream can be grabbed).
+//  . Reset(): releases memory (called in case of error or at destruction).
+
+struct ByteSink {
+ public:
+  virtual ~ByteSink() {}
+  // returns nullptr in case of error:
+  virtual uint8_t* Commit(size_t used_size, size_t extra_size) = 0;
+  virtual bool Finalize() = 0;            // returns false in case of error
+  virtual void Reset() = 0;               // called in case of error
+};
+
+///////////////////////////////////////////////////////////////////////////////
+// Memory-Sink
+
+class MemorySink : public ByteSink {
+ public:
+  explicit MemorySink(size_t expected_size);
+  virtual ~MemorySink();
+  virtual uint8_t* Commit(size_t used_size, size_t extra_size);
+  virtual bool Finalize() { /* nothing to do */ return true; }
+  virtual void Reset();
+  void Release(uint8_t** buf_ptr, size_t* size_ptr);
+
+ private:
+  uint8_t* buf_;
+  size_t pos_, max_pos_;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+// String-Sink
+
+class StringSink : public ByteSink {
+ public:
+  explicit StringSink(std::string* output) : str_(output), pos_(0) {}
+  virtual ~StringSink() {}
+  virtual uint8_t* Commit(size_t used_size, size_t extra_size);
+  virtual bool Finalize() { str_->resize(pos_); return true; }
+  virtual void Reset() { str_->clear(); }
+
+ private:
+  std::string* const str_;
+  size_t pos_;
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 // BitWriter
 
 class BitWriter {
  public:
-  BitWriter();
-  explicit BitWriter(size_t output_size_hint);
-  ~BitWriter();
-
-  // Restart writing to the beginning of the output buffer.
-  void Reset() { Reset(0); }
-  // Restart writing at a fixed byte position (leaving the beginning
-  // of the buffer intact).
-  void Reset(size_t byte_pos);
+  explicit BitWriter(ByteSink* const sink);
 
   // Verifies the that output buffer can store at least 'size' more bytes,
-  // growing if needed. Returns the buffer position with 'size' writable bytes.
-  // Prefer calling this function instead of accessing output_ directly!
+  // growing if needed. Returns a buffer pointer to 'size' writable bytes.
   // The returned pointer is likely to change if Reserve() is called again.
   // Hence it should be used as quickly as possible.
-  uint8_t* Reserve(size_t size) {
-    if (byte_pos_ + size > max_pos_) {
-      GrowBuffer(byte_pos_ + size);
-    }
-    return buf_ + byte_pos_;
+  bool Reserve(size_t size) {
+    buf_ = sink_->Commit(byte_pos_, size);
+    byte_pos_ = 0;
+    return (buf_ != nullptr);
   }
-  // same as above, but with over-reservation in case we need to grow the
-  // buffer.
-  uint8_t* ReserveLarge(size_t size) {
-    if (byte_pos_ + size > max_pos_) {
-      const size_t requested_size = byte_pos_ + size;
-      const size_t overgrown_size = max_pos_ * 3 / 2;
-      GrowBuffer(requested_size > overgrown_size ? requested_size
-                                                 : overgrown_size);
-    }
-    return buf_ + byte_pos_;
-  }
-
-  // Change the position of the end of the buffer. Doesn't allocate anything.
-  // Note that 'size' can be negative. Not boundary check is performed.
-  void Advance(size_t size) { byte_pos_ += size; }
-
-  // Delete everything. Mainly useful in case of error.
-  void DeleteOutputBuffer();
 
   // Make sure we can write 24 bits by flushing the past ones.
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
   // calling this function.
   void FlushBits() {
     // worst case: 3 escaped codes = 6 bytes
-    assert(byte_pos_ + 6 <= max_pos_);
     while (nb_bits_ >= 8) {
       const uint8_t tmp = bits_ >> 24;
       buf_[byte_pos_++] = tmp;
@@ -103,12 +131,10 @@ class BitWriter {
   void PutByte(uint8_t value) {
     assert(nb_bits_ == 0);
     buf_[byte_pos_++] = value;
-    assert(byte_pos_ <= max_pos_);
   }
   // Same as multiply calling PutByte().
   void PutBytes(const uint8_t* buf, size_t size) {
     assert(nb_bits_ == 0);
-    assert(byte_pos_ + size <= max_pos_);
     assert(buf != NULL);
     assert(size > 0);
     memcpy(buf_ + byte_pos_, buf, size);
@@ -121,31 +147,16 @@ class BitWriter {
   // Write pending bits, and align bitstream with extra '1' bits.
   void Flush();
 
-  // Returns pointer to the beginning of the output buffer.
-  const uint8_t* Data() const { return buf_; }
-  // Returns last written position, in bytes.
-  size_t BytePos() const { return byte_pos_; }
-  // Returns written position, in bits.
-  size_t BitPos() const { return 8LL * byte_pos_ + nb_bits_; }
-  // Returns total written size, in bytes.
-  size_t ByteLength() const { return (BitPos() + 7LL) >> 3; }
-
-  // Returns a pointer to the final buffer, and transfer ownership to the
-  // caller, which is reponsible for later deallocating it using 'delete[]'.
-  // The size of the returned buffer is stored in '*size'.
-  // Upon return of this method, the object is empty as if just constructed.
-  uint8_t* Grab(size_t* size);
+  // To be called last.
+  bool Finalize() { return Reserve(0) && sink_->Finalize(); }
 
  private:
-  // Expand buffer size to contain at least 'size' bytes (probably more),
-  // preserving previous content. Don't call directly, use Reserve() instead!
-  void GrowBuffer(size_t size);
+  ByteSink* sink_;
 
   int nb_bits_;      // number of unwritten bits
   uint32_t bits_;    // accumulator for unwritten bits
   size_t byte_pos_;  // write position, in bytes
   uint8_t* buf_;     // destination buffer (don't access directly!)
-  size_t max_pos_;   // maximum write-position within output buffer
 };
 
 // Class for counting bits, including the 0xff escape

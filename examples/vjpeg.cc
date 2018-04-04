@@ -55,7 +55,7 @@ using std::vector;
 struct Params {
   ImageType type;
   int done;
-  bool decoding_error;
+  bool error;
   int show;  // 0 = compressed, 1 = original, 2 = info, 3 = help
              // 4 = error map, 5 = riskiness map, 6 = alt
   int fade;  // [0..100]
@@ -332,14 +332,17 @@ static void ComputeRiskinessMap() {
 //------------------------------------------------------------------------------
 // compression
 
-static void EncodeAndDecode() {
+static bool EncodeAndDecode() {
   const double start = GetStopwatchTime();
   kParams.param.SetQuality(kParams.quality);
   kParams.param.SetLimitQuantization(kParams.limit_quantization);
-  kParams.jpeg =
-      SjpegEncode(&kParams.rgb[0],
+  if (!SjpegEncode(&kParams.rgb[0],
                   kParams.width, kParams.height, kParams.width * 3,
-                  kParams.param);
+                   kParams.param, &kParams.jpeg)) {
+    fprintf(stderr, "Encoding error!\n");
+    kParams.error = true;
+    return false;
+  }
   kParams.elapsed = static_cast<uint32_t>(1000. * (GetStopwatchTime() - start));
   kParams.out_rgb = ReadJPEG(kParams.jpeg, NULL, NULL, NULL);
   assert(kParams.jpeg.size() > 0);
@@ -351,6 +354,7 @@ static void EncodeAndDecode() {
     kParams.show = 0;  // force recomputation
     ComputeRiskinessMap();
   }
+  return true;
 }
 
 static void FullRedraw() {
@@ -364,13 +368,13 @@ bool Params::SetCurrentFile(size_t file) {
     current_file = file;
     const std::string& file_name = files[file];
     input = ReadFile(file_name.c_str());
-    decoding_error = input.empty();
-    if (decoding_error) return false;
+    error = input.empty();
+    if (error) return false;
 
     type = GuessImageType(input);
     rgb = ReadImage(input, &width, &height, &param);
-    decoding_error = rgb.empty();
-    if (decoding_error) {
+    error = rgb.empty();
+    if (error) {
       fprintf(stderr, "Could not decode the input file %s\n",
               file_name.c_str());
       return false;
@@ -389,10 +393,9 @@ bool Params::SetCurrentFile(size_t file) {
     }
     yuv_mode_rec =
         SjpegRiskiness(&rgb[0], width, height, 3 * width, &riskiness);
-
     EncodeAndDecode();
   }
-  return !decoding_error;
+  return !error;
 }
 
 bool Params::SetAltFile(const char* const file_name) {

@@ -300,10 +300,11 @@ int main(int argc, char * argv[]) {
   if (no_metadata) param.ResetMetadata();
 
   const double start = GetStopwatchTime();
-  const std::string out = SjpegEncode(&in_bytes[0], W, H, 3 * W, param);
+  std::string out;
+  const bool ok = SjpegEncode(&in_bytes[0], W, H, 3 * W, param, &out);
   const double encode_time = GetStopwatchTime() - start;
 
-  if (out.size() == 0) {
+  if (!ok) {
     fprintf(stderr, "ERROR: call to SjpegEncode() failed.\n");
     return -1;
   }
