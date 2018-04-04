@@ -34,12 +34,12 @@ namespace sjpeg {
 // accounting for the 0xff?? startcode size.
 
 static const uint8_t kHeaderAPP0[] = {
-    0xff, 0xd8,                     // SOI
-    0xff, 0xe0, 0x00, 0x10,         // APP0
-    0x4a, 0x46, 0x49, 0x46, 0x00,   // 'JFIF'
-    0x01, 0x01,                     // v1.01
-    0x00, 0x00, 0x01, 0x00, 0x01,   // aspect ratio = 1:1
-    0x00, 0x00                      // thumbnail width/height
+  0xff, 0xd8,                     // SOI
+  0xff, 0xe0, 0x00, 0x10,         // APP0
+  0x4a, 0x46, 0x49, 0x46, 0x00,   // 'JFIF'
+  0x01, 0x01,                     // v1.01
+  0x00, 0x00, 0x01, 0x00, 0x01,   // aspect ratio = 1:1
+  0x00, 0x00                      // thumbnail width/height
 };
 
 void Encoder::WriteAPP0() {  // SOI + APP0
@@ -203,10 +203,10 @@ void Encoder::WriteSOS() {   // SOS
 ////////////////////////////////////////////////////////////////////////////////
 
 void Encoder::WriteEOI() {   // EOI
-  bw_.Flush();
-  // append EOI
+  if (ok_) bw_.Flush();
   ok_ = ok_ && bw_.Reserve(2);
   if (!ok_) return;
+  // append EOI
   bw_.PutByte(0xff);
   bw_.PutByte(0xd9);
 }
