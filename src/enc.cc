@@ -1515,7 +1515,7 @@ void Encoder::SinglePassScanOptimized() {
         GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
         fDCT_(in, mcu_blocks_);
       }
-      if (!CheckBuffers()) return;
+      if (!CheckBuffers()) goto End;
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           RunLevel* const run_levels =
@@ -1547,6 +1547,7 @@ void Encoder::SinglePassScanOptimized() {
     // Re-use the saved run/levels for fast 2nd-pass.
     FinalPassScan(nb_mbs, base_coeffs);
   }
+ End:
   Free(base_coeffs);
 }
 
