@@ -329,12 +329,13 @@ struct Encoder {
 
   // Memory management
   template<class T> T* Alloc(size_t num) {
-    T* const ptr = reinterpret_cast<T*>(MemoryAlloc(sizeof(T) * num));
+    assert(memory_hook_ != nullptr);
+    T* const ptr = reinterpret_cast<T*>(memory_hook_->Alloc(sizeof(T) * num));
     if (ptr == nullptr) SetError();
     return ptr;
   }
-  template<class T> static void Free(T* ptr) {
-    MemoryFree(reinterpret_cast<void*>(ptr));
+  template<class T> void Free(T* const ptr) {
+    memory_hook_->Free(reinterpret_cast<void*>(ptr));
   }
 
  private:
@@ -406,12 +407,11 @@ struct Encoder {
 
   // multi-pass parameters
   int passes_;
-  SearchHook default_hook;
+  SearchHook default_hook_;
   SearchHook* search_hook_;
 
   // lower memory management
-  static void* MemoryAlloc(size_t size);
-  static void MemoryFree(void* ptr);
+  MemoryManager* memory_hook_;
 
   static const float kHistoWeight[QSIZE];
 

@@ -20,7 +20,9 @@
 #define SJPEG_JPEG_H_
 
 #include <inttypes.h>
+#include <memory>
 #include <string>
+#include <vector>
 
 #define SJPEG_VERSION 0x000100   // 0.1.0
 
@@ -86,7 +88,7 @@ size_t SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
 //  probably use method #4.
 //
 // Parameter 'yuv_mode': decides which colorspace to use. Possible values:
-//   * YUV_AUTO  (0): automated decision between YUV 4:2:0 / sharp-YUV 4:2:0 and YUV 4:4:4
+//   * YUV_AUTO  (0): automated decision between YUV 4:2:0 / sharp / 4:4:4
 //   * YUV_420   (1): YUV 4:2:0
 //   * YUV_SHARP (2): YUV 4:2:0 with 'sharp' conversion
 //   * YUV_444   (3): YUV 4:4:4
@@ -152,12 +154,18 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb, int width, int height,
 
 ////////////////////////////////////////////////////////////////////////////////
 // Advanced API, C++ only.
-//
-// Fine control over the encoding parameters using SjpegEncodeParam
-//
+//    . Fine control over the encoding parameters using SjpegEncodeParam
+//    . Interfaces to customize the codec
 
-namespace sjpeg { struct Encoder; }
-struct SearchHook;
+// Internal struct & interfaces
+namespace sjpeg {
+  // main internal structure
+  struct Encoder;
+  // interfaces to customize the codec:
+  struct SearchHook;
+  struct ByteSink;
+  struct MemoryManager;
+}
 
 // Structure for holding encoding parameter, to be passed to the unique
 // call to SjpegEncode() below. For a more detailed description of some fields,
@@ -223,7 +231,8 @@ struct SjpegEncodeParam {
                             // A higher value might be useful for images
                             // encoded without chroma subsampling.
 
-  SearchHook* search_hook;  // if null, a default implementation will be used
+  // if null, a default implementation will be used
+  sjpeg::SearchHook* search_hook;
 
   // metadata: extra EXIF/XMP/ICCP data that will be embedded in
   // APP1 or APP2 markers. They should contain only the raw payload and not
@@ -235,6 +244,9 @@ struct SjpegEncodeParam {
   std::string iccp;
   std::string app_markers;
   void ResetMetadata();      // clears the above
+
+  // Memory manager used by the codec. If null, default one will be used.
+  sjpeg::MemoryManager* memory;
 
  protected:
   uint8_t quant_[2][64];         // quantization matrices to use
@@ -249,7 +261,31 @@ struct SjpegEncodeParam {
   friend struct sjpeg::Encoder;
 };
 
-// This is the interface for customizing the search loop
+// Same as the first version of SjpegEncode(), except encoding parameters are
+// passed in a SjpegEncodeParam. Upon failure (memory allocation or
+// invalid parameter), the function returns false.
+bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                 const SjpegEncodeParam& param, std::string* output);
+
+// This version returns data in *out_data. Returns 0 in case of error.
+size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                   const SjpegEncodeParam& param, uint8_t** out_data);
+
+// Generic call taking a byte-sink
+//   Same as SjpegEncode(), except encoding parameters are passed in a
+//   SjpegEncodeParam. Upon failure (memory allocation or invalid parameter),
+//   the function returns false.
+bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                 const SjpegEncodeParam& param, sjpeg::ByteSink* sink);
+
+////////////////////////////////////////////////////////////////////////////////
+// Some C++ interface
+
+namespace sjpeg {
+
+////////////////////////////////////////////////////////////////////////////////
+// Custom search loop
+
 struct SearchHook {
   float q;                // this is the current parameter used
   float qmin, qmax;       // this is the current bracket for q
@@ -269,31 +305,45 @@ struct SearchHook {
   virtual ~SearchHook() {}
 };
 
-// Generic call taking a byte-sink
-//   Same as SjpegEncode(), except encoding parameters are passed in a
-//   SjpegEncodeParam. Upon failure (memory allocation or invalid parameter),
-//   the function returns false.
-namespace sjpeg { struct ByteSink; }
-bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                 const SjpegEncodeParam& param, sjpeg::ByteSink* sink);
+////////////////////////////////////////////////////////////////////////////////
+// Generic byte-sink: custom streaming output of compressed data
+//
+// Protocol:
+//  . Commit(used_size, extra_size): specify that 'used_size' bytes were
+//       used since the last call to Commit(). Also reserve 'extra_size' bytes
+//       for the next cycle. 'extra_size' can be 0. Most of the time (except
+//       during header writing), 'extra_size' will be less than 2048.
+//  . Finalize(): indicates that calls to Commit() are finished until the
+//       destruction (and the assembled byte-stream can be grabbed).
+//  . Reset(): releases memory (called in case of error or at destruction).
 
-// Same as the first version of SjpegEncode(), except encoding parameters are
-// delivered in a SjpegEncodeParam. Upon failure (memory allocation or
-// invalid parameter), the function returns an empty string.
-// TODO(skal): left for compatibility for now. Remove!
-std::string SjpegEncode(const uint8_t* rgb,
-                        int width, int height, int stride,
-                        const SjpegEncodeParam& param);
+struct ByteSink {
+ public:
+  virtual ~ByteSink() {}
+  // returns nullptr in case of error:
+  virtual uint8_t* Commit(size_t used_size, size_t extra_size) = 0;
+  virtual bool Finalize() = 0;            // returns false in case of error
+  virtual void Reset() = 0;               // called in case of error
+};
 
-// Same as the first version of SjpegEncode(), except encoding parameters are
-// passed in a SjpegEncodeParam. Upon failure (memory allocation or
-// invalid parameter), the function returns false.
-bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                 const SjpegEncodeParam& param, std::string* output);
+// Some useful factories
+std::shared_ptr<ByteSink> MakeByteSink(std::string* output);
+// Vector-based template, specialized for uint8_t
+template<typename T>
+std::shared_ptr<ByteSink> MakeByteSink(std::vector<T>* output);
+template<> std::shared_ptr<ByteSink> MakeByteSink(std::vector<uint8_t>* output);
 
-// This version return data in *out_data. Returns 0 in case of error.
-size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                   const SjpegEncodeParam& param, uint8_t** out_data);
+////////////////////////////////////////////////////////////////////////////////
+// Memory manager (for internal allocation)
+
+struct MemoryManager {
+ public:
+  virtual ~MemoryManager() {}
+  virtual void* Alloc(size_t size) = 0;
+  virtual void Free(void* const ptr) = 0;
+};
+
+}  // namespace sjpeg
 
 ////////////////////////////////////////////////////////////////////////////////
 // Variant of the function above, but using std::string as interface.
