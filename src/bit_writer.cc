@@ -73,13 +73,16 @@ uint8_t* MemorySink::Commit(size_t used_size, size_t extra_size) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// StringSink
+// Sink factories
 
-uint8_t* StringSink::Commit(size_t used_size, size_t extra_size) {
-  pos_ += used_size;
-  assert(pos_ <= str_->size());
-  str_->resize(pos_ + extra_size);
-  return reinterpret_cast<uint8_t*>(&(*str_)[pos_]);
+std::shared_ptr<ByteSink> MakeByteSink(std::string* const output) {
+  return std::shared_ptr<ByteSink>(new (std::nothrow) StringSink(output));
+}
+
+// specialization for vector<uint8_t>
+template<>
+std::shared_ptr<ByteSink> MakeByteSink(std::vector<uint8_t>* const output) {
+  return std::shared_ptr<ByteSink>(new (std::nothrow) VectorSink(output));
 }
 
 ///////////////////////////////////////////////////////////////////////////////

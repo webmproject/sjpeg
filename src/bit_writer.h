@@ -22,32 +22,13 @@
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>   // for memcpy
+
 #include <string>
+#include <vector>
 
 #include "sjpeg.h"
 
 namespace sjpeg {
-
-////////////////////////////////////////////////////////////////////////////////
-// Generic byte-sink
-
-// Protocol:
-//  . Commit(used_size, extra_size): specify that 'used_size' bytes were
-//       used since the last call to Commit(). Also reserve 'extra_size' bytes
-//       for the next cycle. 'extra_size' can be 0. Most of the time (except
-//       during header writing), 'extra_size' will be less than 2048.
-//  . Finalize(): indicates that calls to Commit() are finished until the
-//       destruction (and the assembled byte-stream can be grabbed).
-//  . Reset(): releases memory (called in case of error or at destruction).
-
-struct ByteSink {
- public:
-  virtual ~ByteSink() {}
-  // returns nullptr in case of error:
-  virtual uint8_t* Commit(size_t used_size, size_t extra_size) = 0;
-  virtual bool Finalize() = 0;            // returns false in case of error
-  virtual void Reset() = 0;               // called in case of error
-};
 
 ///////////////////////////////////////////////////////////////////////////////
 // Memory-Sink
@@ -67,20 +48,29 @@ class MemorySink : public ByteSink {
 };
 
 ///////////////////////////////////////////////////////////////////////////////
-// String-Sink
+// Sink for generic container
+//   Container must supply .resize() and [], and be byte-based.
 
-class StringSink : public ByteSink {
+template<class T> class Sink : public ByteSink {
  public:
-  explicit StringSink(std::string* output) : str_(output), pos_(0) {}
-  virtual ~StringSink() {}
-  virtual uint8_t* Commit(size_t used_size, size_t extra_size);
-  virtual bool Finalize() { str_->resize(pos_); return true; }
-  virtual void Reset() { str_->clear(); }
+  explicit Sink(T* const output) : ptr_(output), pos_(0) {}
+  virtual ~Sink() {}
+  virtual uint8_t* Commit(size_t used_size, size_t extra_size) {
+    pos_ += used_size;
+    assert(pos_ <= ptr_->size());
+    ptr_->resize(pos_ + extra_size);
+    return reinterpret_cast<uint8_t*>(&(*ptr_)[pos_]);
+  }
+  virtual bool Finalize() { ptr_->resize(pos_); return true; }
+  virtual void Reset() { ptr_->clear(); }
 
  private:
-  std::string* const str_;
+  T* const ptr_;
   size_t pos_;
 };
+
+typedef Sink<std::string> StringSink;
+typedef Sink<std::vector<uint8_t> > VectorSink;
 
 ///////////////////////////////////////////////////////////////////////////////
 // BitWriter

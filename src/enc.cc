@@ -125,6 +125,16 @@ void SetDefaultMinQuantMatrix(uint8_t out[64]) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Default memory manager (singleton)
+
+static struct DefaultMemory : public MemoryManager {
+ public:
+  virtual ~DefaultMemory() {}
+  virtual void* Alloc(size_t size) { return malloc(size); }
+  virtual void Free(void* const ptr) { free(ptr); }
+} kDefaultMemory;
+
+////////////////////////////////////////////////////////////////////////////////
 // Encoder main class
 
 Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb,
@@ -142,7 +152,8 @@ Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb,
     qdelta_max_luma_(kDefaultDeltaMaxLuma),
     qdelta_max_chroma_(kDefaultDeltaMaxChroma),
     passes_(1),
-    search_hook_(nullptr) {
+    search_hook_(nullptr),
+    memory_hook_(&kDefaultMemory) {
   SetCompressionMethod(kDefaultMethod);
   SetQuality(kDefaultQuality);
   SetYUVFormat(false);
@@ -257,9 +268,6 @@ bool Encoder::SetError() {
   ok_ = false;
   return false;
 }
-
-void* Encoder::MemoryAlloc(size_t size) { return malloc(size); }
-void Encoder::MemoryFree(void* ptr) { free(ptr); }
 
 bool Encoder::CheckBuffers() {
   // maximum macroblock size, worst-case, is 24bits*64*6 coeffs = 1152bytes
@@ -1952,7 +1960,8 @@ uint32_t SjpegVersion() {
 ////////////////////////////////////////////////////////////////////////////////
 // Parametrized call
 
-SjpegEncodeParam::SjpegEncodeParam() : search_hook(nullptr) {
+SjpegEncodeParam::SjpegEncodeParam()
+    : search_hook(nullptr), memory(nullptr) {
   Init(kDefaultQuality);
 }
 
@@ -2048,11 +2057,12 @@ bool Encoder::InitFromParam(const SjpegEncodeParam& param) {
   if (passes_ > 1) {
     use_extra_memory_ = true;
     reuse_run_levels_ = true;
-    search_hook_ = (param.search_hook == nullptr) ? &default_hook
+    search_hook_ = (param.search_hook == nullptr) ? &default_hook_
                                                   : param.search_hook;
     if (!search_hook_->Setup(param)) return false;
   }
 
+  memory_hook_ = (param.memory == nullptr) ? &kDefaultMemory : param.memory;
   return true;
 }
 
