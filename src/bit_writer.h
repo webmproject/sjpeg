@@ -37,7 +37,7 @@ class MemorySink : public ByteSink {
  public:
   explicit MemorySink(size_t expected_size);
   virtual ~MemorySink();
-  virtual uint8_t* Commit(size_t used_size, size_t extra_size);
+  virtual bool Commit(size_t used_size, size_t extra_size, uint8_t** data);
   virtual bool Finalize() { /* nothing to do */ return true; }
   virtual void Reset();
   void Release(uint8_t** buf_ptr, size_t* size_ptr);
@@ -55,11 +55,13 @@ template<class T> class Sink : public ByteSink {
  public:
   explicit Sink(T* const output) : ptr_(output), pos_(0) {}
   virtual ~Sink() {}
-  virtual uint8_t* Commit(size_t used_size, size_t extra_size) {
+  virtual bool Commit(size_t used_size, size_t extra_size, uint8_t** data) {
     pos_ += used_size;
     assert(pos_ <= ptr_->size());
     ptr_->resize(pos_ + extra_size);
-    return reinterpret_cast<uint8_t*>(&(*ptr_)[pos_]);
+    if (ptr_->size() != pos_ + extra_size) return false;
+    *data = reinterpret_cast<uint8_t*>(&(*ptr_)[pos_]);
+    return true;
   }
   virtual bool Finalize() { ptr_->resize(pos_); return true; }
   virtual void Reset() { ptr_->clear(); }
@@ -79,14 +81,12 @@ class BitWriter {
  public:
   explicit BitWriter(ByteSink* const sink);
 
-  // Verifies the that output buffer can store at least 'size' more bytes,
-  // growing if needed. Returns a buffer pointer to 'size' writable bytes.
-  // The returned pointer is likely to change if Reserve() is called again.
-  // Hence it should be used as quickly as possible.
+  // Verifies the that output buffer can store at least 'size' more bytes.
+  // Also flushes the previously written data.
   bool Reserve(size_t size) {
-    buf_ = sink_->Commit(byte_pos_, size);
+    const bool ok = sink_->Commit(byte_pos_, size, &buf_);
     byte_pos_ = 0;
-    return (buf_ != nullptr);
+    return ok;
   }
 
   // Make sure we can write 24 bits by flushing the past ones.
