@@ -19,12 +19,12 @@ for f in ${LIST}; do
 done
 
 for f in ${LIST}; do
-  ${SJPEG} testdata/${f} -o ${TMP_JPEG1} -quiet
-  ${SJPEG} ${TMP_JPEG1} -o ${TMP_JPEG2} -r 88.7 -short -info
+  ${SJPEG} testdata/${f} -o ${TMP_JPEG1} -quiet -psnr 39
+  ${SJPEG} ${TMP_JPEG1} -o ${TMP_JPEG2} -r 88.7 -short -info -size 20000
 done
 
 for f in ${LIST}; do
-  ${SJPEG} testdata/${f} -o ${TMP_JPEG1} -quiet -no_metadata -q 30.3
+  ${SJPEG} testdata/${f} -o ${TMP_JPEG1} -quiet -no_metadata
   ${SJPEG} ${TMP_JPEG1} -r 76.6542 -o ${TMP_JPEG2} -short -info
 done
 
