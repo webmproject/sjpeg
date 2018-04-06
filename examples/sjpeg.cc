@@ -33,6 +33,10 @@
 
 using std::vector;
 
+#if !defined(ALT_HOOK_CLASS)
+#define ALT_HOOK_CLASS sjpeg::SearchHook   // fall back to default search
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////
 
 static void PrintMatrix(const char name[], const uint8_t m[64],
@@ -128,10 +132,9 @@ int main(int argc, char * argv[]) {
     "original quality, *except* if '-no_limit' option is used."
     "\n";
 
-#if defined(ALT_HOOK_CLASS)
+  // in order to gather information, plug a search hook
   ALT_HOOK_CLASS hook;
   param.search_hook = &hook;
-#endif
 
   // parse command line
   if (argc <= 1) {
@@ -227,7 +230,8 @@ int main(int argc, char * argv[]) {
     return -1;
   }
   // finish param set up
-  if (param.target_mode != SjpegEncodeParam::TARGET_NONE && param.passes <= 1) {
+  const bool use_search = (param.target_mode != SjpegEncodeParam::TARGET_NONE);
+  if (use_search && param.passes <= 1) {
     param.passes = 10;
   }
   // Read input file into the buffer in_bytes[]
@@ -314,27 +318,26 @@ int main(int argc, char * argv[]) {
     return 0;
   }
 
-  if (param.target_mode != SjpegEncodeParam::TARGET_NONE &&
-      param.search_hook != nullptr) {
-    quality = param.search_hook->q;  // retrieve the final quality used
-  }
-
   if (!short_output && !quiet) {
-    const bool show_reduction =
-        use_reduction && (param.target_mode == SjpegEncodeParam::TARGET_NONE);
+    const bool show_reduction = use_reduction && !use_search;
     yuv_mode_rec = SjpegRiskiness(&in_bytes[0], W, H, 3 * W, &riskiness);
-    fprintf(stdout, "new size:   %u bytes (%.2lf%% of original)\n"
+    fprintf(stdout, "new size:    %u bytes (%.2lf%% of original)\n"
                     "%s%.1f (adaptive: %s, Huffman: %s)\n"
-                    "yuv mode:   %s (riskiness: %.1lf%%)\n"
-                    "elapsed:    %d ms\n",
+                    "yuv mode:    %s (riskiness: %.1lf%%)\n"
+                    "elapsed:     %d ms\n",
                     static_cast<uint32_t>(out.size()),
                     100. * out.size() / input.size(),
-                    show_reduction ? "reduction:  r=" : "quality:    q=",
+                    show_reduction ? "reduction:   r=" : "quality:     q=",
                     show_reduction ? reduction : quality,
                     kNoYes[param.adaptive_quantization],
                     kNoYes[param.Huffman_compress],
                     kYUVModeNames[yuv_mode_rec], riskiness,
                     static_cast<int>(1000. * encode_time));
+    if (use_search) {  // print final values
+      fprintf(stdout, "passes:      %d\n", hook.pass + 1);
+      fprintf(stdout, "final value: %.1f\n", hook.value);
+      fprintf(stdout, "final q:     %.2f\n", hook.q);
+    }
     PrintMetadataInfo(param);
   } else if (!quiet) {
     fprintf(stdout, "%u %u %.2lf %%\n",
