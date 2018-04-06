@@ -85,6 +85,7 @@ class BitWriter {
   // Also flushes the previously written data.
   bool Reserve(size_t size) {
     const bool ok = sink_->Commit(byte_pos_, size, &buf_);
+    if (!ok) sink_->Reset();
     byte_pos_ = 0;
     return ok;
   }
