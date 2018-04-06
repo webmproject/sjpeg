@@ -2003,10 +2003,6 @@ void SjpegEncodeParam::SetQuantization(const uint8_t m[2][64],
   }
 }
 
-void SjpegEncodeParam::SetReduction(float reduction) {
-  SetQuantization(quant_, reduction);
-}
-
 void SjpegEncodeParam::SetLimitQuantization(bool limit_quantization,
                                             int min_quant_tolerance) {
   use_min_quant_ = limit_quantization;

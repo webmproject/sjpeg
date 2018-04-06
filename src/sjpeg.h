@@ -179,20 +179,13 @@ struct SjpegEncodeParam {
   // The call will actually initialize quant[][].
   void SetQuality(float quality_factor);
 
-  // Reduce the output size by a factor 'reduction'
+  // Reduce the output size by a factor 'reduction' in [0, 100]:
   //  reduction ~= 100 -> small size reduction
   //  reduction ~=   1 -> large size reduction
   // Note: 'reduction' can be larger than 100.
   // This function is incompatible with SetQuality()
-  void SetQuantization(const uint8_t m[2][64], float reduction = 100);
+  void SetQuantization(const uint8_t m[2][64], float reduction = 100.f);
   const uint8_t* GetQuantMatrix(int idx) const { return quant_[idx]; }
-
-  // Modify the output size using a 'reduction' parameter in [0, 100]:
-  //   reduction ~= 100: small reduction
-  //   reduction ~= 1: large reduction
-  // This function will affect the content of 'quant[][]' and hence must
-  // be called after SetQuality() or SetQuantMatrix() in order to be effective.
-  void SetReduction(float reduction);
 
   // Limit the quantization by setting up some minimal quantization matrices
   // based on the current content of quant_[][] matrices.
