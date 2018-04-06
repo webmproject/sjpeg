@@ -286,6 +286,7 @@ struct SearchHook {
   float tolerance;        // relative tolerance for reaching the 'target' value
   bool for_size;          // true if we're searching for size
   float value;            // result for the search after Update() is called
+  int pass;               // pass number (0-based) during search (informative)
 
   // Returns false in case of initialization error.
   // Should always be called by sub-classes.

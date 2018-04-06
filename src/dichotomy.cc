@@ -46,6 +46,7 @@ bool SearchHook::Setup(const SjpegEncodeParam& param) {
          (param.qmax < param.qmin) ? param.qmin : param.qmax;
   q = Clamp(SjpegEstimateQuality(param.GetQuantMatrix(0), false), qmin, qmax);
   value = 0;   // undefined for at this point
+  pass = 0;
   return true;
 }
 
@@ -123,6 +124,7 @@ void Encoder::LoopScan() {
   float best_q = 0.;  // informative value to return to the user
   float best_result = 0.;
   for (int p = 0; p < passes_; ++p) {
+    search_hook_->pass = p;
     // set new matrices to evaluate
     for (int c = 0; c < 2; ++c) {
       search_hook_->NextMatrix(c, quants_[c].quant_);
@@ -148,7 +150,7 @@ void Encoder::LoopScan() {
       result = ComputePSNR();
     }
     if (DBG_PRINT) printf("pass #%d: q=%.2f value:%.2f ",
-                          p, search_hook_->q, result);
+                          search_hook_->pass, search_hook_->q, result);
 
     if (p == 0 || fabs(result - search_hook_->target) < best) {
       // save the matrices for later, if they are better
