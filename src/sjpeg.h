@@ -309,21 +309,25 @@ struct SearchHook {
 // Generic byte-sink: custom streaming output of compressed data
 //
 // Protocol:
-//  . Commit(used_size, extra_size): specify that 'used_size' bytes were
-//       used since the last call to Commit(). Also reserve 'extra_size' bytes
-//       for the next cycle. 'extra_size' can be 0. Most of the time (except
-//       during header writing), 'extra_size' will be less than 2048.
+//  . Commit(used_size, extra_size, buffer): specify that 'used_size' bytes
+//       were used since the last call to Commit(). Also reserve 'extra_size'
+//       bytes for the next cycle and make *data point to the corresponding
+//       memory. 'extra_size' can be 0, in which case *buffer does not need
+//       to point to a valid memory area. Most of the time (except during
+//       header writing), 'extra_size' will be less than 2048.
+//       Returns false in case of error (both flushing used_size, or allocating
+//       extra_size).
 //  . Finalize(): indicates that calls to Commit() are finished until the
 //       destruction (and the assembled byte-stream can be grabbed).
-//  . Reset(): releases memory (called in case of error or at destruction).
+//       Returns false in case of I/O error.
+//  . Reset(): releases resources (called in case of error or at destruction).
 
 struct ByteSink {
  public:
   virtual ~ByteSink() {}
-  // returns nullptr in case of error:
-  virtual uint8_t* Commit(size_t used_size, size_t extra_size) = 0;
-  virtual bool Finalize() = 0;            // returns false in case of error
-  virtual void Reset() = 0;               // called in case of error
+  virtual bool Commit(size_t used_size, size_t extra_size, uint8_t** data) = 0;
+  virtual bool Finalize() = 0;
+  virtual void Reset() = 0;
 };
 
 // Some useful factories

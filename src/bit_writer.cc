@@ -31,7 +31,7 @@ MemorySink::MemorySink(size_t expected_size)
     : buf_(nullptr), pos_(0), max_pos_(0) {
   // The following call can fail, with no harm: it'll be reported during the
   // next call to Commit() if needed (we don't want to fail in a constructor).
-  (void)Commit(0, expected_size);
+  (void)Commit(0, expected_size, &buf_);
 }
 
 MemorySink::~MemorySink() { Reset(); }
@@ -50,7 +50,7 @@ void MemorySink::Release(uint8_t** buf_ptr, size_t* size_ptr) {
   Reset();
 }
 
-uint8_t* MemorySink::Commit(size_t used_size, size_t extra_size) {
+bool MemorySink::Commit(size_t used_size, size_t extra_size, uint8_t** data) {
   pos_ += used_size;
   assert(pos_ <= max_pos_);
   size_t new_size = pos_ + extra_size;
@@ -62,14 +62,15 @@ uint8_t* MemorySink::Commit(size_t used_size, size_t extra_size) {
       new_size = 2 * max_pos_;
   }
     uint8_t* const new_buf = new (std::nothrow) uint8_t[new_size];
-    if (new_buf == nullptr) return nullptr;
+    if (new_buf == nullptr) return false;
 
     if (pos_ > 0) memcpy(new_buf, buf_, pos_);
   delete[] buf_;
   buf_ = new_buf;
     max_pos_ = new_size;
   }
-  return buf_ + pos_;
+  *data = buf_ + pos_;
+  return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
