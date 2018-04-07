@@ -78,10 +78,10 @@ extern const int kRGBSize;
 extern const uint8_t kSharpnessScore[];
 
 // internal riskiness scoring functions:
-extern double SjpegDCTRiskinessScore(const int16_t yuv[3 * 8],
-                                     int16_t scores[8 * 8]);
-extern double SjpegBlockRiskinessScore(const uint8_t* rgb, int stride,
-                                       int16_t scores[8 * 8]);
+extern double DCTRiskinessScore(const int16_t yuv[3 * 8],
+                                int16_t scores[8 * 8]);
+extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
+                                  int16_t scores[8 * 8]);
 
 ///////////////////////////////////////////////////////////////////////////////
 // RGB->YUV conversion
