@@ -16,8 +16,9 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
-#include <vector>
 #include <string.h>   // for memset
+#include <vector>
+
 #include "sjpegi.h"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -211,10 +212,11 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
   return recommendation;
 }
 
+namespace sjpeg {
+
 // return riskiness score on an 8x8 block. Input is YUV444 block
 // of DCT coefficients (Y/U/V).
-double SjpegDCTRiskinessScore(const int16_t yuv[3 * 8],
-                              int16_t scores[8 * 8]) {
+double DCTRiskinessScore(const int16_t yuv[3 * 8], int16_t scores[8 * 8]) {
   uint16_t idx[64];
   for (int k = 0; k < 64; ++k) {
     const int v = (yuv[k + 0 * 64] + 128)
@@ -240,7 +242,7 @@ double SjpegDCTRiskinessScore(const int16_t yuv[3 * 8],
         total_score += score;
         count += 1.0;
       }
-      scores[I + J * 7] = static_cast<uint16_t>(score);
+      scores[I + J * 8] = static_cast<int16_t>(score);
     }
   }
   if (count > 0) total_score /= count;
@@ -251,10 +253,12 @@ double SjpegDCTRiskinessScore(const int16_t yuv[3 * 8],
 // This function returns the raw per-pixel riskiness scores. The input rgb[]
 // samples is a 8x8 block, the output is a 8x8 block.
 // Not an official API, because a little too specific. But still accessible.
-double SjpegBlockRiskinessScore(const uint8_t* rgb, int stride,
-                                int16_t scores[8 * 8]) {
-  sjpeg::RGBToYUVBlockFunc get_block = sjpeg::GetBlockFunc(true);
+double BlockRiskinessScore(const uint8_t* rgb, int stride,
+                           int16_t scores[8 * 8]) {
+  RGBToYUVBlockFunc get_block = GetBlockFunc(true);
   int16_t yuv444[3 * 64];
   get_block(rgb, stride, yuv444);
-  return SjpegDCTRiskinessScore(yuv444, scores);
+  return DCTRiskinessScore(yuv444, scores);
 }
+
+}   // namespace sjpeg
