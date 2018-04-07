@@ -295,8 +295,11 @@ static void ComputeErrorMap() {
   }
 }
 
-extern double SjpegBlockRiskinessScore(const uint8_t* rgb, int stride,
-                                       int16_t score[8 * 8]);
+namespace sjpeg {
+extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
+                                  int16_t score[8 * 8]);
+}
+
 static void ComputeRiskinessMap() {
   if (kParams.show != 5) {
     const size_t width = kParams.width;
@@ -307,14 +310,14 @@ static void ComputeRiskinessMap() {
     uint8_t* dst = &kParams.map[0];
     const uint8_t* src = &kParams.rgb[0];
     // We use 7x7 block iteration to avoid the oddity at right and bottom
-    // of the 8x8 block returned by SjpegBlockRiskinessScore().
+    // of the 8x8 block returned by BlockRiskinessScore().
     for (size_t j = 0; j + 7 <= height; j += 7) {
       for (size_t i = 0; i + 7 <= width; i += 7) {
         int16_t score_8x8[8 * 8];
-        SjpegBlockRiskinessScore(src + i * 3, stride, score_8x8);
+        sjpeg::BlockRiskinessScore(src + i * 3, stride, score_8x8);
         for (size_t k = 0, J = 0; J < 7; ++J) {
           for (size_t I = 0; I < 7; ++I, ++k) {
-            int score = score_8x8[k];
+            int score = score_8x8[I + J * 8];
             score *= 2;
             if (score > 255) score = 255;
             const size_t off = 3 * (i + I) + J * stride;
