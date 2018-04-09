@@ -25,7 +25,7 @@ done
 
 for f in ${LIST}; do
   ${SJPEG} testdata/${f} -o ${TMP_JPEG1} -quiet -no_metadata
-  ${SJPEG} ${TMP_JPEG1} -r 76.6542 -o ${TMP_JPEG2} -short -info
+  ${SJPEG} ${TMP_JPEG1} -r 76.6542 -o ${TMP_JPEG2} -short
 done
 
 echo "OK!"
