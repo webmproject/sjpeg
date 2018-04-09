@@ -60,13 +60,13 @@ template<class T> class Sink : public ByteSink {
     assert(pos_ <= ptr_->size());
     ptr_->resize(pos_ + extra_size);
     if (ptr_->size() != pos_ + extra_size) return false;
-    *data = reinterpret_cast<uint8_t*>(&(*ptr_)[pos_]);
+    *data = extra_size ? reinterpret_cast<uint8_t*>(&(*ptr_)[pos_]) : nullptr;
     return true;
   }
   virtual bool Finalize() { ptr_->resize(pos_); return true; }
   virtual void Reset() { ptr_->clear(); }
 
- private:
+ protected:
   T* const ptr_;
   size_t pos_;
 };

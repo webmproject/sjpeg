@@ -73,8 +73,8 @@ static const char* kYUVModeNames[4] = {
 static const char* kNoYes[2] = { "no", "yes" };
 
 int main(int argc, char * argv[]) {
-  const char* input_file = NULL;
-  const char* output_file = NULL;
+  const char* input_file = nullptr;
+  const char* output_file = nullptr;
   SjpegEncodeParam param;
   float reduction = 100;
   float quality = 75;
@@ -224,7 +224,7 @@ int main(int argc, char * argv[]) {
       input_file = argv[c];
     }
   }
-  if (input_file == NULL) {
+  if (input_file == nullptr) {
     fprintf(stderr, "Missing input file.\n");
     if (!quiet) fprintf(stderr, usage);
     return -1;
@@ -347,7 +347,7 @@ int main(int argc, char * argv[]) {
   }
 
   // Save the result.
-  if (!SaveFile(output_file, out, quiet)) return 1;
+  if (output_file != nullptr && !SaveFile(output_file, out, quiet)) return 1;
 
   return 0;     // ok.
 }

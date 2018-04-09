@@ -228,7 +228,11 @@ void Encoder::SetQuantizationDeltas(int qdelta_luma, int qdelta_chroma) {
 ////////////////////////////////////////////////////////////////////////////////
 // CPU support
 
+extern bool ForceSlowCImplementation;
+bool ForceSlowCImplementation = false;   // undocumented! for tests.
+
 bool SupportsSSE2() {
+  if (ForceSlowCImplementation) return false;
 #if defined(SJPEG_USE_SSE2)
   return true;
 #endif
@@ -236,6 +240,7 @@ bool SupportsSSE2() {
 }
 
 bool SupportsNEON() {
+  if (ForceSlowCImplementation) return false;
 #if defined(SJPEG_USE_NEON)
   return true;
 #endif
@@ -2098,6 +2103,7 @@ std::string SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
 
 bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
                  const SjpegEncodeParam& param, std::string* output) {
+  if (output == nullptr) return false;
   output->clear();
   output->reserve(width * height / 4);
   StringSink sink(output);

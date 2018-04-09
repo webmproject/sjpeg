@@ -170,7 +170,7 @@ static const double kThreshSharpYU420 = 70.0;
 
 SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
                             int width, int height, int stride, float* risk) {
-  static const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
+  const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
 
   std::vector<uint16_t> row1(width), row2(width);
   double total_score = 0;
@@ -255,7 +255,7 @@ double DCTRiskinessScore(const int16_t yuv[3 * 8], int16_t scores[8 * 8]) {
 // Not an official API, because a little too specific. But still accessible.
 double BlockRiskinessScore(const uint8_t* rgb, int stride,
                            int16_t scores[8 * 8]) {
-  RGBToYUVBlockFunc get_block = GetBlockFunc(true);
+  const RGBToYUVBlockFunc get_block = GetBlockFunc(true);
   int16_t yuv444[3 * 64];
   get_block(rgb, stride, yuv444);
   return DCTRiskinessScore(yuv444, scores);
