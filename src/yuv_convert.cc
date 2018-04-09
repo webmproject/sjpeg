@@ -87,9 +87,9 @@ static void ConvertRowToUV(const uint8_t* row1, const uint8_t* row2,
     *v++ = ConvertRGBToV(r, g, b);
   }
   if (w & 1) {
-    const int r = 2 * (row1[0] + row1[3]);
-    const int g = 2 * (row1[1] + row1[4]);
-    const int b = 2 * (row1[2] + row1[5]);
+    const int r = 2 * (row1[0] + row2[0]);
+    const int g = 2 * (row1[1] + row2[1]);
+    const int b = 2 * (row1[2] + row2[2]);
     *u++ = ConvertRGBToU(r, g, b);
     *v++ = ConvertRGBToV(r, g, b);
   }
