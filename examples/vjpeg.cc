@@ -340,9 +340,9 @@ static bool EncodeAndDecode() {
   const double start = GetStopwatchTime();
   kParams.param.SetQuality(kParams.quality);
   kParams.param.SetLimitQuantization(kParams.limit_quantization);
-  if (!SjpegEncode(&kParams.rgb[0],
-                  kParams.width, kParams.height, kParams.width * 3,
-                   kParams.param, &kParams.jpeg)) {
+  if (!sjpeg::Encode(&kParams.rgb[0],
+                     kParams.width, kParams.height, kParams.width * 3,
+                     kParams.param, &kParams.jpeg)) {
     fprintf(stderr, "Encoding error!\n");
     kParams.error = true;
     return false;
