@@ -66,8 +66,8 @@ extern bool SupportsNEON();
 #define M_DQT   0xffdb
 
 // Forward 8x8 Fourier transforms, in-place.
-typedef void (*SjpegFdctFunc)(int16_t *coeffs, int num_blocks);
-SjpegFdctFunc SjpegGetFdct();
+typedef void (*FdctFunc)(int16_t *coeffs, int num_blocks);
+FdctFunc GetFdct();
 
 // these are the default luma/chroma matrices (JPEG spec section K.1)
 extern const uint8_t kDefaultMatrices[2][64];
@@ -193,8 +193,8 @@ struct Encoder {
   void SetQuality(float q);
   void SetCompressionMethod(int method);
 
-  // all-in-one init from SjpegEncodeParam.
-  bool InitFromParam(const SjpegEncodeParam& param);
+  // all-in-one init from EncoderParam.
+  bool InitFromParam(const EncoderParam& param);
 
   // Main call. Return false in case of parameter error (setting empty output).
   bool Encode();

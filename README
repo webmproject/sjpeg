@@ -49,23 +49,24 @@ They are meant to help re-processing a JPEG source:
   SjpegFindQuantizer(): return the quantization matrices
   SjpegEstimateQuality(): return an estimate of the encoding quality
 
-* SjpegEncodeParam interface:
-*****************************
+* sjpeg::EncoderParam interface:
+********************************
 
-This should be the most fine-tuned use of the library: SjpegEncodeParam gives
+This should be the most fine-tuned use of the library: sjpeg::EncoderParam gives
 access to a lot of fine controls (C++ only). See src/sjpeg.h for details.
 
-In particular, using SjpegEncodeParam is the recommended way of re-compressing
+In particular, using sjpeg::EncoderParam is the recommended way of re-compressing
 a JPEG input. Here is the recipe:
   * use SjpegFindQuantizer to extract the quantization matrices from the source
-  * use SjpegEncodeParam::SetQuantMatrix() to transfer them to the encoding
+  * use sjpeg::EncoderParam::SetQuantMatrix() to transfer them to the encoding
     parameters (with a reduction factor if necessary)
   * call sjpeg::SjpegEncode() with this parameter
 
 Alternatively, one can use SjpegEstimateQuality() and
-SjpegEncodeParam::SetQuality() to pass a quality factor instead of the matrices.
+sjpeg::EncoderParam::SetQuality() to pass a quality factor instead of using the
+matrices.
 
-SjpegEncodeParam is also useful for transfering some metadata to the final
+sjpeg::EncoderParam is also useful for transfering some metadata to the final
 JPEG bitstream.
 
 * 'Riskiness' score:
@@ -94,7 +95,7 @@ sjpeg has various options to change the encoding method. Just try `sjpeg -h`.
 examples/vjpeg is a (non-essential) visualization tool, built with OpenGL/GLUT.
 It allows changing the compression parameters with the keyboard, and visually
 inspect the result. This is mostly educational, since most of the parameters
-from SjpegEncodeParam can be triggered from the keyboard.
+from sjpeg::EncoderParam can be triggered from the keyboard.
 
 * Building the library and tools:
 *********************************

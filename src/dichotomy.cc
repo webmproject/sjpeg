@@ -37,8 +37,8 @@ static float Clamp(float v, float min, float max) {
   return (v < min) ? min : (v > max) ? max : v;
 }
 
-bool SearchHook::Setup(const SjpegEncodeParam& param) {
-  for_size = (param.target_mode == SjpegEncodeParam::TARGET_SIZE);
+bool SearchHook::Setup(const EncoderParam& param) {
+  for_size = (param.target_mode == EncoderParam::TARGET_SIZE);
   target = param.target_value;
   tolerance = param.tolerance / 100.;
   qmin = (param.qmin < 0) ? 0 : param.qmin;

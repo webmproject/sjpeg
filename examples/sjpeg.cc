@@ -32,6 +32,7 @@
 #include "./utils.h"
 
 using std::vector;
+using sjpeg::EncoderParam;
 
 #if !defined(ALT_HOOK_CLASS)
 #define ALT_HOOK_CLASS sjpeg::SearchHook   // fall back to default search
@@ -50,7 +51,7 @@ static void PrintMatrix(const char name[], const uint8_t m[64],
   fprintf(stdout, "------\n");
 }
 
-static void PrintMetadataInfo(const SjpegEncodeParam& param) {
+static void PrintMetadataInfo(const EncoderParam& param) {
   if (!param.iccp.empty()) {
     fprintf(stdout, "ICCP:       %6u bytes (CRC32: 0x%.8x)\n",
             static_cast<uint32_t>(param.iccp.size()), GetCRC32(param.iccp));
@@ -75,7 +76,7 @@ static const char* kNoYes[2] = { "no", "yes" };
 int main(int argc, char * argv[]) {
   const char* input_file = nullptr;
   const char* output_file = nullptr;
-  SjpegEncodeParam param;
+  EncoderParam param;
   float reduction = 100;
   float quality = 75;
   bool use_reduction = true;  // until '-q' is used...
@@ -176,7 +177,7 @@ int main(int argc, char * argv[]) {
     } else if (!strcmp(argv[c], "-trellis")) {
       param.use_trellis = true;
     } else if (!strcmp(argv[c], "-psnr") && c + 1 < argc) {
-      param.target_mode = SjpegEncodeParam::TARGET_PSNR;
+      param.target_mode = EncoderParam::TARGET_PSNR;
       param.target_value = atof(argv[++c]);
     } else if (!strcmp(argv[c], "-tolerance")) {
       param.tolerance = atof(argv[++c]);
@@ -185,7 +186,7 @@ int main(int argc, char * argv[]) {
     } else if (!strcmp(argv[c], "-qmax")) {
       param.qmax = atof(argv[++c]);
     } else if (!strcmp(argv[c], "-size") && c + 1 < argc) {
-      param.target_mode = SjpegEncodeParam::TARGET_SIZE;
+      param.target_mode = EncoderParam::TARGET_SIZE;
       param.target_value = atof(argv[++c]);
     } else if (!strcmp(argv[c], "-pass") && c + 1 < argc) {
       param.passes = atoi(argv[++c]);
@@ -230,7 +231,7 @@ int main(int argc, char * argv[]) {
     return -1;
   }
   // finish param set up
-  const bool use_search = (param.target_mode != SjpegEncodeParam::TARGET_NONE);
+  const bool use_search = (param.target_mode != EncoderParam::TARGET_NONE);
   if (use_search && param.passes <= 1) {
     param.passes = 10;
   }
@@ -305,11 +306,11 @@ int main(int argc, char * argv[]) {
 
   const double start = GetStopwatchTime();
   std::string out;
-  const bool ok = SjpegEncode(&in_bytes[0], W, H, 3 * W, param, &out);
+  const bool ok = sjpeg::Encode(&in_bytes[0], W, H, 3 * W, param, &out);
   const double encode_time = GetStopwatchTime() - start;
 
   if (!ok) {
-    fprintf(stderr, "ERROR: call to SjpegEncode() failed.\n");
+    fprintf(stderr, "ERROR: call to sjpeg::Encode() failed.\n");
     return -1;
   }
 
