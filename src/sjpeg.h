@@ -34,16 +34,28 @@ extern "C" {
 uint32_t SjpegVersion();
 
 // Main function
-// This is the simplest possible call. There is only one parameter (quality)
-// and most decisions will be made automatically (YUV420/YUV444/etc...).
-// Returns the compressed size, and fills *out_data with the bitstream.
-// This returned buffer is allocated with 'new[]' operator. It must be
-// deallocated by using 'delete[]' or SjpegFreeBuffer() calls.
-// Input data 'rgb' are the samples in sRGB format, in R/G/B memory order.
-// Picture dimension is width x height.
-// Returns 0 in case of error.
+//  This is the simplest possible call. There is only one parameter (quality)
+//  and most decisions will be made automatically (YUV420/YUV444/etc...).
+//  Returns the compressed size, and fills *out_data with the bitstream.
+//  This returned buffer is allocated with 'new[]' operator. It must be
+//  deallocated by using 'delete[]' or SjpegFreeBuffer() calls.
+//  Input data 'rgb' are the samples in sRGB format, in R/G/B memory order.
+//  Picture dimension is width x height.
+//  Returns 0 in case of error.
 size_t SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
                      uint8_t** out_data);
+
+// Parameter 'yuv_mode': decides which colorspace to use. Possible values:
+//   * YUV_AUTO  (0): automated decision between YUV 4:2:0 / sharp / 4:4:4
+//   * YUV_420   (1): YUV 4:2:0
+//   * YUV_SHARP (2): YUV 4:2:0 with 'sharp' conversion
+//   * YUV_444   (3): YUV 4:4:4
+typedef enum {
+  SJPEG_YUV_AUTO = 0,
+  SJPEG_YUV_420,
+  SJPEG_YUV_SHARP,
+  SJPEG_YUV_444
+} SjpegYUVMode;
 
 // Encodes an RGB picture to JPEG.
 //
@@ -87,18 +99,6 @@ size_t SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
 //  If you don't have any strict requirements on CPU and memory, you should
 //  probably use method #4.
 //
-// Parameter 'yuv_mode': decides which colorspace to use. Possible values:
-//   * YUV_AUTO  (0): automated decision between YUV 4:2:0 / sharp / 4:4:4
-//   * YUV_420   (1): YUV 4:2:0
-//   * YUV_SHARP (2): YUV 4:2:0 with 'sharp' conversion
-//   * YUV_444   (3): YUV 4:4:4
-typedef enum {
-  SJPEG_YUV_AUTO = 0,
-  SJPEG_YUV_420,
-  SJPEG_YUV_SHARP,
-  SJPEG_YUV_444
-} SjpegYUVMode;
-
 size_t SjpegEncode(const uint8_t* rgb,
                    int width, int height, int stride,
                    uint8_t** out_data,
@@ -106,9 +106,8 @@ size_t SjpegEncode(const uint8_t* rgb,
                    int compression_method,
                    SjpegYUVMode yuv_mode);
 
-// Deallocate a compressed bitstream by calling 'delete []'. These are the
-// bitstreams returned by SjpegEncode() or SjpegCompress(). Useful if the
-// library has non-C++ bidings.
+// Deallocate a compressed bitstream that were returned by SjpegEncode(),
+// SjpegCompress() or sjpeg::Encode(). Useful for non-C++ bindings.
 void SjpegFreeBuffer(const uint8_t* buffer);
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -153,26 +152,39 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb, int width, int height,
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
-// Advanced API, C++ only.
-//    . Fine control over the encoding parameters using SjpegEncodeParam
-//    . Interfaces to customize the codec
+// Variant of the function above, but using std::string as interface.
 
-// Internal struct & interfaces
+bool SjpegCompress(const uint8_t* rgb,
+                   int width, int height, float quality, std::string* output);
+
+bool SjpegDimensions(const std::string& jpeg_data,
+                     int* width, int* height, int* is_yuv420);
+
+int SjpegFindQuantizer(const std::string& jpeg_data, uint8_t quant[2][64]);
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Advanced API, C++ only.
+//    . Fine control over the encoding parameters using EncoderParam
+//    . Interfaces to customize the codec
+////////////////////////////////////////////////////////////////////////////////
+
 namespace sjpeg {
-  // main internal structure
-  struct Encoder;
-  // interfaces to customize the codec:
-  struct SearchHook;
-  struct ByteSink;
-  struct MemoryManager;
-}
+
+// Forward declaration of internal struct:
+struct Encoder;
+
+// interfaces to customize the codec:
+struct SearchHook;
+struct ByteSink;
+struct MemoryManager;
 
 // Structure for holding encoding parameter, to be passed to the unique
 // call to SjpegEncode() below. For a more detailed description of some fields,
 // see SjpegEncode()'s doc above.
-struct SjpegEncodeParam {
-  SjpegEncodeParam();
-  explicit SjpegEncodeParam(float quality_factor) {
+struct EncoderParam {
+  EncoderParam();
+  explicit EncoderParam(float quality_factor) {
     Init(quality_factor);
   }
   // Sets the compression factor. 0 = lowest quality, 100 = best quality.
@@ -255,30 +267,26 @@ struct SjpegEncodeParam {
 };
 
 // Same as the first version of SjpegEncode(), except encoding parameters are
-// passed in a SjpegEncodeParam. Upon failure (memory allocation or
+// passed in a EncoderParam. Upon failure (memory allocation or
 // invalid parameter), the function returns false.
-bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                 const SjpegEncodeParam& param, std::string* output);
+bool Encode(const uint8_t* rgb, int width, int height, int stride,
+            const EncoderParam& param, std::string* output);
 
 // This version returns data in *out_data. Returns 0 in case of error.
-size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                   const SjpegEncodeParam& param, uint8_t** out_data);
+size_t Encode(const uint8_t* rgb, int width, int height, int stride,
+              const EncoderParam& param, uint8_t** out_data);
 
-// Generic call taking a byte-sink
+// Generic call taking a byte-sink for emitting the compressed data.
 //   Same as SjpegEncode(), except encoding parameters are passed in a
-//   SjpegEncodeParam. Upon failure (memory allocation or invalid parameter),
+//   EncoderParam. Upon failure (memory allocation or invalid parameter),
 //   the function returns false.
-bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                 const SjpegEncodeParam& param, sjpeg::ByteSink* sink);
+bool Encode(const uint8_t* rgb, int width, int height, int stride,
+            const EncoderParam& param, sjpeg::ByteSink* sink);
 
 ////////////////////////////////////////////////////////////////////////////////
-// Some C++ interface
+// Some interfaces for customizing the core codec
 
-namespace sjpeg {
-
-////////////////////////////////////////////////////////////////////////////////
 // Custom search loop
-
 struct SearchHook {
   float q;                // this is the current parameter used
   float qmin, qmax;       // this is the current bracket for q
@@ -290,7 +298,7 @@ struct SearchHook {
 
   // Returns false in case of initialization error.
   // Should always be called by sub-classes.
-  virtual bool Setup(const SjpegEncodeParam& param);
+  virtual bool Setup(const EncoderParam& param);
   // Set up the next matrices to try, corresponding to the current q value.
   // 'idx' is 0 for luma, 1 for chroma
   virtual void NextMatrix(int idx, uint8_t dst[64]);
@@ -337,21 +345,10 @@ template<> std::shared_ptr<ByteSink> MakeByteSink(std::vector<uint8_t>* output);
 struct MemoryManager {
  public:
   virtual ~MemoryManager() {}
-  virtual void* Alloc(size_t size) = 0;
-  virtual void Free(void* const ptr) = 0;
+  virtual void* Alloc(size_t size) = 0;     // same semantic as malloc()
+  virtual void Free(void* const ptr) = 0;   // same semantic as free()
 };
 
 }  // namespace sjpeg
-
-////////////////////////////////////////////////////////////////////////////////
-// Variant of the function above, but using std::string as interface.
-
-bool SjpegCompress(const uint8_t* rgb,
-                   int width, int height, float quality, std::string* output);
-
-bool SjpegDimensions(const std::string& jpeg_data,
-                     int* width, int* height, int* is_yuv420);
-
-int SjpegFindQuantizer(const std::string& jpeg_data, uint8_t quant[2][64]);
 
 #endif    // SJPEG_JPEG_H_

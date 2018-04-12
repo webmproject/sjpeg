@@ -72,7 +72,7 @@ struct Params {
   float quality;
   uint8_t quant[2][64];
   bool limit_quantization;
-  SjpegEncodeParam param;
+  sjpeg::EncoderParam param;
   vector<uint8_t> rgb;       // original samples
   vector<uint8_t> out_rgb;   // recompressed samples
   vector<uint8_t> map;       // error map
@@ -296,6 +296,7 @@ static void ComputeErrorMap() {
 }
 
 namespace sjpeg {
+// undocumented function
 extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
                                   int16_t score[8 * 8]);
 }

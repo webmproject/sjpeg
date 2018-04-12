@@ -261,7 +261,7 @@ void Encoder::InitializeStaticPointers() {
     store_histo_ = GetStoreHistoFunc();
     quantize_block_ = GetQuantizeBlockFunc();
     quantize_error_ = GetQuantizeErrorFunc();
-    fDCT_ = SjpegGetFdct();
+    fDCT_ = GetFdct();
     get_yuv444_block_ = GetBlockFunc(true);
   }
 }
@@ -1965,12 +1965,12 @@ uint32_t SjpegVersion() {
 ////////////////////////////////////////////////////////////////////////////////
 // Parametrized call
 
-SjpegEncodeParam::SjpegEncodeParam()
+EncoderParam::EncoderParam()
     : search_hook(nullptr), memory(nullptr) {
   Init(kDefaultQuality);
 }
 
-void SjpegEncodeParam::Init(float quality_factor) {
+void EncoderParam::Init(float quality_factor) {
   Huffman_compress = true;
   adaptive_quantization = true;
   use_trellis = false;
@@ -1990,13 +1990,13 @@ void SjpegEncodeParam::Init(float quality_factor) {
   qmax = 100.;
 }
 
-void SjpegEncodeParam::SetQuality(float quality_factor) {
+void EncoderParam::SetQuality(float quality_factor) {
   const float q = GetQFactor(quality_factor);
   sjpeg::SetQuantMatrix(kDefaultMatrices[0], q, quant_[0]);
   sjpeg::SetQuantMatrix(kDefaultMatrices[1], q, quant_[1]);
 }
 
-void SjpegEncodeParam::SetQuantization(const uint8_t m[2][64],
+void EncoderParam::SetQuantization(const uint8_t m[2][64],
                                        float reduction) {
   if (reduction <= 1.f) reduction = 1.f;
   if (m == nullptr) return;
@@ -2008,13 +2008,13 @@ void SjpegEncodeParam::SetQuantization(const uint8_t m[2][64],
   }
 }
 
-void SjpegEncodeParam::SetLimitQuantization(bool limit_quantization,
+void EncoderParam::SetLimitQuantization(bool limit_quantization,
                                             int min_quant_tolerance) {
   use_min_quant_ = limit_quantization;
   if (limit_quantization) SetMinQuantization(quant_, min_quant_tolerance);
 }
 
-void SjpegEncodeParam::SetMinQuantization(const uint8_t m[2][64],
+void EncoderParam::SetMinQuantization(const uint8_t m[2][64],
                                           int min_quant_tolerance) {
   use_min_quant_ = true;
   CopyQuantMatrix(m[0], min_quant_[0]);
@@ -2024,14 +2024,14 @@ void SjpegEncodeParam::SetMinQuantization(const uint8_t m[2][64],
                        : min_quant_tolerance;
 }
 
-void SjpegEncodeParam::ResetMetadata() {
+void EncoderParam::ResetMetadata() {
   iccp.clear();
   exif.clear();
   xmp.clear();
   app_markers.clear();
 }
 
-bool Encoder::InitFromParam(const SjpegEncodeParam& param) {
+bool Encoder::InitFromParam(const EncoderParam& param) {
   SetQuantMatrices(param.quant_);
   if (param.use_min_quant_) {
     SetMinQuantMatrices(param.min_quant_, param.min_quant_tolerance_);
@@ -2067,8 +2067,8 @@ bool Encoder::InitFromParam(const SjpegEncodeParam& param) {
   return true;
 }
 
-bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                 const SjpegEncodeParam& param, ByteSink* sink) {
+bool sjpeg::Encode(const uint8_t* rgb, int width, int height, int stride,
+                   const EncoderParam& param, ByteSink* sink) {
   if (rgb == nullptr || sink == nullptr) return false;
   if (width <= 0 || height <= 0 || stride < 3 * width) return false;
 
@@ -2081,10 +2081,10 @@ bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
   return ok;
 }
 
-size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                   const SjpegEncodeParam& param, uint8_t** out_data) {
+size_t sjpeg::Encode(const uint8_t* rgb, int width, int height, int stride,
+                     const EncoderParam& param, uint8_t** out_data) {
   MemorySink sink(width * height / 4);    // estimation of output size
-  if (!SjpegEncode(rgb, width, height, stride, param, &sink)) return 0;
+  if (!sjpeg::Encode(rgb, width, height, stride, param, &sink)) return 0;
   size_t size;
   sink.Release(out_data, &size);
   return size;
@@ -2093,28 +2093,20 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
 ////////////////////////////////////////////////////////////////////////////////
 // std::string variants
 
-// TODO(skal): remove this API
-std::string SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                        const SjpegEncodeParam& param) {
-  std::string tmp;
-  if (!SjpegEncode(rgb, width, height, stride, param, &tmp)) return "";
-  return tmp;
-}
-
-bool SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
-                 const SjpegEncodeParam& param, std::string* output) {
+bool sjpeg::Encode(const uint8_t* rgb, int width, int height, int stride,
+                   const EncoderParam& param, std::string* output) {
   if (output == nullptr) return false;
   output->clear();
   output->reserve(width * height / 4);
   StringSink sink(output);
-  return SjpegEncode(rgb, width, height, stride, param, &sink);
+  return Encode(rgb, width, height, stride, param, &sink);
 }
 
 bool SjpegCompress(const uint8_t* rgb, int width, int height,
                    float quality, std::string* output) {
-  SjpegEncodeParam param;
+  EncoderParam param;
   param.SetQuality(quality);
-  return SjpegEncode(rgb, width, height, 3 * width, param, output);
+  return Encode(rgb, width, height, 3 * width, param, output);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

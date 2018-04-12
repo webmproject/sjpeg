@@ -562,7 +562,7 @@ static void Dct_NEON(int16_t* in) {
   vst1q_s16(&in[7 * 8], out7);
 }
 
-static void SjpegFdctNEON(int16_t* coeffs, int num_blocks) {
+static void FdctNEON(int16_t* coeffs, int num_blocks) {
   while (num_blocks-- > 0) {
     Dct_NEON(coeffs);
     coeffs += 64;
@@ -585,7 +585,7 @@ static void SjpegFdctNEON(int16_t* coeffs, int num_blocks) {
 ///////////////////////////////////////////////////////////////////////////////
 // visible FDCT callable functions
 
-static void SjpegFdctC(int16_t* coeffs, int num_blocks) {
+static void FdctC(int16_t* coeffs, int num_blocks) {
   while (num_blocks-- > 0) {
     ColumnDct(coeffs);
     RowDct(coeffs + 0 * 8, kTable04);
@@ -601,7 +601,7 @@ static void SjpegFdctC(int16_t* coeffs, int num_blocks) {
 }
 
 #if defined(SJPEG_USE_SSE2)
-static void SjpegFdctSSE2(int16_t* coeffs, int num_blocks) {
+static void FdctSSE2(int16_t* coeffs, int num_blocks) {
   while (num_blocks-- > 0) {
     ColumnDct_SSE2(coeffs);
     RowDct_SSE2(coeffs + 0 * 8, kfTables_SSE2[0].m, kfTables_SSE2[1].m);
@@ -613,13 +613,13 @@ static void SjpegFdctSSE2(int16_t* coeffs, int num_blocks) {
 }
 #endif  // SJPEG_USE_SSE2
 
-SjpegFdctFunc SjpegGetFdct() {
+FdctFunc GetFdct() {
 #if defined(SJPEG_USE_SSE2)
-  if (sjpeg::SupportsSSE2()) return SjpegFdctSSE2;
+  if (SupportsSSE2()) return FdctSSE2;
 #elif defined(SJPEG_USE_NEON)
-  if (sjpeg::SupportsNEON()) return SjpegFdctNEON;
+  if (SupportsNEON()) return FdctNEON;
 #endif
-  return SjpegFdctC;  // default
+  return FdctC;  // default
 }
 
 ///////////////////////////////////////////////////////////////////////////////
