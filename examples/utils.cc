@@ -31,6 +31,7 @@
 #endif    // SJPEG_HAVE_PNG
 
 using std::vector;
+using sjpeg::EncoderParam;
 
 std::string ReadFile(const char filename[]) {
   std::string data;
@@ -237,7 +238,7 @@ static int StoreICCP(j_decompress_ptr dinfo, std::string* const iccp) {
 // Returns true on success and false for memory errors and corrupt profiles.
 // The caller must use MetadataFree() on 'metadata' in all cases.
 static int ExtractMetadataFromJPEG(j_decompress_ptr dinfo,
-                                   SjpegEncodeParam* const param) {
+                                   EncoderParam* const param) {
   if (param == NULL) return true;
   param->ResetMetadata();
   const struct {
@@ -347,7 +348,7 @@ static void ContextSetup(volatile struct jpeg_decompress_struct* const cinfo,
 
 vector<uint8_t> ReadJPEG(const std::string& in,
                          int* const width, int* const height,
-                         SjpegEncodeParam* const param) {
+                         EncoderParam* const param) {
   volatile int ok = 0;
   int64_t stride;
   volatile struct jpeg_decompress_struct dinfo;
@@ -430,7 +431,7 @@ vector<uint8_t> ReadJPEG(const std::string& in,
 #else  // !SJPEG_HAVE_JPEG
 vector<uint8_t> ReadJPEG(const std::string& in,
                          int* const width, int* const height,
-                         SjpegEncodeParam* const param) {
+                         EncoderParam* const param) {
   (void)in.size();
   (void)param;
   if (width != NULL) *width = 0;
@@ -549,7 +550,7 @@ static const struct {
 static bool ExtractMetadataFromPNG(png_structp png,
                                    png_infop const head_info,
                                    png_infop const end_info,
-                                   SjpegEncodeParam* const param) {
+                                   EncoderParam* const param) {
   if (param == NULL) return true;
   param->ResetMetadata();
   for (int p = 0; p < 2; ++p)  {
@@ -630,7 +631,7 @@ static void ReadFunc(png_structp png_ptr, png_bytep data, png_size_t length) {
 
 vector<uint8_t> ReadPNG(const std::string& input,
                         int* const width_ptr, int* const height_ptr,
-                        SjpegEncodeParam* const param) {
+                        EncoderParam* const param) {
   volatile png_structp png = NULL;
   volatile png_infop info = NULL;
   volatile png_infop end_info = NULL;
@@ -743,7 +744,7 @@ vector<uint8_t> ReadPNG(const std::string& input,
 #else  // !SJPEG_HAVE_PNG
 vector<uint8_t> ReadPNG(const std::string& input,
                         int* const width, int* const height,
-                        SjpegEncodeParam* const param) {
+                        EncoderParam* const param) {
   (void)input;
   (void)param;
   if (width != NULL) *width = 0;
@@ -777,7 +778,7 @@ static size_t ReadLine(const std::string& input, size_t* const off,
 
 vector<uint8_t> ReadPPM(const std::string& input,
                         int* const width, int* const height,
-                        SjpegEncodeParam* const param) {
+                        EncoderParam* const param) {
   vector<uint8_t> rgb;
   size_t offset = 0;
   char out[MAX_LINE_SIZE + 1];
@@ -827,7 +828,7 @@ const char* ImageTypeName(ImageType type) {
 // default reader, returning a systematic error
 std::vector<uint8_t> ReadFail(const std::string& in,
                               int* const width, int* const height,
-                              SjpegEncodeParam* const param) {
+                              EncoderParam* const param) {
   (void)in;
   (void)width;
   (void)height;
@@ -858,13 +859,13 @@ ImageReader GuessImageReader(const std::string& input) {
 
 std::vector<uint8_t> ReadImageQuick(const std::string& in,
                                     int* const width, int* const height,
-                                    SjpegEncodeParam* const param) {
+                                    EncoderParam* const param) {
   return GuessImageReader(in)(in, width, height, param);
 }
 
 std::vector<uint8_t> ReadImage(const std::string& in,
                                int* const width, int* const height,
-                               SjpegEncodeParam* const param) {
+                               EncoderParam* const param) {
   vector<uint8_t> rgb = ReadImageQuick(in, width, height, param);
   // quick attempt failed, try the rest in order
   if (rgb.size() == 0) rgb = ReadJPEG(in, width, height, param);
