@@ -358,7 +358,7 @@ void Encoder::SetCostCodes(int idx) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// standard Huffman  tables, as per JPEG standard section K.3.
+// standard Huffman tables, as per JPEG standard section K.3.
 
 static const uint8_t kDCSyms[12] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
 static const uint8_t kACSyms[2][162] = {
