@@ -16,14 +16,15 @@ UTILS_LIBS= -lpng -ljpeg
 
 ifeq ($(strip $(shell uname)), Darwin)
   EXTRA_FLAGS += -I/opt/local/include
-  EXTRA_LIBS  += -L/opt/local/lib
   EXTRA_FLAGS += -Wno-deprecated-declarations
+  EXTRA_LIBS  += -L/opt/local/lib
   GL_LIBS = -framework GLUT -framework OpenGL
   EXTRA_FLAGS += -DHAVE_GLUT_GLUT_H
 else
   EXTRA_FLAGS += -I/usr/local/include
   EXTRA_LIBS  += -L/usr/local/lib
   GL_LIBS = -lglut -lGL
+  EXTRA_FLAGS += -DHAVE_GL_GLUT_H
 endif
 
 # Uncomment for build for 32bit platform

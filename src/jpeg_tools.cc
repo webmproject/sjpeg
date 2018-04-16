@@ -214,15 +214,25 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
 
 namespace sjpeg {
 
+// (X * 0x0101 >> 16) ~= X / 255
+static uint32_t Convert(uint32_t v) {
+  return (v * (0x0101u * (sjpeg::kRGBSize - 1))) >> 16;
+}
+
+// Convert 8b values y/u/v to index entry.
+int YUVToRiskIdx(int16_t y, int16_t u, int16_t v) {
+  const int idx = Convert(y + 128)
+                + Convert(u + 128) * sjpeg::kRGBSize
+                + Convert(v + 128) * sjpeg::kRGBSize * sjpeg::kRGBSize;
+  return idx;
+}
+
 // return riskiness score on an 8x8 block. Input is YUV444 block
 // of DCT coefficients (Y/U/V).
 double DCTRiskinessScore(const int16_t yuv[3 * 8], int16_t scores[8 * 8]) {
   uint16_t idx[64];
   for (int k = 0; k < 64; ++k) {
-    const int v = (yuv[k + 0 * 64] + 128)
-                + (yuv[k + 1 * 64] + 128) * sjpeg::kRGBSize
-                + (yuv[k + 2 * 64] + 128) * sjpeg::kRGBSize * sjpeg::kRGBSize;
-    idx[k] = v * (sjpeg::kRGBSize - 1) / 255;
+    idx[k] = YUVToRiskIdx(yuv[k + 0 * 64], yuv[k + 1 * 64],  yuv[k + 2 * 64]);
   }
   const int kRGB3 = sjpeg::kRGBSize * sjpeg::kRGBSize * sjpeg::kRGBSize;
   double total_score = 0;
