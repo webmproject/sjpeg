@@ -82,6 +82,7 @@ extern double DCTRiskinessScore(const int16_t yuv[3 * 8],
                                 int16_t scores[8 * 8]);
 extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
                                   int16_t scores[8 * 8]);
+extern int YUVToRiskIdx(int16_t y, int16_t u, int16_t v);
 
 ///////////////////////////////////////////////////////////////////////////////
 // RGB->YUV conversion

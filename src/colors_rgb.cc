@@ -597,7 +597,7 @@ int ConvertToYUVIndex(const uint8_t* const rgb) {
   return (y + u * sjpeg::kRGBSize + v * sjpeg::kRGBSize * sjpeg::kRGBSize);
 }
 
-void RowToIndex(const uint8_t* rgb, int width, uint16_t* dst) {
+void RowToIndexC(const uint8_t* rgb, int width, uint16_t* dst) {
   for (int i = 0; i < width; ++i, rgb += 3) {
     dst[i] = ConvertToYUVIndex(rgb);
   }
@@ -635,7 +635,7 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
     dst += 8;
     width -= 8;
   }
-  if (width > 0) RowToIndex(rgb, width, dst);
+  if (width > 0) RowToIndexC(rgb, width, dst);
 }
 #elif defined(SJPEG_USE_NEON)
 void RowToIndexNEON(const uint8_t* rgb, int width, uint16_t* dst) {
@@ -672,7 +672,7 @@ void RowToIndexNEON(const uint8_t* rgb, int width, uint16_t* dst) {
     dst += 8;
     width -= 8;
   }
-  if (width > 0) RowToIndex(rgb, width, dst);
+  if (width > 0) RowToIndexC(rgb, width, dst);
 }
 #endif    // SJPEG_USE_NEON
 
@@ -685,7 +685,7 @@ RGBToIndexRowFunc GetRowFunc() {
 #elif defined(SJPEG_USE_NEON)
   if (SupportsNEON()) return RowToIndexNEON;
 #endif
-  return RowToIndex;
+  return RowToIndexC;
 }
 
 }   // namespace sjpeg
