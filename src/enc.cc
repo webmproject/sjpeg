@@ -1965,9 +1965,13 @@ uint32_t SjpegVersion() {
 ////////////////////////////////////////////////////////////////////////////////
 // Parametrized call
 
-EncoderParam::EncoderParam()
-    : search_hook(nullptr), memory(nullptr) {
+EncoderParam::EncoderParam() : search_hook(nullptr), memory(nullptr) {
   Init(kDefaultQuality);
+}
+
+EncoderParam::EncoderParam(float quality_factor)
+    : search_hook(nullptr), memory(nullptr) {
+  Init(quality_factor);
 }
 
 void EncoderParam::Init(float quality_factor) {
