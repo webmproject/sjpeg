@@ -65,7 +65,7 @@ typedef enum {
 //
 // The compressed bytes are made available in *out_data, which is a buffer
 // allocated with new []. This buffer must be disallocated using 'delete []',
-// or by calling SjpegBufferFree().
+// or by calling SjpegFreeBuffer().
 //
 // Return parameter -if positive- is the size of the JPEG string,
 // or 0 if an error occurred.
@@ -184,9 +184,8 @@ struct MemoryManager;
 // see SjpegEncode()'s doc above.
 struct EncoderParam {
   EncoderParam();
-  explicit EncoderParam(float quality_factor) {
-    Init(quality_factor);
-  }
+  explicit EncoderParam(float quality_factor);
+
   // Sets the compression factor. 0 = lowest quality, 100 = best quality.
   // The call will actually initialize quant[][].
   void SetQuality(float quality_factor);
