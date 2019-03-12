@@ -29,6 +29,7 @@
 #include <math.h>
 #include <assert.h>
 
+#include <cmath>
 #include <vector>
 using std::vector;
 
@@ -183,7 +184,7 @@ static void PrintInfo() {
     color[0] = 0.99f;
     color[1] = 0.99f;
     color[2] = 0.30f;
-    color[3] = sqrt(1.f * kParams.fade / kFadeMax);
+    color[3] = std::sqrt(1.f * kParams.fade / kFadeMax);
 
     msg.push_back(kParams.files[kParams.current_file]);
 
