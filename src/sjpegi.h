@@ -87,10 +87,10 @@ extern int YUVToRiskIdx(int16_t y, int16_t u, int16_t v);
 ///////////////////////////////////////////////////////////////////////////////
 // RGB->YUV conversion
 
-// convert 16x16 RGB block into YUV420, or 8x8 RGB block into YUV444
+// convert 16x16 RGB block into YUV420, or 8x8 RGB block into YUV444 or YUV400
 typedef void (*RGBToYUVBlockFunc)(const uint8_t* src, int src_stride,
                                   int16_t* blocks);
-extern RGBToYUVBlockFunc GetBlockFunc(bool use_444);
+extern RGBToYUVBlockFunc GetBlockFunc(SjpegYUVMode mode);
 
 // convert a row of RGB samples to YUV444
 typedef void (*RGBToIndexRowFunc)(const uint8_t* src, int width,
@@ -186,7 +186,8 @@ struct Histo {
 
 struct Encoder {
  public:
-  Encoder(int W, int H, int step, const uint8_t* rgb, ByteSink* sink);
+  Encoder(SjpegYUVMode yuv_mode, int W, int H, int step,
+          const uint8_t* rgb, ByteSink* sink);
   virtual ~Encoder();
   bool Ok() const { return ok_; }
 
@@ -200,8 +201,6 @@ struct Encoder {
   // Main call. Return false in case of parameter error (setting empty output).
   bool Encode();
 
-  // these are colorspace-dependant.
-  virtual void InitComponents() = 0;
   // return MCU samples at macroblock position (mb_x, mb_y)
   // clipped is true if the MCU is clipped and needs replication
   virtual void GetSamples(int mb_x, int mb_y, bool clipped,
@@ -296,6 +295,7 @@ struct Encoder {
   bool SetError();   // sets ok_ to true
 
   // format-specific parameters, set by virtual InitComponents()
+  const SjpegYUVMode yuv_mode_;   // 444, 420 or 400 only
   enum { MAX_COMP = 3 };
   int nb_comps_;
   int quant_idx_[MAX_COMP];       // indices for quantization matrices
@@ -303,6 +303,8 @@ struct Encoder {
   uint8_t block_dims_[MAX_COMP];  // component dimensions (8-pixels units)
   int block_w_, block_h_;         // maximum mcu width / height
   int mcu_blocks_;                // total blocks in mcu (= sum of nb_blocks_[])
+
+  void InitComponents();
 
   // data accessible to sub-classes implementing alternate input format
   int W_, H_, step_;    // width, height, stride
@@ -321,11 +323,7 @@ struct Encoder {
   void AverageExtraLuma(int sub_w, int sub_h, int16_t* out);
   uint8_t replicated_buffer_[3 * 16 * 16];   // tmp buffer for replication
 
-  sjpeg::RGBToYUVBlockFunc get_yuv_block_;
-  static sjpeg::RGBToYUVBlockFunc get_yuv444_block_;
-  void SetYUVFormat(bool use_444) {
-    get_yuv_block_ = sjpeg::GetBlockFunc(use_444);
-  }
+  sjpeg::RGBToYUVBlockFunc get_yuv_block_;  // set by GetBlockFunc()
   bool adaptive_bias_;   // if true, use per-block perceptual bias modulation
 
   // Memory management

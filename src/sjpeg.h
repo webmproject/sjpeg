@@ -50,11 +50,13 @@ size_t SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
 //   * YUV_420   (1): YUV 4:2:0
 //   * YUV_SHARP (2): YUV 4:2:0 with 'sharp' conversion
 //   * YUV_444   (3): YUV 4:4:4
+//   * YUV_400   (4): YUV 4:0:0, aka Grayscale (luma only)
 typedef enum {
   SJPEG_YUV_AUTO = 0,
   SJPEG_YUV_420,
   SJPEG_YUV_SHARP,
-  SJPEG_YUV_444
+  SJPEG_YUV_444,
+  SJPEG_YUV_400
 } SjpegYUVMode;
 
 // Encodes an RGB picture to JPEG.

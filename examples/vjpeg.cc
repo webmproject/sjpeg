@@ -164,8 +164,8 @@ static void PrintInfo() {
         "  left/right ........ change the compression factor by +/- 10 units");
     msg.push_back(
         "  return ............ show alternate picture (if specified)");
-    msg.push_back("  0/1/2/3 ........... change the yuv_mode to ");
-    msg.push_back("                      auto/yuv420/sharp-yuv420/yuv444");
+    msg.push_back("  0/1/2/3/4 ......... change the yuv_mode to ");
+    msg.push_back("                      auto/yuv420/sharp-yuv/yuv444/yuv400");
     msg.push_back("  'o' ............... toggle Huffman optimization");
     msg.push_back("  'a' ............... toggle adaptive quantization");
     msg.push_back("  'b' ............... toggle adaptive bias");
@@ -225,8 +225,8 @@ static void PrintInfo() {
       msg.back() += tmp;
     }
 
-    const char* kYUVModeStrings[4] =
-        { "Auto", "YUV420", "Sharp-YUV420", "YUV444" };
+    const char* kYUVModeStrings[] =
+        { "Auto", "YUV420", "Sharp-YUV420", "YUV444", "YUV400" };
     snprintf(tmp, sizeof(tmp), "YUV-mode: %s",
              kYUVModeStrings[kParams.param.yuv_mode]);
     msg.push_back(tmp);
@@ -494,9 +494,10 @@ static void HandleKey(unsigned char key, int pos_x, int pos_y) {
     kParams.fade = kFadeMax;
     kParams.show = 3;
     glutPostRedisplay();
-  } else if (key >= '0' && key <= '3') {
+  } else if (key >= '0' && key <= '4') {
     static const SjpegYUVMode kMap[] = {
-      SJPEG_YUV_AUTO, SJPEG_YUV_420, SJPEG_YUV_SHARP, SJPEG_YUV_444
+      SJPEG_YUV_AUTO, SJPEG_YUV_420, SJPEG_YUV_SHARP,
+      SJPEG_YUV_444, SJPEG_YUV_400
     };
     kParams.param.yuv_mode = kMap[key - '0'];
     FullRedraw();
@@ -643,8 +644,8 @@ static void Help(void) {
          "  up/down ........... change the compression factor by +/- 1 units\n"
          "  left/right ........ change the compression factor by +/- 10 units\n"
          "  return ............ show alternate picture (if specified)\n"
-         "  0/1/2/3 ........... change the yuv_mode to "
-                                "auto/yuv420/sharp-yuv420/yuv444\n"
+         "  0/1/2/3/4 ......... change the yuv_mode to "
+                                "auto/yuv420/sharp-yuv420/yuv444/yuv400\n"
          "  'o' ............... toggle Huffman optimization\n"
          "  'a' ............... toggle adaptive quantization\n"
          "  'l' ............... toggle quantization limitation\n"

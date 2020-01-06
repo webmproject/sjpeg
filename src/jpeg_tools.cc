@@ -165,6 +165,7 @@ float SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
 // Bluriness risk evaluation and YUV420 / sharp-YUV420 / YUV444 decision
 
 static const int kNoiseLevel = 4;
+static const double kThreshGray = 0.995;  // 1.00 = full gray (max)
 static const double kThreshYU420 = 40.0;
 static const double kThreshSharpYU420 = 70.0;
 
@@ -173,9 +174,12 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
   const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
 
   std::vector<uint16_t> row1(width), row2(width);
-  double total_score = 0;
-  double count = 0;
-  const int kRGB3 = sjpeg::kRGBSize * sjpeg::kRGBSize * sjpeg::kRGBSize;
+  double total_score = 0.;
+  double count = 0.;
+  double gray_count = 0.;
+  const int s = sjpeg::kRGBSize;  // shortcut
+  const int kRGB3 = s * s * s;
+  const int gray = (s / 2) * (1 + s) * s;   // gray level for y=0,u=128,v=128
 
   cvrt_func(rgb, width, &row2[0]);  // convert first row ahead
   for (int j = 1; j < height; ++j) {
@@ -193,9 +197,12 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
         total_score += score;
         count += 1.0;
       }
+      gray_count += (std::abs(idx0 - gray) < s);
     }
   }
   if (count > 0) total_score /= count;
+  gray_count /= (width * height);
+
   // number of pixels evaluated
   const double frac = 100. * count / (width * height);
   // if less than 1% of pixels were evaluated -> below noise level.
@@ -206,6 +213,7 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
   if (risk != NULL) *risk = (float)total_score;
 
   const SjpegYUVMode recommendation =
+      (gray_count > kThreshGray) ?        SJPEG_YUV_400 :
       (total_score < kThreshYU420) ?      SJPEG_YUV_420 :
       (total_score < kThreshSharpYU420) ? SJPEG_YUV_SHARP :
                                           SJPEG_YUV_444;
@@ -265,7 +273,7 @@ double DCTRiskinessScore(const int16_t yuv[3 * 8], int16_t scores[8 * 8]) {
 // Not an official API, because a little too specific. But still accessible.
 double BlockRiskinessScore(const uint8_t* rgb, int stride,
                            int16_t scores[8 * 8]) {
-  const RGBToYUVBlockFunc get_block = GetBlockFunc(true);
+  const RGBToYUVBlockFunc get_block = GetBlockFunc(SJPEG_YUV_444);
   int16_t yuv444[3 * 64];
   get_block(rgb, stride, yuv444);
   return DCTRiskinessScore(yuv444, scores);

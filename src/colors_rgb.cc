@@ -197,6 +197,26 @@ static void Get8x8Block_SSE2(const uint8_t* data, int step, int16_t* out) {
   }
 }
 
+// Convert 8 RGB samples to Y only. out[] points to a 1*64 data block.
+static inline void ToY_8(const __m128i* const r,
+                         const __m128i* const g,
+                         const __m128i* const b,
+                         int16_t* const out) {
+  __m128i Y;
+  ConvertRGBToY(r, g, b, -128, &Y);
+  STORE_16(Y, out);
+}
+
+static void Get8x8Block_Y_SSE2(const uint8_t* data, int step, int16_t* out) {
+  for (int y = 8; y > 0; --y) {
+    __m128i r, g, b;
+    RGB24PackedToPlanar(data, &r, &g, &b);
+    ToY_8(&r, &g, &b, out);
+    out += 8;
+    data += step;
+  }
+}
+
 // Convert 16x16 RGB samples to YUV420
 static inline void ToY_16x16(const __m128i* const r,
                              const __m128i* const g,
@@ -381,6 +401,25 @@ static void Get8x8Block_NEON(const uint8_t* data, int step, int16_t* out) {
   }
 }
 
+// Convert 8 RGB samples to Y only. out[] points to a 1*64 data block.
+static void ToY_8(const int16x8_t r, const int16x8_t g, const int16x8_t b,
+                  const int16x4_t coeffs, int16_t* const out) {
+  int16x8_t Y;
+  ConvertRGBToY(r, g, b, coeffs, &Y);
+  vst1q_s16(out, Y);
+}
+
+static void Get8x8Block_Y_NEON(const uint8_t* data, int step, int16_t* out) {
+  const int16x4_t kC1 = vld1_s16(kCoeff1);
+  for (int y = 8; y > 0; --y) {
+    int16x8_t r, g, b;
+    RGB24PackedToPlanar(data, &r, &g, &b);
+    ToY_8(r, g, b, kC1, out);
+    out += 8;
+    data += step;
+  }
+}
+
 // Convert 16x16 RGB samples to YUV420
 static inline void ToY_16x16(const int16x8_t r,
                              const int16x8_t g,
@@ -501,10 +540,29 @@ static inline void ToYUV(const uint8_t* const rgb, int16_t* const out) {
   out[2 * 64] = static_cast<int16_t>(v >> FRAC);
 }
 
+// for 4:0:0 conversion: convert rgb[3] to y
+static inline int16_t ToY(const uint8_t* const rgb) {
+  const int r = rgb[0];
+  const int g = rgb[1];
+  const int b = rgb[2];
+  const int y =  19595 * r + 38469 * g +  7471 * b + ROUND_Y;
+  return static_cast<int16_t>(y >> FRAC);
+}
+
 static void Get8x8Block_C(const uint8_t* data, int step, int16_t* out) {
   for (int y = 8; y > 0; --y) {
     for (int x = 0; x < 8; ++x) {
       ToYUV(data + 3 * x, out + x);
+    }
+    out += 8;
+    data += step;
+  }
+}
+
+static void Get8x8Block_Y_C(const uint8_t* data, int step, int16_t* out) {
+  for (int y = 8; y > 0; --y) {
+    for (int x = 0; x < 8; ++x) {
+      out[x] = ToY(data + 3 * x);
     }
     out += 8;
     data += step;
@@ -542,20 +600,24 @@ static void Get16x16Block_C(const uint8_t* rgb, int step, int16_t* yuv) {
   Get16x8Block_C(rgb + 8 * step, step, yuv + 2 * 64, yuv + 4 * 64 + 4 * 8);
 }
 
-///////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
-RGBToYUVBlockFunc GetBlockFunc(bool use_444) {
+RGBToYUVBlockFunc GetBlockFunc(SjpegYUVMode yuv_mode) {
 #if defined(SJPEG_USE_SSE2)
-  if (SupportsSSE2()) return use_444 ? Get8x8Block_SSE2
-                                     : Get16x16Block_SSE2;
+  if (SupportsSSE2()) return (yuv_mode == SJPEG_YUV_444) ? Get8x8Block_SSE2 :
+                             (yuv_mode == SJPEG_YUV_420) ? Get16x16Block_SSE2 :
+                                                           Get8x8Block_Y_SSE2;
 #elif defined(SJPEG_USE_NEON)
-  if (SupportsNEON()) return use_444 ? Get8x8Block_NEON
-                                     : Get16x16Block_NEON;
+  if (SupportsNEON()) return (yuv_mode == SJPEG_YUV_444) ? Get8x8Block_NEON :
+                             (yuv_mode == SJPEG_YUV_420) ? Get16x16Block_NEON :
+                                                           Get8x8Block_Y_NEON;
 #endif
-  return use_444 ? Get8x8Block_C : Get16x16Block_C;  // default
+  return (yuv_mode == SJPEG_YUV_444) ? Get8x8Block_C :
+         (yuv_mode == SJPEG_YUV_420) ? Get16x16Block_C :
+                                       Get8x8Block_Y_C;  // default
 }
 
-///////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
 namespace {
 
