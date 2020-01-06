@@ -17,6 +17,7 @@ ${SJPEG} -h
 ${SJPEG} --help
 
 ${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -yuv_mode 2
+${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -yuv_mode 4
 ${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -q 3 -no_adapt -no_optim -quiet
 
 ${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -r 30 -no_adapt -no_optim -quiet

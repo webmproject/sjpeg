@@ -122,12 +122,13 @@ bool Encoder::WriteXMP(const std::string& data) {
 }
 
 void Encoder::WriteDQT() {
-  const size_t data_size = 2 * 65 + 2;
+  const int num_matrices = (yuv_mode_ == SJPEG_YUV_400) ? 1 : 2;
+  const size_t data_size = num_matrices * 65 + 2;
   const uint8_t kDQTHeader[] = { 0xff, 0xdb, 0x00, (uint8_t)data_size };
   ok_ = ok_ && bw_.Reserve(data_size + 2);
   if (!ok_) return;
   bw_.PutBytes(kDQTHeader, sizeof(kDQTHeader));
-  for (int n = 0; n <= 1; ++n) {
+  for (int n = 0; n < num_matrices; ++n) {
     bw_.PutByte(n);
     const uint8_t* quant = quants_[n].quant_;
     for (int i = 0; i < 64; ++i) {

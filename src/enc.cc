@@ -20,6 +20,7 @@
 #include <math.h>
 #include <float.h>    // for FLT_MAX
 #include <stdint.h>
+#include <new>
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
@@ -137,9 +138,9 @@ static struct DefaultMemory : public MemoryManager {
 ////////////////////////////////////////////////////////////////////////////////
 // Encoder main class
 
-Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb,
-                 ByteSink* const sink)
-  : W_(W), H_(H), step_(step),
+Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, int step,
+                 const uint8_t* const rgb, ByteSink* const sink)
+  : yuv_mode_(yuv_mode), W_(W), H_(H), step_(step),
     rgb_(rgb),
     ok_(true),
     bw_(sink),
@@ -156,7 +157,7 @@ Encoder::Encoder(int W, int H, int step, const uint8_t* const rgb,
     memory_hook_(&kDefaultMemory) {
   SetCompressionMethod(kDefaultMethod);
   SetQuality(kDefaultQuality);
-  SetYUVFormat(false);
+  get_yuv_block_ = sjpeg::GetBlockFunc(yuv_mode_);
   SetQuantizationBias(kDefaultBias, false);
   SetDefaultMinQuantMatrices();
   InitializeStaticPointers();
@@ -254,7 +255,6 @@ Encoder::QuantizeErrorFunc Encoder::quantize_error_ = nullptr;
 Encoder::QuantizeBlockFunc Encoder::quantize_block_ = nullptr;
 void (*Encoder::fDCT_)(int16_t* in, int num_blocks) = nullptr;
 Encoder::StoreHistoFunc Encoder::store_histo_ = nullptr;
-RGBToYUVBlockFunc Encoder::get_yuv444_block_ = nullptr;
 
 void Encoder::InitializeStaticPointers() {
   if (fDCT_ == nullptr) {
@@ -262,7 +262,6 @@ void Encoder::InitializeStaticPointers() {
     quantize_block_ = GetQuantizeBlockFunc();
     quantize_error_ = GetQuantizeErrorFunc();
     fDCT_ = GetFdct();
-    get_yuv444_block_ = GetBlockFunc(true);
   }
 }
 
@@ -1723,32 +1722,74 @@ const uint8_t* Encoder::GetReplicatedYUVSamples(const uint8_t* in,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+void Encoder::InitComponents() {
+  switch (yuv_mode_) {
+    case SJPEG_YUV_444:
+      nb_comps_ = 3;
+
+      quant_idx_[0] = 0;
+      quant_idx_[1] = 1;
+      quant_idx_[2] = 1;
+
+      nb_blocks_[0] = 1;
+      nb_blocks_[1] = 1;
+      nb_blocks_[2] = 1;
+      mcu_blocks_ = 3;
+      block_w_ = 8;
+      block_h_ = 8;
+
+      block_dims_[0] = 0x11;
+      block_dims_[1] = 0x11;
+      block_dims_[2] = 0x11;
+    break;
+    case SJPEG_YUV_420:
+      nb_comps_ = 3;
+
+      quant_idx_[0] = 0;
+      quant_idx_[1] = 1;
+      quant_idx_[2] = 1;
+
+      nb_blocks_[0] = 4;
+      nb_blocks_[1] = 1;
+      nb_blocks_[2] = 1;
+      mcu_blocks_ = 6;
+
+      block_w_ = 16;
+      block_h_ = 16;
+      block_dims_[0] = 0x22;
+      block_dims_[1] = 0x11;
+      block_dims_[2] = 0x11;
+    break;
+    case SJPEG_YUV_400:
+      nb_comps_ = 1;
+
+      quant_idx_[0] = 0;
+
+      nb_blocks_[0] = 1;
+      mcu_blocks_ = 1;
+
+      block_w_ = 8;
+      block_h_ = 8;
+      block_dims_[0] = 0x11;
+    break;
+    case SJPEG_YUV_AUTO:
+    case SJPEG_YUV_SHARP:
+    default:
+      assert(0);   // shouldn't happen
+    break;
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // sub-class for YUV 4:2:0 version
 
 class Encoder420 : public Encoder {
  public:
   Encoder420(int W, int H, int step, const uint8_t* const rgb,
              ByteSink* const sink)
-    : Encoder(W, H, step, rgb, sink) {}
+    : Encoder(SJPEG_YUV_420, W, H, step, rgb, sink) {}
   virtual ~Encoder420() {}
-  virtual void InitComponents() {
-    nb_comps_ = 3;
-
-    quant_idx_[0] = 0;
-    quant_idx_[1] = 1;
-    quant_idx_[2] = 1;
-
-    nb_blocks_[0] = 4;
-    nb_blocks_[1] = 1;
-    nb_blocks_[2] = 1;
-    mcu_blocks_ = 6;
-
-    block_w_ = 16;
-    block_h_ = 16;
-    block_dims_[0] = 0x22;
-    block_dims_[1] = 0x11;
-    block_dims_[2] = 0x11;
-  }
   virtual void GetSamples(int mb_x, int mb_y, bool clipped,
                           int16_t* out_blocks) {
     const uint8_t* data = rgb_ + (3 * mb_x + mb_y * step_) * 16;
@@ -1772,28 +1813,8 @@ class Encoder444 : public Encoder {
  public:
   Encoder444(int W, int H, int step, const uint8_t* const rgb,
              ByteSink* const sink)
-      : Encoder(W, H, step, rgb, sink) {
-    SetYUVFormat(true);
-  }
+      : Encoder(SJPEG_YUV_444, W, H, step, rgb, sink) {}
   virtual ~Encoder444() {}
-  virtual void InitComponents() {
-    nb_comps_ = 3;
-
-    quant_idx_[0] = 0;
-    quant_idx_[1] = 1;
-    quant_idx_[2] = 1;
-
-    nb_blocks_[0] = 1;
-    nb_blocks_[1] = 1;
-    nb_blocks_[2] = 1;
-    mcu_blocks_ = 3;
-
-    block_w_ = 8;
-    block_h_ = 8;
-    block_dims_[0] = 0x11;
-    block_dims_[1] = 0x11;
-    block_dims_[2] = 0x11;
-  }
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
     const uint8_t* data = rgb_ + (3 * mb_x + mb_y * step_) * 8;
     int step = step_;
@@ -1896,6 +1917,27 @@ void EncoderSharp420::GetSamples(int mb_x, int mb_y,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// sub-class for YUV 4:0:0 version
+
+class Encoder400 : public Encoder {
+ public:
+  Encoder400(int W, int H, int step, const uint8_t* const rgb,
+             ByteSink* const sink)
+      : Encoder(SJPEG_YUV_400, W, H, step, rgb, sink) {}
+  virtual ~Encoder400() {}
+  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+    const uint8_t* data = rgb_ + (3 * mb_x + mb_y * step_) * 8;
+    int step = step_;
+    if (clipped) {
+      data = GetReplicatedSamples(data, step,
+                                  W_ - mb_x * 8, H_ - mb_y * 8, 8, 8);
+      step = 3 * 8;
+    }
+    get_yuv_block_(data, step, out);
+  }
+};
+
+////////////////////////////////////////////////////////////////////////////////
 // all-in-one factory to pickup the right encoder instance
 
 Encoder* EncoderFactory(const uint8_t* rgb,
@@ -1910,8 +1952,10 @@ Encoder* EncoderFactory(const uint8_t* rgb,
     enc = new (std::nothrow) Encoder420(W, H, stride, rgb, sink);
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
     enc = new (std::nothrow) EncoderSharp420(W, H, stride, rgb, sink);
-  } else {
+  } else if (yuv_mode == SJPEG_YUV_444) {
     enc = new (std::nothrow) Encoder444(W, H, stride, rgb, sink);
+  } else if (yuv_mode == SJPEG_YUV_400) {
+    enc = new (std::nothrow) Encoder400(W, H, stride, rgb, sink);
   }
   if (enc == nullptr || !enc->Ok()) {
     delete enc;

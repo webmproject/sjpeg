@@ -68,8 +68,8 @@ static void PrintMetadataInfo(const EncoderParam& param) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static const char* kYUVModeNames[4] = {
-  "automatic", "YUV420", "SharpYUV420", "YUV444"
+static const char* kYUVModeNames[] = {
+  "automatic", "YUV420", "SharpYUV420", "YUV444", "YUV400"
 };
 static const char* kNoYes[2] = { "no", "yes" };
 
@@ -114,17 +114,19 @@ int main(int argc, char * argv[]) {
     "                       1: use YUV 4:2:0\n"
     "                       2: use 'Sharp' YUV 4:2:0 conversion\n"
     "                       3: use YUV 4:4:4 (full resolution for U/V planes)\n"
+    "                       4: use YUV 4:0:0 (grayscale, only luma plane)\n"
     "  -no_limit .......... If true, allow the quality factor to be larger\n"
-    "                       than the original (JPEG input only).\n"
+    "                       than the original (JPEG input only)\n"
     "  -no_optim .......... Don't use Huffman optimization (=faster)\n"
     "  -no_adapt .......... Don't use adaptive quantization (=faster)\n"
     "  -trellis ........... use trellis-based quantization (=slower)\n"
-    "  -no_metadata ....... Ignore metadata from the source.\n"
-    "  -pass <int> ........ number of passes for -size or -psnr (default: 10\n"
+    "  -no_metadata ....... Ignore metadata from the source\n"
+    "  -pass <int> ........ number of passes for -size or -psnr (default: 10)\n"
     "  -qmin <float> ...... minimum acceptable quality factor during search\n"
     "  -qmax <float> ...... maximum acceptable quality factor during search\n"
     "  -tolerance <float> . tolerance for convergence during search\n"
     "\n"
+    "  -gray .............. shortcut for '-yuv_mode 4'\n"
     "  -444 ............... shortcut for '-yuv_mode 3'\n"
     "  -sharp ............. shortcut for '-yuv_mode 2'\n"
     "  -420 ............... shortcut for '-yuv_mode 1'\n"
@@ -194,7 +196,7 @@ int main(int argc, char * argv[]) {
       no_metadata = true;
     } else if (!strcmp(argv[c], "-yuv_mode") && c + 1 < argc) {
       const int mode = atoi(argv[++c]);
-      if (mode < 0 || mode > 3) {
+      if (mode < 0 || mode > (int)SJPEG_YUV_400) {
         fprintf(stdout, "Error: invalid range for option '%s': %s\n",
                 argv[c - 1], argv[c]);
         return 1;
@@ -206,6 +208,8 @@ int main(int argc, char * argv[]) {
       param.yuv_mode = SJPEG_YUV_SHARP;
     } else if (!strcmp(argv[c], "-420")) {
       param.yuv_mode = SJPEG_YUV_420;
+    } else if (!strcmp(argv[c], "-gray")) {
+      param.yuv_mode = SJPEG_YUV_400;
     } else if (!strcmp(argv[c], "-i") || !strcmp(argv[c], "-info")) {
       info = true;
     } else if (!strcmp(argv[c], "-quiet")) {
