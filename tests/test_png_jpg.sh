@@ -15,7 +15,8 @@ LIST="source1.png \
 
 set -e
 for f in ${LIST}; do
-  ${SJPEG} testdata/${f} -o ${TMP_JPEG2} -info -q 56.7
+  ${SJPEG} testdata/${f} -o ${TMP_JPEG2} -info -q 56.7 -no_limit
+  ${SJPEG} testdata/${f} -o ${TMP_JPEG2} -size 16000 -pass 3 -yuv_mode 4
 done
 
 for f in ${LIST}; do
