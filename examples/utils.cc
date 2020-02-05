@@ -30,6 +30,8 @@
 #include <setjmp.h>   // note: this must be included *after* png.h
 #endif    // SJPEG_HAVE_PNG
 
+#include "../src/md5sum.h"
+
 using std::vector;
 using sjpeg::EncoderParam;
 
@@ -114,6 +116,12 @@ uint32_t GetCRC32(const std::string& data, uint32_t crc) {
     }
   }
   return ~crc;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+std::string GetMD5Digest(const std::string& data) {
+  return sjpeg::MD5Digest(data).Get();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
