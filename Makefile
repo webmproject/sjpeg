@@ -14,6 +14,10 @@ ARCHIVE_FILE=sjpeg-$(VERSION).tar.gz
 EXTRA_FLAGS= -DSJPEG_HAVE_PNG -DSJPEG_HAVE_JPEG
 UTILS_LIBS= -lpng -ljpeg
 
+# we use C++-11
+EXTRA_FLAGS += -std=c++11
+
+# OpenGL and GLUT
 ifeq ($(strip $(shell uname)), Darwin)
   EXTRA_FLAGS += -I/opt/local/include
   EXTRA_FLAGS += -Wno-deprecated-declarations
@@ -180,6 +184,7 @@ DIST_FILES= \
          src/fdct.cc  \
          src/headers.cc \
          src/jpeg_tools.cc  \
+         src/md5sum.h \
          src/score_7.cc  \
          src/sjpeg.h  \
          src/sjpegi.h  \

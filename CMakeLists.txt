@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 2.8.7)
 project(sjpeg CXX)
+set(CMAKE_CXX_STANDARD 11)
 
 # Options for coder / decoder executables.
 option(SJPEG_ENABLE_SIMD "Enable any SIMD optimization." ON)
@@ -45,6 +46,7 @@ add_library(sjpeg ${CMAKE_CURRENT_SOURCE_DIR}/src/bit_writer.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/enc.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/fdct.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/headers.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/md5sum.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/jpeg_tools.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/score_7.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/sjpeg.h
