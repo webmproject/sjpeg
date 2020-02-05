@@ -53,15 +53,15 @@ static void PrintMatrix(const char name[], const uint8_t m[64],
 
 static void PrintMetadataInfo(const EncoderParam& param) {
   if (!param.iccp.empty()) {
-    fprintf(stdout, "ICCP:       %6u bytes (CRC32: 0x%.8x)\n",
+    fprintf(stdout, "ICCP:        %u bytes \t(CRC32: 0x%.8x)\n",
             static_cast<uint32_t>(param.iccp.size()), GetCRC32(param.iccp));
   }
   if (!param.exif.empty()) {
-    fprintf(stdout, "EXIF:       %6u bytes (CRC32: 0x%.8x)\n",
+    fprintf(stdout, "EXIF:        %u bytes \t(CRC32: 0x%.8x)\n",
             static_cast<uint32_t>(param.exif.size()), GetCRC32(param.exif));
   }
   if (!param.xmp.empty()) {
-    fprintf(stdout, "XMP:        %6u bytes (CRC32: 0x%.8x)\n",
+    fprintf(stdout, "XMP:         %u bytes \t(CRC32: 0x%.8x)\n",
             static_cast<uint32_t>(param.xmp.size()), GetCRC32(param.xmp));
   }
 }
@@ -76,6 +76,9 @@ static const char* kNoYes[2] = { "no", "yes" };
 int main(int argc, char * argv[]) {
   const char* input_file = nullptr;
   const char* output_file = nullptr;
+  const char* xmp_file = nullptr;
+  const char* icc_file = nullptr;
+  const char* exif_file = nullptr;
   EncoderParam param;
   float reduction = 100;
   float quality = 75;
@@ -87,6 +90,7 @@ int main(int argc, char * argv[]) {
   bool quiet = false;
   bool short_output = false;
   bool print_crc = false;
+  bool print_md5 = false;
   float riskiness = 0;
   SjpegYUVMode yuv_mode_rec = SJPEG_YUV_AUTO;
   const char* const usage =
@@ -103,10 +107,13 @@ int main(int argc, char * argv[]) {
     "  -psnr <float> ... target YUV-PSNR\n"
     "  -estimate ....... Just estimate and print the JPEG source quality.\n"
     "  -i .............. Just print some information about the input file.\n"
+    "  -xmp <file> ....| Specify the output's metadata with the supplied\n"
+    "  -exif <file> ...| file's content. Warning, this may discard the\n"
+    "  -icc <file> ....| source's content!\n"
     "  -version ........ Print the version and exit.\n"
     "  -quiet .......... Quiet mode. Just save the file.\n"
     "  -short .......... Print shorter 1-line info.\n"
-    "  -crc ............ Just print the output checksum and exit.\n"
+    "  -crc / -md5 ..... Just print the output checksum or MD5 sum and exit.\n"
     "\n"
     "Advanced options:\n"
     "  -yuv_mode .......... YUV mode to use:\n"
@@ -166,6 +173,12 @@ int main(int argc, char * argv[]) {
                 argv[c - 1], argv[c]);
         return 1;
       }
+    } else if (!strcmp(argv[c], "-xmp") && c + 1 < argc) {
+      xmp_file = argv[++c];
+    } else if (!strcmp(argv[c], "-exif") && c + 1 < argc) {
+      exif_file = argv[++c];
+    } else if (!strcmp(argv[c], "-icc") && c + 1 < argc) {
+      icc_file = argv[++c];
     } else if (!strcmp(argv[c], "-estimate")) {
       estimate = true;
     } else if (!strcmp(argv[c], "-no_limit")) {
@@ -218,6 +231,8 @@ int main(int argc, char * argv[]) {
       short_output = true;
     } else if (!strcmp(argv[c], "-crc")) {
       print_crc = true;
+    } else if (!strcmp(argv[c], "-md5")) {
+      print_md5 = true;
     } else if (!strcmp(argv[c], "-version")) {
       const uint32_t version = SjpegVersion();
       fprintf(stdout, "%d.%d.%d\n",
@@ -240,7 +255,7 @@ int main(int argc, char * argv[]) {
     param.passes = 10;
   }
   // Read input file into the buffer in_bytes[]
-  std::string input = ReadFile(input_file);
+  const std::string input = ReadFile(input_file);
   if (input.size() == 0) return 1;
 
   const ImageType input_type = GuessImageType(input);
@@ -279,7 +294,11 @@ int main(int argc, char * argv[]) {
   vector<uint8_t> in_bytes = ReadImage(input, &W, &H, &param);
   if (in_bytes.size() == 0) return 1;
 
-  if (!short_output && !quiet && !print_crc) {
+  if (xmp_file != nullptr) param.xmp = ReadFile(xmp_file);
+  if (icc_file != nullptr) param.iccp = ReadFile(icc_file);
+  if (exif_file != nullptr) param.exif = ReadFile(exif_file);
+
+  if (!short_output && !quiet && !print_crc && !print_md5) {
     fprintf(stdout, "Input [%s]: %s (%u bytes, %d x %d)\n",
             ImageTypeName(input_type), input_file,
             static_cast<uint32_t>(input.size()),
@@ -301,7 +320,7 @@ int main(int argc, char * argv[]) {
       PrintMetadataInfo(param);
     }
   }
-  if (info && !print_crc) return 0;   // done
+  if (info && !print_crc && !print_md5) return 0;   // done
 
   // finish setting up the quantization matrices
   if (limit_quantization == false) param.SetLimitQuantization(false);
@@ -320,6 +339,10 @@ int main(int argc, char * argv[]) {
 
   if (print_crc) {
     printf("0x%.8x\n", GetCRC32(out));
+    return 0;
+  }
+  if (print_md5) {
+    printf("%s\n", GetMD5Digest(out).c_str());
     return 0;
   }
 

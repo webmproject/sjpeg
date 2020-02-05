@@ -101,6 +101,18 @@ If the source is a JPEG file, print the estimated quality and exit.
 .B \-i, \-info
 Print some information about the input file and exit.
 .TP
+.BI \-xmp " string
+Specify the output XMP metadata. Warning, this will overwrite any data
+available from the source. No content validation is performed.
+.TP
+.BI \-exif " string
+Specify the output EXIF metadata. Warning, this will overwrite any data
+available from the source. No content validation is performed.
+.TP
+.BI \-icc " string
+Specify the output Color Profile metadata. Warning, this will overwrite
+any data available from the source. No content validation is performed.
+.TP
 .B \-quiet
 Disable information message (error messages are still printed).
 .TP
@@ -109,6 +121,9 @@ Only display short information about the output result.
 .TP
 .B \-crc
 Only display the CRC32 checksum of the output and exit.
+.TP
+.B \-md5
+Only display the MD5 digest of the output and exit.
 .TP
 .B \-no_limit
 Disable the quantization limit (in case of JPEG input file) allowing to
