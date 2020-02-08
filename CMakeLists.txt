@@ -10,8 +10,8 @@ set(SJPEG_DEP_LIBRARIES)
 set(SJPEG_DEP_INCLUDE_DIRS)
 
 if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE "Release"
-    CACHE STRING "Build type: Release, Debug or RelWithDebInfo" FORCE
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING
+    "Build type: Release, Debug or RelWithDebInfo" FORCE
   )
 endif()
 
