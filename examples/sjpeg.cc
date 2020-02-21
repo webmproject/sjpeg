@@ -299,9 +299,10 @@ int main(int argc, char * argv[]) {
   if (exif_file != nullptr) param.exif = ReadFile(exif_file);
 
   if (!short_output && !quiet && !print_crc && !print_md5) {
-    fprintf(stdout, "Input [%s]: %s (%u bytes, %d x %d)\n",
+    fprintf(stdout, "Input [%s]: %s (%u bytes, %.2f bpp, %d x %d)\n",
             ImageTypeName(input_type), input_file,
             static_cast<uint32_t>(input.size()),
+            8.f * input.size() / (W * H),
             W, H);
     if (info) {
       yuv_mode_rec = SjpegRiskiness(&in_bytes[0], W, H, 3 * W, &riskiness);
@@ -349,11 +350,12 @@ int main(int argc, char * argv[]) {
   if (!short_output && !quiet) {
     const bool show_reduction = use_reduction && !use_search;
     yuv_mode_rec = SjpegRiskiness(&in_bytes[0], W, H, 3 * W, &riskiness);
-    fprintf(stdout, "new size:    %u bytes (%.2lf%% of original)\n"
+    fprintf(stdout, "new size:    %u bytes (%.2f bpp, %.2lf%% of original)\n"
                     "%s%.1f (adaptive: %s, Huffman: %s)\n"
                     "yuv mode:    %s (riskiness: %.1lf%%)\n"
                     "elapsed:     %d ms\n",
                     static_cast<uint32_t>(out.size()),
+                    8.f * out.size() / (W * H),
                     100. * out.size() / input.size(),
                     show_reduction ? "reduction:   r=" : "quality:     q=",
                     show_reduction ? reduction : quality,
