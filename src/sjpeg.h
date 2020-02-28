@@ -285,6 +285,17 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
             const EncoderParam& param, sjpeg::ByteSink* sink);
 
 ////////////////////////////////////////////////////////////////////////////////
+// Ad-hoc functions for specialized cases
+
+// These function are specialized for encoding grayscale input using YUV400,
+// and behave like the generic Encode() functions above. The input samples
+// in gray[] are interpreted as the Luma samples, without transformation.
+bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
+                const EncoderParam& param, sjpeg::ByteSink* sink);
+bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
+                const EncoderParam& param, std::string* output);
+
+////////////////////////////////////////////////////////////////////////////////
 // Some interfaces for customizing the core codec
 
 // Custom search loop

@@ -1937,6 +1937,33 @@ class Encoder400 : public Encoder {
   }
 };
 
+// This variant take luma plane as input directly.
+class Encoder400G : public Encoder {
+ public:
+  Encoder400G(int W, int H, int step, const uint8_t* const gray,
+              ByteSink* const sink)
+      : Encoder(SJPEG_YUV_400, W, H, step, gray, sink) {}
+  virtual ~Encoder400G() {}
+  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+    const uint8_t* data = rgb_ + (mb_x + mb_y * step_) * 8;
+    const int w = clipped ? W_ - mb_x * 8 : 8;
+    const int h = clipped ? H_ - mb_y * 8 : 8;
+    for (int y = 0; y < h; ++y) {
+      for (int x = 0; x < w; ++x) out[x] = (int16_t)data[x] - 128;
+      for (int x = w; x < 8; ++x) out[x] = out[w - 1];
+      out += 8;
+      data += step_;
+    }
+    if (clipped) {
+      const int16_t* const last_out = out - 8;
+      for (int y = h; y < 8; ++y) {
+        memcpy(out, last_out, 8 * sizeof(*out));
+        out += 8;
+      }
+    }
+  }
+};
+
 ////////////////////////////////////////////////////////////////////////////////
 // all-in-one factory to pickup the right encoder instance
 
@@ -2138,6 +2165,20 @@ size_t sjpeg::Encode(const uint8_t* rgb, int width, int height, int stride,
   return size;
 }
 
+bool sjpeg::EncodeGray(const uint8_t* gray, int width, int height, int stride,
+                       const EncoderParam& param, sjpeg::ByteSink* sink) {
+  if (gray == nullptr || sink == nullptr) return false;
+  if (width <= 0 || height <= 0 || stride < width) return false;
+
+  Encoder* const enc =
+      new (std::nothrow) Encoder400G(width, height, stride, gray, sink);
+  const bool ok = (enc != nullptr) &&
+                  enc->InitFromParam(param) &&
+                  enc->Encode();
+  delete enc;
+  return ok;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // std::string variants
 
@@ -2148,6 +2189,15 @@ bool sjpeg::Encode(const uint8_t* rgb, int width, int height, int stride,
   output->reserve(width * height / 4);
   StringSink sink(output);
   return Encode(rgb, width, height, stride, param, &sink);
+}
+
+bool sjpeg::EncodeGray(const uint8_t* gray, int width, int height, int stride,
+                       const EncoderParam& param, std::string* output) {
+  if (output == nullptr) return false;
+  output->clear();
+  output->reserve(width * height / 4);
+  StringSink sink(output);
+  return EncodeGray(gray, width, height, stride, param, &sink);
 }
 
 bool SjpegCompress(const uint8_t* rgb, int width, int height,
