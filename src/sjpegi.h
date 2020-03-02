@@ -221,11 +221,15 @@ struct Encoder {
  private:
   bool CheckBuffers();  // returns false in case of memory alloc error
 
+  void Put16b(uint32_t size);
+  void Put32b(uint32_t size);
+
   void WriteAPP0();
   bool WriteAPPMarkers(const std::string& data);
   bool WriteEXIF(const std::string& data);
   bool WriteICCP(const std::string& data);
   bool WriteXMP(const std::string& data);
+  bool WriteXMPExtended(const std::string& data);
   void WriteDQT();
   void WriteSOF();
   void WriteDHT();
@@ -342,6 +346,7 @@ struct Encoder {
   sjpeg::BitWriter bw_;    // output buffer
 
   std::string iccp_, xmp_, exif_, app_markers_;   // metadata
+  uint16_t xmp_split_;     // user-supplied split point for extended metadata
 
   // compression tools. See sjpeg.h for description of methods.
   bool optimize_size_;        // Huffman-optimize the codes  (method 0, 3)

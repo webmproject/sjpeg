@@ -207,6 +207,9 @@ size_t Encoder::HeaderSize() const {
   }
   if (xmp_.size() > 0) {
     size += 2 + 2 + 29 + xmp_.size();
+    if (xmp_.size() > 65533) {  // XMPExtended
+      size += (xmp_.size() / 65458 + 1) * 40;
+    }
   }
   size += 2 * 65 + 2 + 2;         // DQT
   size += 8 + 3 * nb_comps_ + 2;  // SOF

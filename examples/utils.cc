@@ -243,53 +243,132 @@ static int StoreICCP(j_decompress_ptr dinfo, std::string* const iccp) {
   return 1;
 }
 
+typedef bool (*Handler)(const uint8_t* src, size_t len, void* obj);
+
+static bool DataCopy(const uint8_t* src, size_t len, void* obj) {
+  std::string* const dst = static_cast<std::string*>(obj);
+  if (dst->empty()) {
+    dst->append(reinterpret_cast<const char*>(src), len);
+    return true;
+  }
+  return false;
+}
+
+struct XMPExt {
+  std::string* xmp;
+  std::string ext;
+  const uint8_t* guid;
+  size_t size;
+  bool ok;
+};
+
+static uint32_t Get32b(const uint8_t* const src) {
+  return (static_cast<uint32_t>(src[0]) << 24) |
+         (static_cast<uint32_t>(src[1]) << 16) |
+         (static_cast<uint32_t>(src[2]) <<  8) |
+         (static_cast<uint32_t>(src[3]) <<  0);
+}
+
+static bool XMPMerge(const uint8_t* src, size_t len, void* obj) {
+  XMPExt* const xmp = static_cast<XMPExt*>(obj);
+  xmp->ok = false;
+  if (len < 40) return false;
+  if (xmp->guid == nullptr) {
+    xmp->guid = src + 0;
+  } else {
+    if (memcmp(src, xmp->guid, 32)) return false;
+  }
+  const size_t total = Get32b(src + 32);
+  const size_t offset = Get32b(src + 36);
+  if (xmp->xmp == nullptr) return false;
+  if (xmp->ext.empty()) {
+    xmp->ext.resize(total);
+  } else {
+    // check size mismatch
+    if (xmp->ext.size() != total) return false;
+  }
+  src += 40;
+  len -= 40;
+  if (len > total) return false;
+  if (offset + len > xmp->ext.size()) return false;
+
+  memcpy(&xmp->ext[offset], src, len);
+  xmp->size += len;
+  if (xmp->size > total) return false;   // some overlap
+  if (xmp->size == total) {
+    uint8_t guid[32];
+    sjpeg::MD5Digest(xmp->ext).Get(guid);
+    if (memcmp(guid, xmp->guid, 32)) return false;
+    // find the xmpNote and  GUID in the XMP chunk, verify size
+    const size_t note_pos = xmp->xmp->find("xmpNote:HasExtendedXMP=\"");
+    if (note_pos == std::string::npos) return false;
+    if (note_pos + 24 + 32 + 1 > xmp->xmp->size()) return false;
+    // compare the main GUID in the XMP chunk
+    const char* const main_guid = &(*xmp->xmp)[note_pos + 24];
+    if (memcmp(main_guid, guid, 32)) return false;
+    // all good
+    xmp->ok = true;
+  }
+  return true;
+}
+
 // Returns true on success and false for memory errors and corrupt profiles.
 // The caller must use MetadataFree() on 'metadata' in all cases.
-static int ExtractMetadataFromJPEG(j_decompress_ptr dinfo,
+static bool ExtractMetadataFromJPEG(j_decompress_ptr dinfo,
                                    EncoderParam* const param) {
-  if (param == NULL) return true;
+  if (param == nullptr) return true;
   param->ResetMetadata();
+  XMPExt xmp_ext = { &param->xmp, "", nullptr, 0, false };
   const struct {
     int marker;
     const char* signature;
     size_t signature_length;
-    std::string* data;
+    void* data;
+    Handler handler;
   } metadata_map[] = {
     // Exif 2.2 Section 4.7.2 Interoperability Structure of APP1 ...
-    { JPEG_APP1, "Exif\0",                        6, &param->exif },
+    { JPEG_APP1, "Exif\0",                        6, &param->exif, DataCopy },
     // XMP Specification Part 3 Section 3 Embedding XMP Metadata ... #JPEG
-    // TODO(jzern) Add support for 'ExtendedXMP'
-    { JPEG_APP1, "http://ns.adobe.com/xap/1.0/", 29, &param->xmp },
-    { 0, NULL, 0, 0 },
+    { JPEG_APP1, "http://ns.adobe.com/xap/1.0/", 29, &param->xmp, DataCopy },
+    // XMP Extended
+    { JPEG_APP1, "http://ns.adobe.com/xmp/extension/", 35, &xmp_ext, XMPMerge },
+    // Fake ICC handler, even if ICC is treated separately. This is to prevent
+    // storing the ICC data as 'app_markers'.
+    { JPEG_APP2, "ICC_PROFILE", 12, nullptr, nullptr },
   };
   jpeg_saved_marker_ptr marker;
   // Treat ICC profiles separately as they may be segmented and out of order.
-  if (!StoreICCP(dinfo, &param->iccp)) return 0;
+  if (!StoreICCP(dinfo, &param->iccp)) return false;
 
   for (marker = dinfo->marker_list; marker != NULL; marker = marker->next) {
-    int i;
-    for (i = 0; metadata_map[i].marker != 0; ++i) {
-      if (marker->marker == metadata_map[i].marker &&
-          marker->data_length > metadata_map[i].signature_length &&
-          !memcmp(marker->data, metadata_map[i].signature,
-                  metadata_map[i].signature_length)) {
-        std::string* const payload = metadata_map[i].data;
-
-        if (payload->size() == 0) {
-          const char* marker_data =
-              reinterpret_cast<const char*>(marker->data) +
-              metadata_map[i].signature_length;
-          const size_t marker_data_length =
-              marker->data_length - metadata_map[i].signature_length;
-          payload->append(marker_data, marker_data_length);
-        } else {
-          fprintf(stderr, "Ignoring additional '%s' marker\n",
-                  metadata_map[i].signature);
+    bool found = false;
+    for (const auto& m : metadata_map) {
+      if (marker->marker == m.marker &&
+          marker->data_length > m.signature_length &&
+          !memcmp(marker->data, m.signature, m.signature_length)) {
+        const uint8_t* const data = marker->data + m.signature_length;
+        const size_t data_length = marker->data_length - m.signature_length;
+        if (m.handler != nullptr && !m.handler(data, data_length, m.data)) {
+          fprintf(stderr, "Ignoring '%s' marker\n", m.signature);
         }
+        found = true;
+        break;
       }
     }
+    // append to app_markers
+    if (!found) {
+      char header[4];
+      header[0] = 0xff;
+      header[1] = marker->marker;
+      header[2] = ((marker->data_length + 2) >> 8) & 0xff;
+      header[3] = ((marker->data_length + 2) >> 0) & 0xff;
+      param->app_markers.append(header, sizeof(header));
+      param->app_markers.append(reinterpret_cast<const char*>(marker->data),
+                                marker->data_length);
   }
-  return 1;
+  }
+  if (xmp_ext.ok) param->xmp += xmp_ext.ext;
+  return true;
 }
 
 #undef JPEG_APP1

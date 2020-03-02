@@ -2102,8 +2102,9 @@ void EncoderParam::SetMinQuantization(const uint8_t m[2][64],
 void EncoderParam::ResetMetadata() {
   iccp.clear();
   exif.clear();
-  xmp.clear();
   app_markers.clear();
+  xmp.clear();
+  xmp_split_point = 0u;
 }
 
 bool Encoder::InitFromParam(const EncoderParam& param) {
@@ -2126,8 +2127,9 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
 
   SetMetadata(param.iccp, Encoder::ICC);
   SetMetadata(param.exif, Encoder::EXIF);
-  SetMetadata(param.xmp, Encoder::XMP);
   SetMetadata(param.app_markers, Encoder::MARKERS);
+  SetMetadata(param.xmp, Encoder::XMP);
+  xmp_split_ = param.xmp_split_point;
 
   passes_ = (param.passes < 1) ? 1 : (param.passes > 20) ? 20 : param.passes;
   if (passes_ > 1) {

@@ -240,15 +240,22 @@ struct EncoderParam {
   // if null, a default implementation will be used
   sjpeg::SearchHook* search_hook;
 
-  // metadata: extra EXIF/XMP/ICCP data that will be embedded in
+  // metadata: extra EXIF/XMP/XMPExt/ICCP data that will be embedded in
   // APP1 or APP2 markers. They should contain only the raw payload and not
   // the prefixes ("Exif\0", "ICC_PROFILE", etc...). These will be added
-  // automatically during encoding.
+  // automatically during encoding. If XMP data is larger than 65504 bytes,
+  // XMPExtended chunks will be used.
+  // It is the caller's responsibility to make sure that the xmp data contains
+  // the necessary extension syntax (xmpNote:HasExtended="...") somewhere
+  // in the first 65504 bytes. The MD5 digest will be inserted at the correct
+  // location. If xmp_split_point is not 0, it will be used to split the xmp
+  // data chunk.
   // Conversely, the content of app_markers is written as is, right after APP0.
   std::string exif;
-  std::string xmp;
   std::string iccp;
   std::string app_markers;
+  std::string xmp;
+  uint16_t xmp_split_point = 0u;   // user-supplied split point for extended XMP
   void ResetMetadata();      // clears the above
 
   // Memory manager used by the codec. If null, default one will be used.
