@@ -106,6 +106,21 @@ void ApplySharpYUVConversion(const uint8_t* const rgb,
                              uint8_t* u_plane, uint8_t* v_plane);
 
 ///////////////////////////////////////////////////////////////////////////////
+// Generic sample-replication function. Replicate sub_w x sub_h area of 'src'
+// into 'dst', assuming the individual samples are 'x_step' bytes each.
+void Replicate8b(const uint8_t* src, int src_stride,
+                 uint8_t* dst, int dst_stride,
+                 int sub_w, int sub_h, int w, int h, int x_step);
+
+// This variant will replicate src[] into a 16b output dst[], subtracting 128.
+// This function operates on a 8x8 block only.
+void Convert8To16bClipped(const uint8_t* src, int src_step, int16_t dst[8 * 8],
+                          int sub_w, int sub_h);
+
+// Convert a 8x8 block of unsigned-8b values to signed-16b, subtracting 128.
+void Convert8To16b(const uint8_t* src, int src_step, int16_t dst[8 * 8]);
+
+///////////////////////////////////////////////////////////////////////////////
 // some useful helper functions around quant matrices
 
 extern float GetQFactor(float q);   // convert quality factor -> scale factor
@@ -186,8 +201,7 @@ struct Histo {
 
 struct Encoder {
  public:
-  Encoder(SjpegYUVMode yuv_mode, int W, int H, int step,
-          const uint8_t* rgb, ByteSink* sink);
+  Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* sink);
   virtual ~Encoder();
   bool Ok() const { return ok_; }
 
@@ -311,18 +325,17 @@ struct Encoder {
   void InitComponents();
 
   // data accessible to sub-classes implementing alternate input format
-  int W_, H_, step_;    // width, height, stride
+  int W_, H_;           // width, height
   int mb_w_, mb_h_;     // width / height in units of mcu
-  const uint8_t* const rgb_;   // samples
 
   // Replicate an RGB source sub_w x sub_h block, expanding it to w x h size.
   const uint8_t* GetReplicatedSamples(const uint8_t* rgb,    // block source
                                       int rgb_step,          // stride in source
                                       int sub_w, int sub_h,  // sub-block size
                                       int w, int h);         // size of mcu
-  // Replicate an YUV sub-block similarly.
-  const uint8_t* GetReplicatedYUVSamples(const uint8_t* in, int step,
-                                         int sub_w, int sub_h, int w, int h);
+  // Replicate a 16x16 sub-block similarly.
+  const uint8_t* GetReplicatedYSamples(const uint8_t* in, int step,
+                                       int sub_w, int sub_h);
   // set blocks that are totally outside of the picture to an average value
   void AverageExtraLuma(int sub_w, int sub_h, int16_t* out);
   uint8_t replicated_buffer_[3 * 16 * 16];   // tmp buffer for replication
@@ -341,8 +354,10 @@ struct Encoder {
     memory_hook_->Free(reinterpret_cast<void*>(ptr));
   }
 
- private:
+ protected:
   bool ok_;                // set to false if a new[] fails
+
+ private:
   sjpeg::BitWriter bw_;    // output buffer
 
   std::string iccp_, xmp_, exif_, app_markers_;   // metadata

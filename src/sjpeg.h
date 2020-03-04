@@ -302,6 +302,30 @@ bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
 bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
                 const EncoderParam& param, std::string* output);
 
+// Encode from NV21 samples, using YUV420 format. The luminance plane 'y'
+// has dimension width * height, whereas the V/U sample planes contain pairs
+// of V/U samples, and must have dimension (width+1)/2 * (height+1)/2.
+// This format is also YUV420SP (SP = semi-planar).
+bool EncodeNV21(const uint8_t* y, int y_stride,
+                const uint8_t* vu, int vu_stride,
+                int width, int height,
+                const EncoderParam& param, sjpeg::ByteSink* output);
+
+// Encode bitstream using Y/U/V input in YUV444 format.
+bool EncodeYUV444(const uint8_t* Y, int Y_stride,
+                  const uint8_t* U, int U_stride,
+                  const uint8_t* V, int V_stride,
+                  int width, int height,
+                  const EncoderParam& param, sjpeg::ByteSink* output);
+
+// Encode bitstream using Y/U/V input in YUV420 format.
+// The U/V planes' dimension is (width + 1)/2 and (height+1)/2.
+bool EncodeYUV420(const uint8_t* Y, int Y_stride,
+                  const uint8_t* U, int U_stride,
+                  const uint8_t* V, int V_stride,
+                  int width, int height,
+                  const EncoderParam& param, sjpeg::ByteSink* output);
+
 ////////////////////////////////////////////////////////////////////////////////
 // Some interfaces for customizing the core codec
 
