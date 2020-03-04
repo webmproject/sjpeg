@@ -138,10 +138,8 @@ static struct DefaultMemory : public MemoryManager {
 ////////////////////////////////////////////////////////////////////////////////
 // Encoder main class
 
-Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, int step,
-                 const uint8_t* const rgb, ByteSink* const sink)
-  : yuv_mode_(yuv_mode), W_(W), H_(H), step_(step),
-    rgb_(rgb),
+Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink)
+  : yuv_mode_(yuv_mode), W_(W), H_(H),
     ok_(true),
     bw_(sink),
     in_blocks_base_(nullptr),
@@ -157,7 +155,7 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, int step,
     memory_hook_(&kDefaultMemory) {
   SetCompressionMethod(kDefaultMethod);
   SetQuality(kDefaultQuality);
-  get_yuv_block_ = sjpeg::GetBlockFunc(yuv_mode_);
+  get_yuv_block_ = GetBlockFunc(yuv_mode_);
   SetQuantizationBias(kDefaultBias, false);
   SetDefaultMinQuantMatrices();
   InitializeStaticPointers();
@@ -1582,7 +1580,7 @@ bool Encoder::Encode() {
   assert(nb_comps_ <= MAX_COMP);
   assert(mcu_blocks_ <= 6);
   // validate some input parameters
-  if (W_ <= 0 || H_ <= 0 || rgb_ == nullptr) return false;
+  if (W_ <= 0 || H_ <= 0) return false;
 
   mb_w_ = (W_ + (block_w_ - 1)) / block_w_;
   mb_h_ = (H_ + (block_h_ - 1)) / block_h_;
@@ -1622,103 +1620,6 @@ bool Encoder::Encode() {
 
   DesallocateBlocks();
   return ok_;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Edge replication
-
-namespace {
-
-int GetAverage(const int16_t* const out) {
-  int DC = 0;
-  for (int i = 0; i < 64; ++i) DC += out[i];
-  return (DC + 32) >> 6;
-}
-
-void SetAverage(int DC, int16_t* const out) {
-  for (int i = 0; i < 64; ++i) out[i] = DC;
-}
-
-}   // anonymous namespace
-
-void Encoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
-  // out[] points to four 8x8 blocks. When one of this block is totally
-  // outside of the frame, we set it flat to the average value of the previous
-  // block ("DC"), in order to help compressibility.
-  int DC = GetAverage(out);
-  if (sub_w <= 8) {   // set block #1 to block #0's average value
-    SetAverage(DC, out + 1 * 64);
-  }
-  if (sub_h <= 8) {   // Need to flatten block #2 and #3
-    if (sub_w > 8) {  // block #1 was not flatten, so get its real DC
-      DC = GetAverage(out + 1 * 64);
-    }
-    SetAverage(DC, out + 2 * 64);
-    SetAverage(DC, out + 3 * 64);
-  } else if (sub_w <= 8) {   // set block #3 to the block #2's average value
-    DC = GetAverage(out + 2 * 64);
-    SetAverage(DC, out + 3 * 64);
-  }
-}
-
-const uint8_t* Encoder::GetReplicatedSamples(const uint8_t* rgb,
-                                             int rgb_step,
-                                             int sub_w, int sub_h,
-                                             int w, int h) {
-  assert(sub_w > 0 && sub_h > 0);
-  if (sub_w > w) {
-    sub_w = w;
-  }
-  if (sub_h > h) {
-    sub_h = h;
-  }
-  uint8_t* dst = replicated_buffer_;
-  for (int y = 0; y < sub_h; ++y) {
-    memcpy(dst, rgb, 3 * sub_w);
-    const uint8_t* const src0 = &dst[3 * (sub_w - 1)];
-    for (int x = 3 * sub_w; x < 3 * w; x += 3) {
-      memcpy(dst + x, src0, 3);
-    }
-    dst += 3 * w;
-    rgb += rgb_step;
-  }
-  const uint8_t* dst0 = dst - 3 * w;
-  for (int y = sub_h; y < h; ++y) {
-    memcpy(dst, dst0, 3 * w);
-    dst += 3 * w;
-  }
-  return replicated_buffer_;
-}
-
-// TODO(skal): merge with above function? Probably slower...
-const uint8_t* Encoder::GetReplicatedYUVSamples(const uint8_t* in,
-                                                int step,
-                                                int sub_w, int sub_h,
-                                                int w, int h) {
-  assert(sub_w > 0 && sub_h > 0);
-  if (sub_w > w) {
-    sub_w = w;
-  }
-  if (sub_h > h) {
-    sub_h = h;
-  }
-  uint8_t* out = replicated_buffer_;
-  for (int y = 0; y < sub_h; ++y) {
-    int x;
-    for (x = 0; x < sub_w; ++x)
-      out[x] = in[x];
-    for (; x < w; ++x) {
-      out[x] = out[sub_w - 1];
-    }
-    out += w;
-    in += step;
-  }
-  const uint8_t* const out0 = out - w;
-  for (int y = sub_h; y < h; ++y) {
-    memcpy(out, out0, w);
-    out += w;
-  }
-  return replicated_buffer_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1782,28 +1683,99 @@ void Encoder::InitComponents() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Edge replication
+
+namespace {
+
+int GetAverage(const int16_t* const out) {
+  int DC = 0;
+  for (int i = 0; i < 64; ++i) DC += out[i];
+  return (DC + 32) >> 6;
+}
+
+void SetAverage(int DC, int16_t* const out) {
+  for (int i = 0; i < 64; ++i) out[i] = DC;
+}
+
+}   // namespace
+
+void Encoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
+  // out[] points to four 8x8 blocks. When one of these blocks is totally
+  // outside of the frame, we set it flat to the average value of the previous
+  // block ("DC"), in order to help compressibility.
+  int DC = GetAverage(out);
+  if (sub_w <= 8) {   // set block #1 to block #0's average value
+    SetAverage(DC, out + 1 * 64);
+  }
+  if (sub_h <= 8) {   // Need to flatten block #2 and #3
+    if (sub_w > 8) {  // block #1 was not flattened, so get its real DC
+      DC = GetAverage(out + 1 * 64);
+    }
+    SetAverage(DC, out + 2 * 64);
+    SetAverage(DC, out + 3 * 64);
+  } else if (sub_w <= 8) {   // set block #3 to the block #2's average value
+    DC = GetAverage(out + 2 * 64);
+    SetAverage(DC, out + 3 * 64);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+const uint8_t* Encoder::GetReplicatedSamples(const uint8_t* rgb,
+                                             int rgb_step,
+                                             int sub_w, int sub_h,
+                                             int w, int h) {
+  Replicate8b(rgb, rgb_step, replicated_buffer_, 3 * w, sub_w, sub_h, w, h, 3);
+  return replicated_buffer_;
+}
+
+const uint8_t* Encoder::GetReplicatedYSamples(const uint8_t* in,
+                                              int step, int sub_w, int sub_h) {
+  Replicate8b(in, step, replicated_buffer_, 16, sub_w, sub_h, 16, 16, 1);
+  return replicated_buffer_;
+}
+
+namespace {
+
+// useful common function
+bool FinishEncoding(Encoder* const enc, const EncoderParam& param) {
+  const bool ok = (enc != nullptr) &&
+                  enc->InitFromParam(param) &&
+                  enc->Encode();
+  delete enc;
+  return ok;
+}
+
+}  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
 // sub-class for YUV 4:2:0 version
 
 class Encoder420 : public Encoder {
  public:
-  Encoder420(int W, int H, int step, const uint8_t* const rgb,
+  Encoder420(int W, int H, const uint8_t* const rgb, int step,
              ByteSink* const sink)
-    : Encoder(SJPEG_YUV_420, W, H, step, rgb, sink) {}
+    : Encoder(SJPEG_YUV_420, W, H, sink), rgb_(rgb), step_(step) {
+    ok_ = (rgb != nullptr);
+  }
   virtual ~Encoder420() {}
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped,
-                          int16_t* out_blocks) {
-    const uint8_t* data = rgb_ + (3 * mb_x + mb_y * step_) * 16;
+  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+    const uint8_t* rgb = rgb_ + (3 * mb_x + mb_y * step_) * 16;
     int step = step_;
     if (clipped) {
-      data = GetReplicatedSamples(data, step,
+      rgb = GetReplicatedSamples(rgb, step,
                                   W_ - mb_x * 16, H_ - mb_y * 16, 16, 16);
       step = 3 * 16;
     }
-    get_yuv_block_(data, step, out_blocks);
+    get_yuv_block_(rgb, step, out);
     if (clipped) {
-      AverageExtraLuma(W_ - mb_x * 16, H_ - mb_y * 16, out_blocks);
+      AverageExtraLuma(W_ - mb_x * 16, H_ - mb_y * 16, out);
     }
   }
+
+ protected:
+  const uint8_t* const rgb_;   // input samples
+  int step_;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1811,157 +1783,307 @@ class Encoder420 : public Encoder {
 
 class Encoder444 : public Encoder {
  public:
-  Encoder444(int W, int H, int step, const uint8_t* const rgb,
+  Encoder444(int W, int H, const uint8_t* const rgb, int step,
              ByteSink* const sink)
-      : Encoder(SJPEG_YUV_444, W, H, step, rgb, sink) {}
+      : Encoder(SJPEG_YUV_444, W, H, sink), rgb_(rgb), step_(step) {
+    ok_ = (rgb != nullptr);
+  }
   virtual ~Encoder444() {}
+
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
-    const uint8_t* data = rgb_ + (3 * mb_x + mb_y * step_) * 8;
+    const uint8_t* rgb = rgb_ + (3 * mb_x + mb_y * step_) * 8;
     int step = step_;
     if (clipped) {
-      data = GetReplicatedSamples(data, step,
+      rgb = GetReplicatedSamples(rgb, step,
                                   W_ - mb_x * 8, H_ - mb_y * 8, 8, 8);
       step = 3 * 8;
     }
-    get_yuv_block_(data, step, out);
+    get_yuv_block_(rgb, step, out);
   }
-};
-
-////////////////////////////////////////////////////////////////////////////////
-// sub-class for the sharp YUV 4:2:0 version
-
-class EncoderSharp420 : public Encoder420 {
- public:
-  EncoderSharp420(int W, int H, int step, const uint8_t* const rgb,
-                  ByteSink* const sink)
-      : Encoder420(W, H, step, rgb, sink), yuv_memory_(nullptr) {
-    const int uv_w = (W + 1) >> 1;
-    const int uv_h = (H + 1) >> 1;
-    yuv_memory_ = Alloc<uint8_t>(W * H + 2 * uv_w * uv_h);
-    if (yuv_memory_ == nullptr) return;
-    y_plane_ = yuv_memory_;
-    y_step_ = W;
-    u_plane_ = yuv_memory_ + W * H;
-    v_plane_ = u_plane_ + uv_w * uv_h;
-    uv_step_ = uv_w;
-    ApplySharpYUVConversion(rgb, W, H, step, y_plane_, u_plane_, v_plane_);
-  }
-  virtual ~EncoderSharp420() { Free(yuv_memory_); }
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out);
 
  protected:
-  void GetLumaSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
-    int step = y_step_;
-    const uint8_t* Y1 = y_plane_ + (mb_x + mb_y * step) * 16;
-    if (clipped) {
-      Y1 = GetReplicatedYUVSamples(Y1, step,
-                                   W_ - mb_x * 16, H_ - mb_y * 16, 16, 16);
-      step = 16;
-    }
-    const uint8_t* Y2 = Y1 + 8 * step;
-    for (int y = 8, n = 0; y > 0; --y) {
-      for (int x = 0; x < 8; ++x, ++n) {
-        out[n + 0 * 64] = Y1[x] - 128;
-        out[n + 1 * 64] = Y1[x + 8] - 128;
-        out[n + 2 * 64] = Y2[x] - 128;
-        out[n + 3 * 64] = Y2[x + 8] - 128;
-      }
-      Y1 += step;
-      Y2 += step;
-    }
-    if (clipped) {
-      AverageExtraLuma(W_ - mb_x * 16, H_ - mb_y * 16, out);
-    }
-  }
-
- private:
-  uint8_t* y_plane_;
-  int y_step_;
-  uint8_t* u_plane_;
-  uint8_t* v_plane_;
-  int uv_step_;
-  uint8_t* yuv_memory_;
+  const uint8_t* const rgb_;   // input samples
+  int step_;
 };
-
-void EncoderSharp420::GetSamples(int mb_x, int mb_y,
-                                 bool clipped, int16_t* out) {
-  GetLumaSamples(mb_x, mb_y, clipped, out);
-
-  // Chroma
-  const uint8_t* U = u_plane_ + (mb_x + mb_y * uv_step_) * 8;
-  int step = uv_step_;
-  if (clipped) {
-    U = GetReplicatedYUVSamples(U, step,
-                                ((W_ + 1) >> 1) - mb_x * 8,
-                                ((H_ + 1) >> 1) - mb_y * 8, 8, 8);
-    step = 8;
-  }
-  for (int y = 8, n = 0; y > 0; --y, U += step) {
-    for (int x = 0; x < 8; ++x, ++n) {
-      out[n + 4 * 64] = U[x] - 128;
-    }
-  }
-  const uint8_t* V = v_plane_ + (mb_x + mb_y * uv_step_) * 8;
-  step = uv_step_;
-  if (clipped) {
-    V = GetReplicatedYUVSamples(V, step,
-                                ((W_ + 1) >> 1) - mb_x * 8,
-                                ((H_ + 1) >> 1) - mb_y * 8, 8, 8);
-    step = 8;
-  }
-  for (int y = 8, n = 0; y > 0; --y, V += step) {
-    for (int x = 0; x < 8; ++x, ++n) {
-      out[n + 5 * 64] = V[x] - 128;
-    }
-  }
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 // sub-class for YUV 4:0:0 version
 
 class Encoder400 : public Encoder {
  public:
-  Encoder400(int W, int H, int step, const uint8_t* const rgb,
-             ByteSink* const sink)
-      : Encoder(SJPEG_YUV_400, W, H, step, rgb, sink) {}
+  Encoder400(int W, int H, const uint8_t* const src, int step,
+                  ByteSink* const sink)
+      : Encoder(SJPEG_YUV_400, W, H, sink), rgb_(src), step_(step) {
+    ok_ = (src != nullptr);
+  }
   virtual ~Encoder400() {}
+
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
-    const uint8_t* data = rgb_ + (3 * mb_x + mb_y * step_) * 8;
+    const uint8_t* rgb = rgb_ + (3 * mb_x + mb_y * step_) * 8;
     int step = step_;
     if (clipped) {
-      data = GetReplicatedSamples(data, step,
-                                  W_ - mb_x * 8, H_ - mb_y * 8, 8, 8);
+      rgb = GetReplicatedSamples(rgb, step_,
+                                 W_ - mb_x * 8, H_ - mb_y * 8, 8, 8);
       step = 3 * 8;
+      }
+    get_yuv_block_(rgb, step, out);
     }
-    get_yuv_block_(data, step, out);
-  }
+
+ protected:
+  const uint8_t* rgb_;
+  int step_;
 };
 
-// This variant take luma plane as input directly.
+// This variant takes luma plane as input directly.
 class Encoder400G : public Encoder {
  public:
-  Encoder400G(int W, int H, int step, const uint8_t* const gray,
+  Encoder400G(int W, int H, const uint8_t* const gray, int step,
               ByteSink* const sink)
-      : Encoder(SJPEG_YUV_400, W, H, step, gray, sink) {}
+      : Encoder(SJPEG_YUV_400, W, H, sink), gray_(gray), step_(step) {}
   virtual ~Encoder400G() {}
+
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
-    const uint8_t* data = rgb_ + (mb_x + mb_y * step_) * 8;
-    const int w = clipped ? W_ - mb_x * 8 : 8;
-    const int h = clipped ? H_ - mb_y * 8 : 8;
-    for (int y = 0; y < h; ++y) {
-      for (int x = 0; x < w; ++x) out[x] = (int16_t)data[x] - 128;
-      for (int x = w; x < 8; ++x) out[x] = out[w - 1];
-      out += 8;
-      data += step_;
-    }
+    const uint8_t* data = gray_ + (mb_x + mb_y * step_) * 8;
     if (clipped) {
-      const int16_t* const last_out = out - 8;
-      for (int y = h; y < 8; ++y) {
-        memcpy(out, last_out, 8 * sizeof(*out));
-        out += 8;
-      }
+      Convert8To16bClipped(data, step_, out, W_ - mb_x * 8, H_ - mb_y * 8);
+    } else {
+      Convert8To16b(data, step_, out);
     }
   }
+
+ protected:
+  const uint8_t* gray_;
+  int step_;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// Ad-hoc functions for NV21
+
+class EncoderNV21 : public Encoder {
+ public:
+  EncoderNV21(const uint8_t* y, int y_step, const uint8_t* vu, int vu_step,
+              int W, int H, ByteSink* const sink)
+      : Encoder(SJPEG_YUV_420, W, H, sink),
+        y_(y), y_step_(y_step), vu_(vu), vu_step_(vu_step) {
+    ok_ = (y_ != nullptr) && (vu_ != nullptr);
+  }
+  virtual ~EncoderNV21() {}
+
+  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+    // Luma
+    // TODO(skal): share with EncoderYUV420() ?
+    const uint8_t* Y1 = y_ + (mb_x + mb_y * y_step_) * 16;
+    int y_step = y_step_;
+  if (clipped) {
+      Y1 = GetReplicatedYSamples(Y1, y_step, W_ - mb_x * 16, H_ - mb_y * 16);
+      y_step = 16;
+    }
+    const uint8_t* Y2 = Y1 + 8 * y_step;
+    Convert8To16b(Y1 + 0, y_step, out + 0 * 64);
+    Convert8To16b(Y1 + 8, y_step, out + 1 * 64);
+    Convert8To16b(Y2 + 0, y_step, out + 2 * 64);
+    Convert8To16b(Y2 + 8, y_step, out + 3 * 64);
+    if (clipped) {
+      AverageExtraLuma(W_ - mb_x * 16, H_ - mb_y * 16, out);
+  }
+    // Special VU[] -> U[], V[] converter
+    const uint8_t* VU = vu_ + (2 * mb_x + mb_y * vu_step_) * 8;
+    int vu_step = vu_step_;
+    uint8_t tmp_vu[2 * 8 * 8];
+  if (clipped) {
+      const int uv_w = ((W_ + 1) >> 1) - mb_x * 8;
+      const int uv_h = ((H_ + 1) >> 1) - mb_y * 8;
+      Replicate8b(VU, vu_step_, tmp_vu, 16, uv_w, uv_h, 8, 8, 2);
+      VU = tmp_vu;
+      vu_step = 16;
+    }
+    for (int y = 0; y < 8; ++y) {
+      for (int x = 0; x < 8; ++x) {
+        out[4 * 64 + x + y * 8] = static_cast<int16_t>(VU[2 * x + 1]) - 128;
+        out[5 * 64 + x + y * 8] = static_cast<int16_t>(VU[2 * x + 0]) - 128;
+      }
+      VU += vu_step;
+    }
+  }
+
+ private:
+  const uint8_t* y_;
+  int y_step_;
+  const uint8_t* vu_;
+  int vu_step_;
+};
+
+// Encode from NV21 samples, using YUV420 format
+bool EncodeNV21(const uint8_t* y, int y_stride,
+                const uint8_t* vu, int vu_stride,
+                int width, int height,
+                const EncoderParam& param, ByteSink* output) {
+  if (y == nullptr || vu == nullptr || output == nullptr) return false;
+  if (width <= 0 || height <= 0) return false;
+  if (std::abs(y_stride) < width) return false;
+  if (std::abs(vu_stride) < (width + 1) / 2) return false;
+  Encoder* const enc =
+      new (std::nothrow) EncoderNV21(y, y_stride, vu, vu_stride,
+                                     width, height, output);
+  return FinishEncoding(enc, param);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Direct YUV444 encoder
+
+class EncoderYUV444 : public Encoder {
+ public:
+  EncoderYUV444(const uint8_t* y, int y_step,
+                const uint8_t* u, int u_step,
+                const uint8_t* v, int v_step,
+                int W, int H, ByteSink* const sink)
+      : Encoder(SJPEG_YUV_444, W, H, sink),
+        y_(y), u_(u), v_(v), y_step_(y_step), u_step_(u_step), v_step_(v_step) {
+    ok_ = (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
+  }
+  virtual ~EncoderYUV444() {}
+
+  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+    const uint8_t* const y = y_ + (mb_x + mb_y * y_step_) * 8;
+    const uint8_t* const u = u_ + (mb_x + mb_y * u_step_) * 8;
+    const uint8_t* const v = v_ + (mb_x + mb_y * v_step_) * 8;
+    if (clipped) {
+      const int sub_w = W_ - mb_x * 8;
+      const int sub_h = H_ - mb_y * 8;
+      Convert8To16bClipped(y, y_step_, out + 0 * 64, sub_w, sub_h);
+      Convert8To16bClipped(u, u_step_, out + 1 * 64, sub_w, sub_h);
+      Convert8To16bClipped(v, v_step_, out + 2 * 64, sub_w, sub_h);
+    } else {
+      Convert8To16b(y, y_step_, out + 0 * 64);
+      Convert8To16b(u, u_step_, out + 1 * 64);
+      Convert8To16b(v, v_step_, out + 2 * 64);
+    }
+  }
+
+ private:
+  const uint8_t* y_;
+  const uint8_t* u_;
+  const uint8_t* v_;
+  int y_step_, u_step_, v_step_;
+};
+
+// Encode bitstream using Y/U/V input in YUV444 format.
+bool EncodeYUV444(const uint8_t* Y, int Y_stride,
+                  const uint8_t* U, int U_stride,
+                  const uint8_t* V, int V_stride,
+                  int width, int height,
+                  const EncoderParam& param, ByteSink* output) {
+  if (Y == nullptr || U == nullptr || V == nullptr) return false;
+  if (output == nullptr) return false;
+  if (width <= 0 || height <= 0) return false;
+  if (std::abs(Y_stride) < width) return false;
+  if (std::abs(U_stride) < width) return false;
+  if (std::abs(V_stride) < width) return false;
+  Encoder* const enc =
+      new (std::nothrow) EncoderYUV444(Y, Y_stride, U, U_stride, V, V_stride,
+                                       width, height, output);
+  return FinishEncoding(enc, param);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Direct YUV420 encoder
+
+class EncoderYUV420 : public Encoder {
+ public:
+  EncoderYUV420(const uint8_t* y, int y_step,
+                const uint8_t* u, int u_step,
+                const uint8_t* v, int v_step,
+                int W, int H, ByteSink* const sink)
+      : Encoder(SJPEG_YUV_420, W, H, sink),
+        y_(y), u_(u), v_(v), y_step_(y_step), u_step_(u_step), v_step_(v_step) {
+    ok_ = (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
+  }
+  virtual ~EncoderYUV420() {}
+
+  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+    // Luma
+    const uint8_t* Y1 = y_ + (mb_x + mb_y * y_step_) * 16;
+    int y_step = y_step_;
+    if (clipped) {
+      Y1 = GetReplicatedYSamples(Y1, y_step,  W_ - mb_x * 16, H_ - mb_y * 16);
+      y_step = 16;
+    }
+    const uint8_t* const Y2 = Y1 + 8 * y_step;
+    Convert8To16b(Y1 + 0, y_step, out + 0 * 64);
+    Convert8To16b(Y1 + 8, y_step, out + 1 * 64);
+    Convert8To16b(Y2 + 0, y_step, out + 2 * 64);
+    Convert8To16b(Y2 + 8, y_step, out + 3 * 64);
+    if (clipped) {
+      AverageExtraLuma(W_ - mb_x * 16, H_ - mb_y * 16, out);
+      }
+    // U/V
+    const uint8_t* U = u_ + (mb_x + mb_y * u_step_) * 8;
+    const uint8_t* V = v_ + (mb_x + mb_y * v_step_) * 8;
+    if (clipped) {
+      const int sub_w = ((W_ + 1) >> 1) - mb_x * 8;
+      const int sub_h = ((H_ + 1) >> 1) - mb_y * 8;
+      Convert8To16bClipped(U, v_step_, out + 4 * 64, sub_w, sub_h);
+      Convert8To16bClipped(V, v_step_, out + 5 * 64, sub_w, sub_h);
+    } else {
+      Convert8To16b(U, u_step_, out + 4 * 64);
+      Convert8To16b(V, v_step_, out + 5 * 64);
+    }
+  }
+
+ protected:
+  const uint8_t* y_;
+  const uint8_t* u_;
+  const uint8_t* v_;
+  int y_step_, u_step_, v_step_;
+};
+
+bool EncodeYUV420(const uint8_t* Y, int Y_stride,
+                  const uint8_t* U, int U_stride,
+                  const uint8_t* V, int V_stride,
+                  int width, int height,
+                  const EncoderParam& param, ByteSink* output) {
+  if (Y == nullptr || U == nullptr || V == nullptr) return false;
+  if (output == nullptr) return false;
+  if (width <= 0 || height <= 0) return false;
+  if (std::abs(Y_stride) < width) return false;
+  if (std::abs(U_stride) < (width + 1) / 2) return false;
+  if (std::abs(V_stride) < (width + 1) / 2) return false;
+  Encoder* const enc =
+      new (std::nothrow) EncoderYUV420(Y, Y_stride, U, U_stride, V, V_stride,
+                                       width, height, output);
+  return FinishEncoding(enc, param);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// sub-class for the sharp YUV 4:2:0 version
+
+class EncoderSharp420 : public EncoderYUV420 {
+ public:
+  EncoderSharp420(int W, int H, const uint8_t* const rgb, int step,
+                  ByteSink* const sink)
+      : EncoderYUV420(nullptr, 0, nullptr, 0, nullptr, 0, W, H, sink),
+        yuv_memory_(nullptr) {
+    const int uv_w = (W + 1) >> 1;
+    const int uv_h = (H + 1) >> 1;
+    yuv_memory_ = Alloc<uint8_t>(W * H + 2 * uv_w * uv_h);
+    ok_ = (yuv_memory_ != nullptr);
+    if (ok_) {
+      y_ = yuv_memory_;
+      y_step_ = W;
+      u_ = yuv_memory_ + W * H;
+      v_ = u_ + uv_w * uv_h;
+      u_step_ = uv_w;
+      v_step_ = uv_w;
+      ApplySharpYUVConversion(rgb, W, H, step,
+                              const_cast<uint8_t*>(y_),
+                              const_cast<uint8_t*>(u_),
+                              const_cast<uint8_t*>(v_));
+    }
+  }
+  virtual ~EncoderSharp420() { Free(yuv_memory_); }
+
+ protected:
+  uint8_t* yuv_memory_;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1976,13 +2098,13 @@ Encoder* EncoderFactory(const uint8_t* rgb,
 
   Encoder* enc = nullptr;
   if (yuv_mode == SJPEG_YUV_420) {
-    enc = new (std::nothrow) Encoder420(W, H, stride, rgb, sink);
+    enc = new (std::nothrow) Encoder420(W, H, rgb, stride, sink);
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
-    enc = new (std::nothrow) EncoderSharp420(W, H, stride, rgb, sink);
+    enc = new (std::nothrow) EncoderSharp420(W, H, rgb, stride, sink);
   } else if (yuv_mode == SJPEG_YUV_444) {
-    enc = new (std::nothrow) Encoder444(W, H, stride, rgb, sink);
+    enc = new (std::nothrow) Encoder444(W, H, rgb, stride, sink);
   } else if (yuv_mode == SJPEG_YUV_400) {
-    enc = new (std::nothrow) Encoder400(W, H, stride, rgb, sink);
+    enc = new (std::nothrow) Encoder400(W, H, rgb, stride, sink);
   }
   if (enc == nullptr || !enc->Ok()) {
     delete enc;
@@ -2000,7 +2122,7 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
                    uint8_t** out_data, float quality, int method,
                    SjpegYUVMode yuv_mode) {
   if (rgb == nullptr || out_data == nullptr) return 0;
-  if (width <= 0 || height <= 0 || stride < 3 * width) return 0;
+  if (width <= 0 || height <= 0 || std::abs(stride) < 3 * width) return 0;
   *out_data = nullptr;  // safety
 
   MemorySink sink(width * height / 4);
@@ -2036,6 +2158,8 @@ uint32_t SjpegVersion() {
 ////////////////////////////////////////////////////////////////////////////////
 // Parametrized call
 
+namespace sjpeg {
+
 EncoderParam::EncoderParam() : search_hook(nullptr), memory(nullptr) {
   Init(kDefaultQuality);
 }
@@ -2067,8 +2191,8 @@ void EncoderParam::Init(float quality_factor) {
 
 void EncoderParam::SetQuality(float quality_factor) {
   const float q = GetQFactor(quality_factor);
-  sjpeg::SetQuantMatrix(kDefaultMatrices[0], q, quant_[0]);
-  sjpeg::SetQuantMatrix(kDefaultMatrices[1], q, quant_[1]);
+  SetQuantMatrix(kDefaultMatrices[0], q, quant_[0]);
+  SetQuantMatrix(kDefaultMatrices[1], q, quant_[1]);
 }
 
 void EncoderParam::SetQuantization(const uint8_t m[2][64],
@@ -2144,47 +2268,39 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   return true;
 }
 
-bool sjpeg::Encode(const uint8_t* rgb, int width, int height, int stride,
+bool Encode(const uint8_t* rgb, int width, int height, int stride,
                    const EncoderParam& param, ByteSink* sink) {
   if (rgb == nullptr || sink == nullptr) return false;
-  if (width <= 0 || height <= 0 || stride < 3 * width) return false;
+  if (width <= 0 || height <= 0 || std::abs(stride) < 3 * width) return false;
 
   Encoder* const enc = EncoderFactory(rgb, width, height, stride,
                                       param.yuv_mode, sink);
-  const bool ok = (enc != nullptr) &&
-                  enc->InitFromParam(param) &&
-                  enc->Encode();
-  delete enc;
-  return ok;
+  return FinishEncoding(enc, param);
 }
 
-size_t sjpeg::Encode(const uint8_t* rgb, int width, int height, int stride,
+size_t Encode(const uint8_t* rgb, int width, int height, int stride,
                      const EncoderParam& param, uint8_t** out_data) {
   MemorySink sink(width * height / 4);    // estimation of output size
-  if (!sjpeg::Encode(rgb, width, height, stride, param, &sink)) return 0;
+  if (!Encode(rgb, width, height, stride, param, &sink)) return 0;
   size_t size;
   sink.Release(out_data, &size);
   return size;
 }
 
-bool sjpeg::EncodeGray(const uint8_t* gray, int width, int height, int stride,
-                       const EncoderParam& param, sjpeg::ByteSink* sink) {
+bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
+                const EncoderParam& param, ByteSink* sink) {
   if (gray == nullptr || sink == nullptr) return false;
-  if (width <= 0 || height <= 0 || stride < width) return false;
+  if (width <= 0 || height <= 0 || std::abs(stride) < width) return false;
 
   Encoder* const enc =
-      new (std::nothrow) Encoder400G(width, height, stride, gray, sink);
-  const bool ok = (enc != nullptr) &&
-                  enc->InitFromParam(param) &&
-                  enc->Encode();
-  delete enc;
-  return ok;
+      new (std::nothrow) Encoder400G(width, height, gray, stride, sink);
+  return FinishEncoding(enc, param);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // std::string variants
 
-bool sjpeg::Encode(const uint8_t* rgb, int width, int height, int stride,
+bool Encode(const uint8_t* rgb, int width, int height, int stride,
                    const EncoderParam& param, std::string* output) {
   if (output == nullptr) return false;
   output->clear();
@@ -2193,7 +2309,7 @@ bool sjpeg::Encode(const uint8_t* rgb, int width, int height, int stride,
   return Encode(rgb, width, height, stride, param, &sink);
 }
 
-bool sjpeg::EncodeGray(const uint8_t* gray, int width, int height, int stride,
+bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
                        const EncoderParam& param, std::string* output) {
   if (output == nullptr) return false;
   output->clear();
@@ -2202,14 +2318,16 @@ bool sjpeg::EncodeGray(const uint8_t* gray, int width, int height, int stride,
   return EncodeGray(gray, width, height, stride, param, &sink);
 }
 
+}  // namespace sjpeg
+
+////////////////////////////////////////////////////////////////////////////////
+
 bool SjpegCompress(const uint8_t* rgb, int width, int height,
                    float quality, std::string* output) {
   EncoderParam param;
   param.SetQuality(quality);
   return Encode(rgb, width, height, 3 * width, param, output);
 }
-
-////////////////////////////////////////////////////////////////////////////////
 
 bool SjpegDimensions(const std::string& jpeg_data,
                      int* width, int* height, int* is_yuv420) {

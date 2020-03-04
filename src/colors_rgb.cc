@@ -750,4 +750,57 @@ RGBToIndexRowFunc GetRowFunc() {
   return RowToIndexC;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Sample replication functions
+
+void Replicate8b(const uint8_t* src, int src_stride,
+                 uint8_t* dst, int dst_stride,
+                 int sub_w, int sub_h, int w, int h, int x_step) {
+  assert(sub_w > 0 && sub_h > 0);
+  if (sub_w > w) sub_w = w;
+  if (sub_h > h) sub_h = h;
+  for (int y = 0; y < sub_h; ++y) {
+    memcpy(dst, src, x_step * sub_w);
+    const uint8_t* const ref = &dst[x_step * (sub_w - 1)];
+    for (int x = sub_w; x < w; ++x) {
+      memcpy(dst + x * x_step, ref, x_step * sizeof(*dst));
+    }
+    dst += dst_stride;
+    src += src_stride;
+  }
+  const uint8_t* const ref = dst - dst_stride;
+  for (int y = sub_h; y < h; ++y) {
+    memcpy(dst, ref, x_step * w * sizeof(*dst));
+    dst += dst_stride;
+  }
+}
+
+void Convert8To16bClipped(const uint8_t* src, int src_step, int16_t* dst,
+                          int sub_w, int sub_h) {
+  assert(sub_w > 0 && sub_h > 0);
+  if (sub_w > 8) sub_w = 8;
+  if (sub_h > 8) sub_h = 8;
+  for (int y = 0; y < sub_h; ++y) {
+    for (int x = 0; x < sub_w; ++x) {
+      dst[x] = static_cast<int16_t>(src[x]) - 128;
+    }
+    const int16_t ref = dst[sub_w - 1];
+    for (int x = sub_w; x < 8; ++x) dst[x] = ref;
+    src += src_step;
+    dst += 8;
+  }
+  const int16_t* const ref = dst - 8;
+  for (int y = sub_h; y < 8; ++y) {
+    memcpy(dst, ref, 8 * sizeof(*dst));
+    dst += 8;
+  }
+}
+
+void Convert8To16b(const uint8_t* src, int src_step, int16_t* dst) {
+  for (int y = 0; y < 8; ++y) {
+    for (int x = 0; x < 8; ++x) *dst++ = static_cast<int16_t>(src[x]) - 128;
+    src += src_step;
+  }
+}
+
 }   // namespace sjpeg
