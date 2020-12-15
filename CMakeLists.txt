@@ -174,8 +174,8 @@ endif()
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/sjpeg.h
         DESTINATION include)
 install(TARGETS sjpeg
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib)
+        LIBRARY DESTINATION ${LIB_INSTALL_DIR}
+        ARCHIVE DESTINATION ${LIB_INSTALL_DIR})
 
 # Create the CMake version file.
 include(CMakePackageConfigHelpers)
@@ -187,7 +187,7 @@ write_basic_package_version_file(
 
 # Create the Config file.
 include(CMakePackageConfigHelpers)
-set(ConfigPackageLocation lib/sjpeg/cmake/)
+set(ConfigPackageLocation ${LIB_INSTALL_DIR}/sjpeg/cmake/)
 configure_package_config_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/sjpegConfig.cmake.in
   ${CMAKE_CURRENT_BINARY_DIR}/sjpegConfig.cmake
