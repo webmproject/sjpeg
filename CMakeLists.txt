@@ -1,4 +1,19 @@
+# Copyright 2020 Google LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 cmake_minimum_required(VERSION 2.8.7)
+
 project(sjpeg CXX)
 set(CMAKE_CXX_STANDARD 11)
 
@@ -14,6 +29,8 @@ if(NOT CMAKE_BUILD_TYPE)
     "Build type: Release, Debug or RelWithDebInfo" FORCE
   )
 endif()
+
+include(GNUInstallDirs)
 
 set(PROJECT_VERSION 0.1)
 
@@ -167,15 +184,15 @@ if(SJPEG_BUILD_EXAMPLES)
   endif()
   target_link_libraries(vjpeg ${SJPEG_DEP_GL_LIBRARIES} sjpeg utils)
 
-  install(TARGETS sjpeg-bin vjpeg RUNTIME DESTINATION bin)
+  install(TARGETS sjpeg-bin vjpeg RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
 # Install the different headers and libraries.
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/sjpeg.h
-        DESTINATION include)
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(TARGETS sjpeg
-        LIBRARY DESTINATION ${LIB_INSTALL_DIR}
-        ARCHIVE DESTINATION ${LIB_INSTALL_DIR})
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 # Create the CMake version file.
 include(CMakePackageConfigHelpers)
@@ -187,7 +204,7 @@ write_basic_package_version_file(
 
 # Create the Config file.
 include(CMakePackageConfigHelpers)
-set(ConfigPackageLocation ${LIB_INSTALL_DIR}/sjpeg/cmake/)
+set(ConfigPackageLocation ${CMAKE_INSTALL_DATADIR}/sjpeg/cmake/)
 configure_package_config_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/sjpegConfig.cmake.in
   ${CMAKE_CURRENT_BINARY_DIR}/sjpegConfig.cmake
@@ -206,4 +223,4 @@ install(
 # Man page.
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/man/sjpeg.1
               ${CMAKE_CURRENT_SOURCE_DIR}/man/vjpeg.1
-  DESTINATION share/man/man1)
+  DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
