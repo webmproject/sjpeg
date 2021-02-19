@@ -1907,15 +1907,16 @@ class EncoderNV12 : public Encoder {
       UV = tmp_uv;
       uv_step = 16;
     }
+    // input samples are U/V/U/V/... for NV12 and V/U/V/U... for NV21
+    const uint8_t* u = &UV[is_nv12_ ? 0 : 1];
+    const uint8_t* v = &UV[is_nv12_ ? 1 : 0];
     for (int y = 0; y < 8; ++y) {
-      // input samples are U/V/U/V/... for NV12 and V/U/V/U... for NV21
-      const uint8_t* const u = &UV[is_nv12_ ? 0 : 1];
-      const uint8_t* const v = &UV[is_nv12_ ? 1 : 0];
       for (int x = 0; x < 8; ++x) {
-        U[x + y * 8] = (int16_t)(u[2 * x + 0]) - 128;
-        V[x + y * 8] = (int16_t)(v[2 * x + 1]) - 128;
+        U[x + y * 8] = static_cast<int16_t>(u[2 * x]) - 128;
+        V[x + y * 8] = static_cast<int16_t>(v[2 * x]) - 128;
       }
-      UV += uv_step;
+      u += uv_step;
+      v += uv_step;
     }
   }
 
