@@ -310,6 +310,12 @@ bool EncodeNV21(const uint8_t* y, int y_stride,
                 const uint8_t* vu, int vu_stride,
                 int width, int height,
                 const EncoderParam& param, sjpeg::ByteSink* output);
+// Same as EncodeNV21(), but for NV12 samples, where the chroma samples
+// ordering is U/V/U/V...
+bool EncodeNV12(const uint8_t* y, int y_stride,
+                const uint8_t* uv, int uv_stride,
+                int width, int height,
+                const EncoderParam& param, sjpeg::ByteSink* output);
 
 // Encode bitstream using Y/U/V input in YUV444 format.
 bool EncodeYUV444(const uint8_t* Y, int Y_stride,
