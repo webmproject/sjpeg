@@ -173,6 +173,7 @@ DIST_FILES= \
          NEWS  \
          README  \
          CMakeLists.txt \
+         cmake/android.cmake \
          cmake/cpu.cmake \
          cmake/sjpegConfig.cmake.in \
          src/libsjpeg.pc.in \

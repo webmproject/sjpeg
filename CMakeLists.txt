@@ -14,7 +14,9 @@
 
 cmake_minimum_required(VERSION 2.8.7)
 
-project(sjpeg CXX)
+project(sjpeg
+        LANGUAGES C CXX)
+set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 11)
 
 # Options for coder / decoder executables.
@@ -36,15 +38,16 @@ set(PROJECT_VERSION 0.1)
 
 ################################################################################
 # Android only.
+
 if(ANDROID)
-  include_directories(${ANDROID_NDK}/sources/android/cpufeatures)
-  add_library(cpufeatures STATIC
-              ${ANDROID_NDK}/sources/android/cpufeatures/cpu-features.c
+  include_directories(${SJPEG_ANDROID_NDK_PATH}/sources/android/cpufeatures)
+  add_library(cpufeatures
+    STATIC ${SJPEG_ANDROID_NDK_PATH}/sources/android/cpufeatures/cpu-features.c
   )
   target_link_libraries(cpufeatures dl)
   set(SJPEG_DEP_LIBRARIES ${SJPEG_DEP_LIBRARIES} cpufeatures)
   set(SJPEG_DEP_INCLUDE_DIRS ${SJPEG_DEP_INCLUDE_DIRS}
-      ${ANDROID_NDK}/sources/android/cpufeatures
+      ${SJPEG_ANDROID_NDK_PATH}/sources/android/cpufeatures
   )
 endif()
 
@@ -80,7 +83,7 @@ set_target_properties(sjpeg PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Set the version numbers.
 set_target_properties(sjpeg PROPERTIES VERSION ${PROJECT_VERSION}
-  SOVERSION ${PROJECT_VERSION})
+                      SOVERSION ${PROJECT_VERSION})
 
 # Find the standard image libraries.
 set(SJPEG_DEP_IMG_LIBRARIES)
@@ -118,9 +121,11 @@ endif()
 
 # build the utils library
 include_directories(${SJPEG_DEP_IMG_INCLUDE_DIRS})
-add_library(utils ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.cc
-  ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.h
+add_library(utils
+            ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.cc
+            ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.h
 )
+
 if(WIN32)
   # quiet warnings related to fopen, sscanf
   target_compile_definitions(utils PRIVATE _CRT_SECURE_NO_WARNINGS)
