@@ -64,7 +64,10 @@ template<class T> class Sink : public ByteSink {
     return true;
   }
   virtual bool Finalize() { ptr_->resize(pos_); return true; }
-  virtual void Reset() { ptr_->clear(); }
+  virtual void Reset() {
+    ptr_->clear();
+    pos_ = 0;
+  }
 
  protected:
   T* const ptr_;
