@@ -161,6 +161,7 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink)
   InitializeStaticPointers();
   memset(dc_codes_, 0, sizeof(dc_codes_));  // safety
   memset(ac_codes_, 0, sizeof(ac_codes_));
+  sink->Reset();
 }
 
 Encoder::~Encoder() {
