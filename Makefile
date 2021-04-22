@@ -176,6 +176,7 @@ DIST_FILES= \
          cmake/android.cmake \
          cmake/cpu.cmake \
          cmake/sjpegConfig.cmake.in \
+         appveyor.yml \
          src/libsjpeg.pc.in \
          src/bit_writer.cc  \
          src/bit_writer.h  \
