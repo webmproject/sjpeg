@@ -209,7 +209,7 @@ write_basic_package_version_file(
 
 # Create the Config file.
 include(CMakePackageConfigHelpers)
-set(ConfigPackageLocation ${CMAKE_INSTALL_DATADIR}/sjpeg/cmake/)
+set(ConfigPackageLocation ${CMAKE_INSTALL_LIBDIR}/cmake/sjpeg/)
 configure_package_config_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/sjpegConfig.cmake.in
   ${CMAKE_CURRENT_BINARY_DIR}/sjpegConfig.cmake
