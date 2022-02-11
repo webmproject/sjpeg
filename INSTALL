@@ -20,7 +20,7 @@ To install libraries on Linux:
  1. Run "sudo apt-get install libjpeg62-dev"
  2. Run "sudo apt-get install libpng12-dev"
  3. Run "sudo apt-get install freeglut3-dev"
- 
+
 *** Using CMake ***
 
   WARNING! Use a sub-directory (like 'build/') to build the targets
