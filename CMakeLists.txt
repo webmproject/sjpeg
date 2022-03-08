@@ -14,6 +14,11 @@
 
 cmake_minimum_required(VERSION 2.8.7)
 
+# Prefer GLVND libraries by default.
+if(POLICY CMP0072)
+  cmake_policy(SET CMP0072 NEW)
+endif()
+
 project(sjpeg
         LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 99)
