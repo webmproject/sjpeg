@@ -46,11 +46,11 @@ set(PROJECT_VERSION 0.1)
 
 if(ANDROID)
   include_directories(${SJPEG_ANDROID_NDK_PATH}/sources/android/cpufeatures)
-  add_library(cpufeatures
+  add_library(cpufeatures-sjpeg
     STATIC ${SJPEG_ANDROID_NDK_PATH}/sources/android/cpufeatures/cpu-features.c
   )
-  target_link_libraries(cpufeatures dl)
-  set(SJPEG_DEP_LIBRARIES ${SJPEG_DEP_LIBRARIES} cpufeatures)
+  target_link_libraries(cpufeatures-sjpeg dl)
+  set(SJPEG_DEP_LIBRARIES ${SJPEG_DEP_LIBRARIES} cpufeatures-sjpeg)
   set(SJPEG_DEP_INCLUDE_DIRS ${SJPEG_DEP_INCLUDE_DIRS}
       ${SJPEG_ANDROID_NDK_PATH}/sources/android/cpufeatures
   )
