@@ -123,6 +123,7 @@ void Encoder::LoopScan() {
   float best = 0.;     // best distance
   float best_q = 0.;  // informative value to return to the user
   float best_result = 0.;
+  bool last_is_best = false;
   for (int p = 0; p < passes_; ++p) {
     search_hook_->pass = p;
     // set new matrices to evaluate
@@ -152,7 +153,8 @@ void Encoder::LoopScan() {
     if (DBG_PRINT) printf("pass #%d: q=%.2f value:%.2f ",
                           search_hook_->pass, search_hook_->q, result);
 
-    if (p == 0 || fabs(result - search_hook_->target) < best) {
+    last_is_best = (p == 0 || fabs(result - search_hook_->target) < best);
+    if (last_is_best) {
       // save the matrices for later, if they are better
       for (int c = 0; c < 2; ++c) {
         CopyQuantMatrix(quants_[c].quant_, opt_quants[c]);
@@ -172,7 +174,7 @@ void Encoder::LoopScan() {
   search_hook_->value = best_result;
 
   // optimize Huffman table now, if we haven't already during the search
-  if (!search_hook_->for_size) {
+  if (!search_hook_->for_size || !last_is_best) {
     StoreRunLevels(base_coeffs);
     if (optimize_size_) {
       StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
