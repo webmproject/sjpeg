@@ -130,6 +130,7 @@ add_library(sjpeg-utils
             ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.cc
             ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.h
 )
+target_link_libraries(sjpeg-utils sjpeg)
 
 if(WIN32)
   # quiet warnings related to fopen, sscanf
