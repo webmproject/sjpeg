@@ -48,6 +48,13 @@ ${SJPEG} ${SRC_FILE1} -crc
 ${SJPEG} ${SRC_FILE1} -estimate
 ${SJPEG} ${SRC_FILE1} -i
 
+for pmode in 2_SCANS 3_SCANS OPTIMAL; do
+  for yuv_mode in 444 420; do
+    ${SJPEG} ${SRC_FILE4} -o ${TMP_FILE1} -size 24000 -p ${pmode} -${yuv_mode}
+  done
+  ${SJPEG} ${SRC_FILE4} -o ${TMP_FILE1} -size 24000 -progressive -${yuv_mode}
+done
+
 # test CRC is matching
 if [ -x "$(command -v md5)" ]; then
   for file in ${SRC_FILE1} ${SRC_FILE2} ${SRC_FILE4}; do
@@ -77,6 +84,7 @@ ${SJPEG} -no_adapt -no_optim -quiet
 ${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -yuv_mode -1 -quiet
 ${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -yuv_mode 4 -quiet
 ${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -yuv_mode 99 -quiet -no_metadata
+${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -p BAD -quiet
 ${SJPEG} -q 80 -quiet
 ${SJPEG} ${SRC_FILE1} -risk -quiet
 ${SJPEG} ${SRC_FILE1} -o

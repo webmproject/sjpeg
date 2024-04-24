@@ -79,7 +79,7 @@ int main(int argc, char * argv[]) {
   const char* xmp_file = nullptr;
   const char* icc_file = nullptr;
   const char* exif_file = nullptr;
-  EncoderParam param;
+  EncoderParam params;
   float reduction = 100;
   float quality = 75;
   bool use_reduction = true;  // until '-q' is used...
@@ -132,6 +132,9 @@ int main(int argc, char * argv[]) {
     "  -qmin <float> ...... minimum acceptable quality factor during search\n"
     "  -qmax <float> ...... maximum acceptable quality factor during search\n"
     "  -tolerance <float> . tolerance for convergence during search\n"
+    "  -p <mode> .......... enable progressive coding.\n"
+    "                       'mode' is one of 2_SCANS, 3_SCANS, OPTIMAL.\n"
+    "  -progressive ....... equivalent to -p 2_SCANS\n"
     "\n"
     "  -gray .............. shortcut for '-yuv_mode 4'\n"
     "  -444 ............... shortcut for '-yuv_mode 3'\n"
@@ -144,7 +147,7 @@ int main(int argc, char * argv[]) {
 
   // in order to gather information, plug a search hook
   ALT_HOOK_CLASS hook;
-  param.search_hook = &hook;
+  params.search_hook = &hook;
 
   // parse command line
   if (argc <= 1) {
@@ -184,27 +187,27 @@ int main(int argc, char * argv[]) {
     } else if (!strcmp(argv[c], "-no_limit")) {
       limit_quantization = false;
     } else if (!strcmp(argv[c], "-no_adapt")) {
-      param.adaptive_quantization = false;
+      params.adaptive_quantization = false;
     } else if (!strcmp(argv[c], "-no_optim")) {
-      param.Huffman_compress = false;
+      params.Huffman_compress = false;
     } else if (!strcmp(argv[c], "-adapt_bias")) {
-      param.adaptive_bias = true;
+      params.adaptive_bias = true;
     } else if (!strcmp(argv[c], "-trellis")) {
-      param.use_trellis = true;
+      params.use_trellis = true;
     } else if (!strcmp(argv[c], "-psnr") && c + 1 < argc) {
-      param.target_mode = EncoderParam::TARGET_PSNR;
-      param.target_value = atof(argv[++c]);
+      params.target_mode = EncoderParam::TARGET_PSNR;
+      params.target_value = atof(argv[++c]);
     } else if (!strcmp(argv[c], "-tolerance")) {
-      param.tolerance = atof(argv[++c]);
+      params.tolerance = atof(argv[++c]);
     } else if (!strcmp(argv[c], "-qmin")) {
-      param.qmin = atof(argv[++c]);
+      params.qmin = atof(argv[++c]);
     } else if (!strcmp(argv[c], "-qmax")) {
-      param.qmax = atof(argv[++c]);
+      params.qmax = atof(argv[++c]);
     } else if (!strcmp(argv[c], "-size") && c + 1 < argc) {
-      param.target_mode = EncoderParam::TARGET_SIZE;
-      param.target_value = atof(argv[++c]);
+      params.target_mode = EncoderParam::TARGET_SIZE;
+      params.target_value = atof(argv[++c]);
     } else if (!strcmp(argv[c], "-pass") && c + 1 < argc) {
-      param.passes = atoi(argv[++c]);
+      params.passes = atoi(argv[++c]);
     } else if (!strcmp(argv[c], "-no_metadata")) {
       no_metadata = true;
     } else if (!strcmp(argv[c], "-yuv_mode") && c + 1 < argc) {
@@ -214,15 +217,29 @@ int main(int argc, char * argv[]) {
                 argv[c - 1], argv[c]);
         return 1;
       }
-      param.yuv_mode = (SjpegYUVMode)mode;
+      params.yuv_mode = (SjpegYUVMode)mode;
     } else if (!strcmp(argv[c], "-444")) {
-      param.yuv_mode = SJPEG_YUV_444;
+      params.yuv_mode = SJPEG_YUV_444;
     } else if (!strcmp(argv[c], "-sharp")) {
-      param.yuv_mode = SJPEG_YUV_SHARP;
+      params.yuv_mode = SJPEG_YUV_SHARP;
     } else if (!strcmp(argv[c], "-420")) {
-      param.yuv_mode = SJPEG_YUV_420;
+      params.yuv_mode = SJPEG_YUV_420;
     } else if (!strcmp(argv[c], "-gray")) {
-      param.yuv_mode = SJPEG_YUV_400;
+      params.yuv_mode = SJPEG_YUV_400;
+    } else if (!strcmp(argv[c], "-progressive")) {
+      params.progressive_mode = EncoderParam::PROGRESSIVE_2_SCANS;
+    } else if (!strcmp(argv[c], "-p") && c + 1 < argc) {
+      ++c;
+      if (!strcmp(argv[c], "2_SCANS")) {
+        params.progressive_mode = EncoderParam::PROGRESSIVE_2_SCANS;
+      } else if (!strcmp(argv[c], "3_SCANS")) {
+        params.progressive_mode = EncoderParam::PROGRESSIVE_3_SCANS;
+      } else if (!strcmp(argv[c], "OPTIMAL")) {
+        params.progressive_mode = EncoderParam::PROGRESSIVE_OPTIMAL;
+      } else {
+        fprintf(stdout, "Error: invalid progressive mode '%s'\n", argv[c]);
+        return 1;
+      }
     } else if (!strcmp(argv[c], "-i") || !strcmp(argv[c], "-info")) {
       info = true;
     } else if (!strcmp(argv[c], "-quiet")) {
@@ -250,9 +267,9 @@ int main(int argc, char * argv[]) {
     return -1;
   }
   // finish param set up
-  const bool use_search = (param.target_mode != EncoderParam::TARGET_NONE);
-  if (use_search && param.passes <= 1) {
-    param.passes = 10;
+  const bool use_search = (params.target_mode != EncoderParam::TARGET_NONE);
+  if (use_search && params.passes <= 1) {
+    params.passes = 10;
   }
   // Read input file into the buffer in_bytes[]
   const std::string input = ReadFile(input_file);
@@ -274,14 +291,14 @@ int main(int argc, char * argv[]) {
     use_reduction = false;
   }
   if (use_reduction) {   // use 'reduction' factor for JPEG source
-    param.SetQuantization(quant_matrices, reduction);
-    param.SetLimitQuantization(true);
+    params.SetQuantization(quant_matrices, reduction);
+    params.SetLimitQuantization(true);
   } else {    // the '-q' option has been used.
-    param.SetQuality(quality);
+    params.SetQuality(quality);
     if (is_jpeg) {
-      param.SetMinQuantization(quant_matrices);
+      params.SetMinQuantization(quant_matrices);
     } else {
-      param.SetLimitQuantization(false);
+      params.SetLimitQuantization(false);
     }
   }
 
@@ -291,12 +308,12 @@ int main(int argc, char * argv[]) {
     return 0;
   }
   int W, H;
-  vector<uint8_t> in_bytes = ReadImage(input, &W, &H, &param);
+  vector<uint8_t> in_bytes = ReadImage(input, &W, &H, &params);
   if (in_bytes.size() == 0) return 1;
 
-  if (xmp_file != nullptr) param.xmp = ReadFile(xmp_file);
-  if (icc_file != nullptr) param.iccp = ReadFile(icc_file);
-  if (exif_file != nullptr) param.exif = ReadFile(exif_file);
+  if (xmp_file != nullptr) params.xmp = ReadFile(xmp_file);
+  if (icc_file != nullptr) params.iccp = ReadFile(icc_file);
+  if (exif_file != nullptr) params.exif = ReadFile(exif_file);
 
   if (!short_output && !quiet && !print_crc && !print_md5) {
     fprintf(stdout, "Input [%s]: %s (%u bytes, %.2f bpp, %d x %d)\n",
@@ -318,19 +335,19 @@ int main(int argc, char * argv[]) {
           PrintMatrix("UV-chroma", quant_matrices[1], true);
         }
       }
-      PrintMetadataInfo(param);
+      PrintMetadataInfo(params);
     }
   }
   if (info && !print_crc && !print_md5) return 0;   // done
 
   // finish setting up the quantization matrices
-  if (limit_quantization == false) param.SetLimitQuantization(false);
+  if (limit_quantization == false) params.SetLimitQuantization(false);
 
-  if (no_metadata) param.ResetMetadata();
+  if (no_metadata) params.ResetMetadata();
 
   const double start = GetStopwatchTime();
   std::string out;
-  const bool ok = sjpeg::Encode(&in_bytes[0], W, H, 3 * W, param, &out);
+  const bool ok = sjpeg::Encode(&in_bytes[0], W, H, 3 * W, params, &out);
   const double encode_time = GetStopwatchTime() - start;
 
   if (!ok) {
@@ -351,7 +368,7 @@ int main(int argc, char * argv[]) {
     const bool show_reduction = use_reduction && !use_search;
     yuv_mode_rec = SjpegRiskiness(&in_bytes[0], W, H, 3 * W, &riskiness);
     fprintf(stdout, "new size:    %u bytes (%.2f bpp, %.2lf%% of original)\n"
-                    "%s%.1f (adaptive: %s, Huffman: %s)\n"
+                    "%s%.1f (adaptive: %s, Huffman: %s%s)\n"
                     "yuv mode:    %s (riskiness: %.1lf%%)\n"
                     "elapsed:     %d ms\n",
                     static_cast<uint32_t>(out.size()),
@@ -359,8 +376,10 @@ int main(int argc, char * argv[]) {
                     100. * out.size() / input.size(),
                     show_reduction ? "reduction:   r=" : "quality:     q=",
                     show_reduction ? reduction : quality,
-                    kNoYes[param.adaptive_quantization],
-                    kNoYes[param.Huffman_compress],
+                    kNoYes[params.adaptive_quantization],
+                    kNoYes[params.Huffman_compress],
+                    (params.progressive_mode != EncoderParam::PROGRESSIVE_OFF) ?
+                      ", Progressive" : "",
                     kYUVModeNames[yuv_mode_rec], riskiness,
                     static_cast<int>(1000. * encode_time));
     if (use_search) {  // print final values
@@ -368,7 +387,7 @@ int main(int argc, char * argv[]) {
       fprintf(stdout, "final value: %.1f\n", hook.value);
       fprintf(stdout, "final q:     %.2f\n", hook.q);
     }
-    PrintMetadataInfo(param);
+    PrintMetadataInfo(params);
   } else if (!quiet) {
     fprintf(stdout, "%u %u %.2lf %%\n",
             static_cast<uint32_t>(input.size()),

@@ -2197,6 +2197,7 @@ void EncoderParam::Init(float quality_factor) {
   Huffman_compress = true;
   adaptive_quantization = true;
   use_trellis = false;
+  progressive_mode = PROGRESSIVE_OFF;
   yuv_mode = SJPEG_YUV_AUTO;
   quantization_bias = kDefaultBias;
   qdelta_max_luma = kDefaultDeltaMaxLuma;

@@ -171,6 +171,7 @@ static void PrintInfo() {
     msg.push_back("  'b' ............... toggle adaptive bias");
     msg.push_back("  'l' ............... toggle quantization limitation");
     msg.push_back("  't' ............... toggle trellis-based limitation");
+    msg.push_back("  'p' ............... cycle progressive mode coding");
     msg.push_back("  'e' ............... show error map");
     msg.push_back("  'r' ............... show riskiness map");
     msg.push_back("  '+'/'-' ........... go to next/previous file");
@@ -198,7 +199,8 @@ static void PrintInfo() {
       msg.back() += tmp;
     }
 
-    snprintf(tmp, sizeof(tmp), "Quality: %.1f", kParams.quality);
+    snprintf(tmp, sizeof(tmp), "Quality: %.1f (progressive mode: %d)",
+             kParams.quality, (int)kParams.param.progressive_mode);
     msg.push_back(tmp);
 
     if (!kParams.param.Huffman_compress) {
@@ -516,6 +518,11 @@ static void HandleKey(unsigned char key, int pos_x, int pos_y) {
   } else if (key == 't') {
     kParams.param.use_trellis = !kParams.param.use_trellis;
     FullRedraw();
+  } else if (key == 'p') {
+    int mode = (int)kParams.param.progressive_mode + 1;
+    if (mode > (int)sjpeg::EncoderParam::PROGRESSIVE_OPTIMAL) mode = 0;
+    kParams.param.progressive_mode = (sjpeg::EncoderParam::ProgressiveMode)mode;
+    FullRedraw();
   } else if (key == 'm') {
     PrintMatrices();
   }
@@ -650,6 +657,7 @@ static void Help(void) {
          "  'a' ............... toggle adaptive quantization\n"
          "  'l' ............... toggle quantization limitation\n"
          "  't' ............... toggle trellis-based quantization\n"
+         "  'p' ............... cycle progressive mode coding\n"
          "  'e' ............... show error map\n"
          "  'r' ............... show riskiness map\n"
          "  '+'/'-' ........... go to next/previous file\n"

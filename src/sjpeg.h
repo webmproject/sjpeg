@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#define SJPEG_VERSION 0x000100   // 0.1.0
+#define SJPEG_VERSION 0x000101   // 0.1.1
 
 #if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
@@ -215,6 +215,15 @@ struct EncoderParam {
   bool adaptive_quantization;   // if true, use optimized quantizer matrices.
   bool adaptive_bias;           // if true, use perceptual bias adaptation
   bool use_trellis;             // if true, use trellis-based optimization
+
+  typedef enum  {
+    PROGRESSIVE_OFF = 0,        // Disable progressive coding (default)
+    PROGRESSIVE_2_SCANS = 1,    // luma: 1-3, 6-63 split, chroma: 1-63
+    PROGRESSIVE_3_SCANS = 2,    // luma/chroma: 1-3, 6-63 split
+    PROGRESSIVE_CUSTOM  = 3,    // reserved for later
+    PROGRESSIVE_OPTIMAL = 4,    // try several combinations (slowest)
+  } ProgressiveMode;
+  ProgressiveMode progressive_mode;
 
   // target size or distortion
   typedef enum {
