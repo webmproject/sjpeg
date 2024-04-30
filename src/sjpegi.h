@@ -137,7 +137,7 @@ extern void SetMinQuantMatrix(const uint8_t* const m, uint8_t out[64],
 struct HuffmanTable {
   uint8_t bits_[16];     // number of symbols per bit count
   const uint8_t* syms_;  // symbol map, in increasing bit length
-  uint8_t nb_syms_;      // cached value of sum(bits_[])
+  int nb_syms_;          // cached value of sum(bits_[])
 };
 
 // quantizer matrices
@@ -275,9 +275,6 @@ struct Encoder {
 
   // Histogram pass
   void CollectHistograms();
-
-  void BuildHuffmanCodes(const HuffmanTable* const tab,
-                         uint32_t* const codes);
 
   typedef int (*QuantizeBlockFunc)(const int16_t in[64], int idx,
                                    const Quantizer* const Q,
