@@ -256,10 +256,7 @@ struct Encoder {
   void CollectCoeffs();
 
   // 2-pass Huffman optimizing scan
-  void ResetEntropyStats();
-  void AddEntropyStats(const DCTCoeffs* const coeffs,
-                       const RunLevel* const run_levels);
-  void CompileEntropyStats();
+  void OptimizeHuffmanTablesFromStats(const struct EntropyStats& stats);
   void StoreOptimalHuffmanTables(size_t nb_mbs, const DCTCoeffs* coeffs);
 
   void SinglePassScan();           // finalizing scan
@@ -393,8 +390,6 @@ struct Encoder {
   uint32_t dc_codes_[2][12];
 
   // histograms for dynamic codes. Could be temporaries.
-  uint32_t freq_ac_[2][256 + 1];  // frequency distribution for AC coeffs
-  uint32_t freq_dc_[2][12 + 1];   // frequency distribution for DC coeffs
   uint8_t opt_syms_ac_[2][256];   // optimal table for AC symbols
   uint8_t opt_syms_dc_[2][12];    // optimal table for DC symbols
   HuffmanTable opt_tables_ac_[2];

@@ -1260,30 +1260,34 @@ void Encoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
 ////////////////////////////////////////////////////////////////////////////////
 // Huffman tables optimization
 
-void Encoder::ResetEntropyStats() {
-  memset(freq_ac_, 0, sizeof(freq_ac_));
-  memset(freq_dc_, 0, sizeof(freq_dc_));
-}
+struct EntropyStats {
+  EntropyStats() {
+    memset(freq_ac_, 0, sizeof(freq_ac_));
+    memset(freq_dc_, 0, sizeof(freq_dc_));
+  }
+  void Add(int idx, const DCTCoeffs coeffs[], const RunLevel run_levels[]);
 
-void Encoder::AddEntropyStats(const DCTCoeffs* const coeffs,
-                              const RunLevel* const run_levels) {
+  uint32_t freq_dc_[2][12 + 1];   // frequency distribution for DC coeffs
+  uint32_t freq_ac_[2][256 + 1];  // frequency distribution for AC coeffs
+};
+
+void EntropyStats::Add(int idx, const DCTCoeffs coeffs[],
+                       const RunLevel run_levels[]) {
   // freq_ac_[] and freq_dc_[] cannot overflow 32bits, since the maximum
   // resolution allowed is 65535 * 65535. The sum of all frequencies cannot
   // be greater than 32bits, either.
-  const int idx = coeffs->idx_;
-  const int q_idx = quant_idx_[idx];
   for (int i = 0; i < coeffs->nb_coeffs_; ++i) {
     const int run = run_levels[i].run_;
     const int tmp = (run >> 4);
-    if (tmp) freq_ac_[q_idx][0xf0] += tmp;  // count escapes (all at once)
+    if (tmp) freq_ac_[idx][0xf0] += tmp;  // count escapes (all at once)
     const int suffix = run_levels[i].level_;
     const int sym = ((run & 0x0f) << 4) | (suffix & 0x0f);
-    ++freq_ac_[q_idx][sym];
+    ++freq_ac_[idx][sym];
   }
   if (coeffs->last_ < 63) {     // EOB
-    ++freq_ac_[q_idx][0x00];
+    ++freq_ac_[idx][0x00];
   }
-  ++freq_dc_[q_idx][coeffs->dc_code_ & 0x0f];
+  ++freq_dc_[idx][coeffs->dc_code_ & 0x0f];
 }
 
 static int cmp(const void *pa, const void *pb) {
@@ -1471,30 +1475,30 @@ static void BuildOptimalTable(HuffmanTable* const t,
   }
 }
 
-void Encoder::CompileEntropyStats() {
+void Encoder::OptimizeHuffmanTablesFromStats(const EntropyStats& stats) {
   // plug and build new tables
   for (int q_idx = 0; q_idx < (nb_comps_ == 1 ? 1 : 2); ++q_idx) {
     // DC tables
     Huffman_tables_[q_idx] = &opt_tables_dc_[q_idx];
     opt_tables_dc_[q_idx].syms_ = opt_syms_dc_[q_idx];
-    BuildOptimalTable(&opt_tables_dc_[q_idx], freq_dc_[q_idx], 12);
+    BuildOptimalTable(&opt_tables_dc_[q_idx], stats.freq_dc_[q_idx], 12);
     // AC tables
     Huffman_tables_[2 + q_idx] = &opt_tables_ac_[q_idx];
     opt_tables_ac_[q_idx].syms_ = opt_syms_ac_[q_idx];
-    BuildOptimalTable(&opt_tables_ac_[q_idx], freq_ac_[q_idx], 256);
+    BuildOptimalTable(&opt_tables_ac_[q_idx], stats.freq_ac_[q_idx], 256);
   }
 }
 
 void Encoder::StoreOptimalHuffmanTables(size_t nb_mbs,
                                         const DCTCoeffs* coeffs) {
   // optimize Huffman tables
-  ResetEntropyStats();
+  EntropyStats stats;
   const RunLevel* run_levels = all_run_levels_;
   for (size_t n = 0; n < nb_mbs; ++n) {
-    AddEntropyStats(&coeffs[n], run_levels);
+    stats.Add(quant_idx_[coeffs[n].idx_], &coeffs[n], run_levels);
     run_levels += coeffs[n].nb_coeffs_;
   }
-  CompileEntropyStats();
+  OptimizeHuffmanTablesFromStats(stats);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1512,7 +1516,7 @@ void Encoder::SinglePassScanOptimized() {
   // We use the default Huffman tables as basis for bit-rate evaluation
   if (use_trellis_) InitCodes(true);
 
-  ResetEntropyStats();
+  EntropyStats stats;
   ResetDCs();
   nb_run_levels_ = 0;
   int16_t* in = in_blocks_;
@@ -1535,7 +1539,7 @@ void Encoder::SinglePassScanOptimized() {
           const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
                                         coeffs, run_levels);
           coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
-          AddEntropyStats(coeffs, run_levels);
+          stats.Add(quant_idx_[c], coeffs, run_levels);
           if (reuse_run_levels_) {
             nb_run_levels_ += coeffs->nb_coeffs_;
             ++coeffs;
@@ -1548,7 +1552,8 @@ void Encoder::SinglePassScanOptimized() {
     }
   }
 
-  CompileEntropyStats();
+  OptimizeHuffmanTablesFromStats(stats);
+
   WriteDHT();
   WriteSOS();
 
