@@ -244,16 +244,15 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
     // AC
     const uint32_t* const codes = ac_codes_[q_idx];
     for (int i = 0; i < c.nb_coeffs_; ++i) {
-      int run = rl[i].run_;
-      while (run & ~15) {        // escapes
+      uint32_t run = rl[i].run_;
+      while (run >= 16) {        // escapes
         bc->AddPackedCode(codes[0xf0]);
         run -= 16;
       }
-      const uint32_t suffix = rl[i].level_;
-      const size_t nbits = suffix & 0x0f;
-      const int sym = (run << 4) | nbits;
+      const uint32_t nbits = rl[i].level_len_;
+      const uint32_t sym = (run << 4) | nbits;
       bc->AddPackedCode(codes[sym]);
-      bc->AddBits(suffix >> 4, nbits);
+      bc->AddBits(rl[i].level_, nbits);
     }
     if (c.last_ < 63) bc->AddPackedCode(codes[0x00]);  // EOB
     rl += c.nb_coeffs_;

@@ -153,8 +153,9 @@ struct Quantizer {
 // compact Run/Level storage, separate from DCTCoeffs infos
 // Run/Level Information is not yet entropy-coded, but just stored
 struct RunLevel {
-  int16_t run_;
-  uint16_t level_;     // 4bits for length, 12bits for mantissa
+  uint8_t  run_;         // run <= 62
+  uint8_t  level_len_;   // number of bits for coding level (in [1, 12] range)
+  uint16_t level_;       // level (12 bits max)
 };
 
 // short infos about the block of quantized coefficients

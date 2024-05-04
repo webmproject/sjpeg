@@ -524,8 +524,8 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
     const int v = tmp[j];
     if (v > 0) {
       const int n = CalcLog2(v);
-      const uint16_t code = masked[j] & ((1 << n) - 1);
-      rl[nb].level_ = (code << 4) | n;
+      rl[nb].level_len_ = n;
+      rl[nb].level_ = masked[j] & ((1 << n) - 1);
       rl[nb].run_ = i - prev;
       prev = i + 1;
       ++nb;
@@ -571,8 +571,8 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
     const int v = tmp[j];
     if (v > 0) {
       const int n = CalcLog2(v);
-      const uint16_t code = masked[j] & ((1 << n) - 1);
-      rl[nb].level_ = (code << 4) | n;
+      rl[nb].level_len_ = n;
+      rl[nb].level_ = masked[j] & ((1 << n) - 1);
       rl[nb].run_ = i - prev;
       prev = i + 1;
       ++nb;
@@ -605,8 +605,8 @@ static int QuantizeBlock(const int16_t in[64], int idx,
       v = QUANTIZE(v, iquant[j], bias[j]);
       assert(v > 0);
       const int n = CalcLog2(v);
-      const uint16_t code = (v ^ mask) & ((1 << n) - 1);
-      rl[nb].level_ = (code << 4) | n;
+      rl[nb].level_len_ = n;
+      rl[nb].level_ = (v ^ mask) & ((1 << n) - 1);
       rl[nb].run_ = i - prev;
       prev = i + 1;
       ++nb;
@@ -740,9 +740,8 @@ int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
   out->nb_coeffs_ = nb;
 
   while (nb-- > 0) {
-    const int32_t code = nz->code;
-    const int n = nz->nbits;
-    rl[nb].level_ = (code << 4) | n;
+    rl[nb].level_len_ = nz->nbits;
+    rl[nb].level_ = nz->code;
     rl[nb].run_ = nz->run;
     nz = nz->best_prev;
   }
@@ -883,16 +882,15 @@ void Encoder::CodeBlock(const DCTCoeffs* const coeffs,
   // AC coeffs
   const uint32_t* const codes = ac_codes_[q_idx];
   for (int i = 0; i < coeffs->nb_coeffs_; ++i) {
-    int run = rl[i].run_;
-    while (run & ~15) {        // escapes
+    uint32_t run = rl[i].run_;
+    while (run >= 16u) {        // escapes
       bw_.PutPackedCode(codes[0xf0]);
-      run -= 16;
+      run -= 16u;
     }
-    const uint32_t suffix = rl[i].level_;
-    const int n = suffix & 0x0f;
-    const int sym = (run << 4) | n;
+    const uint32_t nbits = rl[i].level_len_;
+    const uint32_t sym = (run << 4) | nbits;
     bw_.PutPackedCode(codes[sym]);
-    bw_.PutBits(suffix >> 4, n);
+    bw_.PutBits(rl[i].level_, nbits);
   }
   if (coeffs->last_ < 63) {     // EOB
     bw_.PutPackedCode(codes[0x00]);
@@ -1277,11 +1275,9 @@ void EntropyStats::Add(int idx, const DCTCoeffs coeffs[],
   // resolution allowed is 65535 * 65535. The sum of all frequencies cannot
   // be greater than 32bits, either.
   for (int i = 0; i < coeffs->nb_coeffs_; ++i) {
-    const int run = run_levels[i].run_;
-    const int tmp = (run >> 4);
-    if (tmp) freq_ac_[idx][0xf0] += tmp;  // count escapes (all at once)
-    const int suffix = run_levels[i].level_;
-    const int sym = ((run & 0x0f) << 4) | (suffix & 0x0f);
+    const uint32_t run = run_levels[i].run_;
+    freq_ac_[idx][0xf0] += (run >> 4);  // count escapes (all at once)
+    const uint32_t sym = ((run & 0x0f) << 4) | run_levels[i].level_len_;
     ++freq_ac_[idx][sym];
   }
   if (coeffs->last_ < 63) {     // EOB
