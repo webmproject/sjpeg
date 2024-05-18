@@ -20,6 +20,8 @@
 #include <math.h>
 #include <float.h>    // for FLT_MAX
 #include <stdint.h>
+
+#include <mutex>  // NOLINT
 #include <new>
 
 #define SJPEG_NEED_ASM_HEADERS
@@ -256,12 +258,13 @@ void (*Encoder::fDCT_)(int16_t* in, int num_blocks) = nullptr;
 Encoder::StoreHistoFunc Encoder::store_histo_ = nullptr;
 
 void Encoder::InitializeStaticPointers() {
-  if (fDCT_ == nullptr) {
+  static std::once_flag once;
+  std::call_once(once, []() {
     store_histo_ = GetStoreHistoFunc();
     quantize_block_ = GetQuantizeBlockFunc();
     quantize_error_ = GetQuantizeErrorFunc();
     fDCT_ = GetFdct();
-  }
+  });
 }
 
 ////////////////////////////////////////////////////////////////////////////////
