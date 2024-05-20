@@ -16,6 +16,7 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <assert.h>
 #include <stdlib.h>
 #include <math.h>
 #include <float.h>    // for FLT_MAX
@@ -265,6 +266,10 @@ void Encoder::InitializeStaticPointers() {
     quantize_error_ = GetQuantizeErrorFunc();
     fDCT_ = GetFdct();
   });
+  assert(store_histo_ != nullptr);
+  assert(quantize_block_ != nullptr);
+  assert(quantize_error_ != nullptr);
+  assert(fDCT_ != nullptr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
