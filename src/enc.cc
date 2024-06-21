@@ -1930,7 +1930,6 @@ class EncoderNV12 : public Encoder {
   }
 
  private:
-  int W_, H_;
   const uint8_t* y_;
   int y_step_;
   const uint8_t* uv_;
