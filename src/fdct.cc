@@ -487,9 +487,6 @@ static void Dct_NEON(int16_t* in) {
   BUTTERFLY(b2, a2, tmp2, tmp5);
   BUTTERFLY(b3, a3, tmp3, tmp4);
 
-  BUTTERFLY(c1, c0, a0, a3);
-  BUTTERFLY(c3, c2, a1, a2);
-
   const int16_t kTable0[] = MK_TABLE_CST(22725, 31521, 29692, 26722);
   const int16_t kTable1[] = MK_TABLE_CST(21407, 29692, 27969, 25172);
   const int16_t kTable2[] = MK_TABLE_CST(19266, 26722, 25172, 22654);
@@ -503,18 +500,29 @@ static void Dct_NEON(int16_t* in) {
   const int16x8_t kC4 = vld1q_s16(kTable3);
   const int16x8_t kC6 = vld1q_s16(kTable5);
 
-  MULT_DCL_32(out0_lo, out0_hi, c0, kC4);
-  MULT_DCL_32(out4_lo, out4_hi, c0, kC4);
-  MULT_ADD_32(out0_lo, out0_hi, c2, kC4);
-  MULT_SUB_32(out4_lo, out4_hi, c2, kC4);
-  MULT_DCL_32(out2_lo, out2_hi, c1, kC2);
-  MULT_DCL_32(out6_lo, out6_hi, c1, kC6);
-  MULT_ADD_32(out2_lo, out2_hi, c3, kC6);
-  MULT_SUB_32(out6_lo, out6_hi, c3, kC2);
+  MULT_DCL_32(out0_lo, out0_hi, a0, kC4);
+  MULT_DCL_32(out2_lo, out2_hi, a0, kC2);
+  MULT_DCL_32(out4_lo, out4_hi, a0, kC4);
+  MULT_DCL_32(out6_lo, out6_hi, a0, kC6);
+
+  MULT_ADD_32(out0_lo, out0_hi, a1, kC4);
+  MULT_ADD_32(out2_lo, out2_hi, a1, kC6);
+  MULT_SUB_32(out4_lo, out4_hi, a1, kC4);
+  MULT_SUB_32(out6_lo, out6_hi, a1, kC2);
+
+  MULT_ADD_32(out0_lo, out0_hi, a2, kC4);
+  MULT_SUB_32(out2_lo, out2_hi, a2, kC6);
+  MULT_SUB_32(out4_lo, out4_hi, a2, kC4);
+  MULT_ADD_32(out6_lo, out6_hi, a2, kC2);
+
+  MULT_ADD_32(out0_lo, out0_hi, a3, kC4);
+  MULT_SUB_32(out2_lo, out2_hi, a3, kC2);
+  MULT_ADD_32(out4_lo, out4_hi, a3, kC4);
+  MULT_SUB_32(out6_lo, out6_hi, a3, kC6);
 
   int16x8_t out0 = PackS32(out0_lo, out0_hi);
-  int16x8_t out4 = PackS32(out4_lo, out4_hi);
   int16x8_t out2 = PackS32(out2_lo, out2_hi);
+  int16x8_t out4 = PackS32(out4_lo, out4_hi);
   int16x8_t out6 = PackS32(out6_lo, out6_hi);
 
   // odd part
