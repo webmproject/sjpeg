@@ -17,6 +17,8 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <string.h>   // for memset
+
+#include <cstdlib>
 #include <vector>
 
 #include "sjpegi.h"
