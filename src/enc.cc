@@ -22,6 +22,7 @@
 #include <float.h>    // for FLT_MAX
 #include <stdint.h>
 
+#include <cstdlib>
 #include <mutex>  // NOLINT
 #include <new>
 
