@@ -4,12 +4,9 @@ on: [push, pull_request]
 jobs:
   linux:
     runs-on: ubuntu-latest
-    env:
-      CC: gcc-10
-      CXX: g++-10
     steps:
       - uses: actions/checkout@v3
-      - run: cmake .
+      - run: cmake . -DCMAKE_POLICY_VERSION_MINIMUM=3.5
       - run: cmake --build .
 
   macos:
