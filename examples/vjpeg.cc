@@ -572,8 +572,7 @@ static void HandleReshape(int width, int height) {
   kParams.viewport_height = height;
 }
 
-
-static void HandleDisplay(void) {
+static void HandleDisplay() {
   if (kParams.out_rgb.size() == 0) return;
   glPushMatrix();
   glPixelZoom((GLfloat)(+1. / kParams.width * kParams.viewport_width),
@@ -601,7 +600,7 @@ static void HandleDisplay(void) {
   glutSwapBuffers();
 }
 
-static void StartDisplay(void) {
+static void StartDisplay() {
   const int width = kParams.width;
   const int height = kParams.height;
   const int swidth = glutGet(GLUT_SCREEN_WIDTH);
@@ -627,7 +626,7 @@ static void StartDisplay(void) {
 //------------------------------------------------------------------------------
 // Main
 
-static void Help(void) {
+static void Help() {
   printf("Usage: vjpeg in_file [options]\n\n"
          "Visualizer for SJPEG (re-)compression, using OpenGL\n"
          "Options are:\n"

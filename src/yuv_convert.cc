@@ -110,7 +110,7 @@ static uint32_t kLinearToGammaTab[GAMMA_TABLE_SIZE + 2];
 #define GAMMA_TO_LINEAR_BITS 14
 static uint32_t kGammaToLinearTab[MAX_Y_T + 1];   // size scales with Y_FIX
 
-static void InitGammaTablesF(void) {
+static void InitGammaTablesF() {
   static bool done = false;
   assert(2 * GAMMA_TO_LINEAR_BITS < 32);  // we use uint32_t intermediate values
   if (!done) {
