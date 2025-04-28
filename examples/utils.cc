@@ -315,7 +315,7 @@ static bool XMPMerge(const uint8_t* src, size_t len, void* obj) {
 // Returns true on success and false for memory errors and corrupt profiles.
 // The caller must use MetadataFree() on 'metadata' in all cases.
 static bool ExtractMetadataFromJPEG(j_decompress_ptr dinfo,
-                                   EncoderParam* const param) {
+                                    EncoderParam* const param) {
   if (param == nullptr) return true;
   param->ResetMetadata();
   XMPExt xmp_ext = { &param->xmp, "", nullptr, 0, false };
@@ -365,7 +365,7 @@ static bool ExtractMetadataFromJPEG(j_decompress_ptr dinfo,
       param->app_markers.append(header, sizeof(header));
       param->app_markers.append(reinterpret_cast<const char*>(marker->data),
                                 marker->data_length);
-  }
+    }
   }
   if (xmp_ext.ok) param->xmp += xmp_ext.ext;
   return true;

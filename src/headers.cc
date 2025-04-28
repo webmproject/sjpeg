@@ -167,13 +167,13 @@ bool Encoder::WriteXMP(const std::string& data) {
   const size_t kXMP_size = sizeof(kXMP);
   const size_t data_size = 2 + data.size() + kXMP_size;
   if (data_size <= 0xffff) {   // don't use extended XMP if small enough data
-  ok_ = ok_ && bw_.Reserve(data_size + 2);
-  if (!ok_) return false;
+    ok_ = ok_ && bw_.Reserve(data_size + 2);
+    if (!ok_) return false;
     Put16b(0xffe1);
     Put16b(data_size);
-  bw_.PutBytes(kXMP, kXMP_size);
-  bw_.PutBytes(reinterpret_cast<const uint8_t*>(data.data()), data.size());
-  return true;
+    bw_.PutBytes(kXMP, kXMP_size);
+    bw_.PutBytes(reinterpret_cast<const uint8_t*>(data.data()), data.size());
+    return true;
   }
   // need to split into main-chunk + extended sections
   return WriteXMPExtended(data);
