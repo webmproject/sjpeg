@@ -129,7 +129,7 @@ class BitWriter {
   // Same as multiply calling PutByte().
   void PutBytes(const uint8_t* buf, size_t size) {
     assert(nb_bits_ == 0);
-    assert(buf != NULL);
+    assert(buf != nullptr);
     assert(size > 0);
     memcpy(buf_ + byte_pos_, buf, size);
     byte_pos_ += size;

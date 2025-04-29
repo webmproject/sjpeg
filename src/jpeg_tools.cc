@@ -32,7 +32,7 @@ namespace {
 // like any valid JPEG should. Returned value points to the beginning of the
 // marker and is guarantied to contain a least 8 bytes of valid data.
 const uint8_t* GetSOFData(const uint8_t* src, int size) {
-  if (src == NULL) return NULL;
+  if (src == nullptr) return nullptr;
   const uint8_t* const end = src + size - 8;   // 8 bytes of safety, for marker
   src += 2;   // skip M_SOI
   for (; src < end && *src != 0xff; ++src) { /* search first 0xff marker */ }
@@ -42,19 +42,19 @@ const uint8_t* GetSOFData(const uint8_t* src, int size) {
     const size_t s = 2 + ((src[2] << 8) | src[3]);
     src += s;
   }
-  return NULL;   // No SOF marker found
+  return nullptr;  // No SOF marker found
 }
 }   // anonymous namespace
 
 bool SjpegDimensions(const uint8_t* src0, size_t size,
                      int* width, int* height, int* is_yuv420) {
-  if (width == NULL || height == NULL) return false;
+  if (width == nullptr || height == nullptr) return false;
   const uint8_t* src = GetSOFData(src0, size);
   const size_t left_over = size - (src - src0);
-  if (src == NULL || left_over < 8 + 3 * 1) return false;
-  if (height != NULL) *height = (src[5] << 8) | src[6];
-  if (width != NULL) *width = (src[7] << 8) | src[8];
-  if (is_yuv420 != NULL) {
+  if (src == nullptr || left_over < 8 + 3 * 1) return false;
+  if (height != nullptr) *height = (src[5] << 8) | src[6];
+  if (width != nullptr) *width = (src[7] << 8) | src[8];
+  if (is_yuv420 != nullptr) {
     const size_t nb_comps = src[9];
     *is_yuv420 = (nb_comps == 3);
     if (left_over < 11 + 3 * nb_comps) return false;
@@ -74,7 +74,7 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size,
   memset(quant[0], 0, sizeof(quant[0]));
   memset(quant[1], 0, sizeof(quant[1]));
   // minimal size for 64 coeffs and the markers (5 bytes)
-  if (src == NULL || size < 69 || src[0] != 0xff || src[1] != 0xd8) {
+  if (src == nullptr || size < 69 || src[0] != 0xff || src[1] != 0xd8) {
     return 0;
   }
   const uint8_t* const end = src + size - 8;   // 8 bytes of safety, for marker
@@ -212,7 +212,7 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
 
   // recommendation (TODO(skal): tune thresholds)
   total_score = (total_score > 25.) ? 100. : total_score * 100. / 25.;
-  if (risk != NULL) *risk = (float)total_score;
+  if (risk != nullptr) *risk = (float)total_score;
 
   const SjpegYUVMode recommendation =
       (gray_count > kThreshGray) ?        SJPEG_YUV_400 :
