@@ -722,7 +722,7 @@ vector<uint8_t> ReadPNG(const std::string& input,
   volatile png_structp png = nullptr;
   volatile png_infop info = nullptr;
   volatile png_infop end_info = nullptr;
-  PNGReadContext context = {nullptr, 0, 0};
+  PNGReadContext context = { nullptr, 0, 0 };
   int color_type, bit_depth, interlaced;
   int has_alpha;
   int num_passes;
