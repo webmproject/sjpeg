@@ -377,7 +377,7 @@ struct Encoder {
   int16_t* in_blocks_;        // aligned pointer to in_blocks_base_
   bool have_coeffs_;          // true if the Fourier coefficients are stored
   bool AllocateBlocks(size_t num_blocks);  // returns false in case of error
-  void DesallocateBlocks();
+  void DeallocateBlocks();
 
   // these are for regular compression methods 0 or 2.
   RunLevel base_run_levels_[64];
