@@ -349,7 +349,7 @@ static bool EncodeAndDecode() {
     return false;
   }
   kParams.elapsed = static_cast<uint32_t>(1000. * (GetStopwatchTime() - start));
-  kParams.out_rgb = ReadJPEG(kParams.jpeg, NULL, NULL, NULL);
+  kParams.out_rgb = ReadJPEG(kParams.jpeg, nullptr, nullptr, nullptr);
   assert(kParams.jpeg.size() > 0);
   assert(kParams.out_rgb.size() > 0);
   if (kParams.show == 4) {
@@ -409,7 +409,7 @@ bool Params::SetAltFile(const char* const file_name) {
   const std::string data = ReadFile(file_name);
   if (data.empty()) return false;
   int w, h;
-  alt = ReadImage(data, &w, &h, NULL);
+  alt = ReadImage(data, &w, &h, nullptr);
   if (alt.empty()) {
     fprintf(stderr, "Could not decode the alternate file %s\n",
             file_name);
@@ -613,7 +613,7 @@ static void StartDisplay() {
   glutCreateWindow("SimpleJPEG viewer");
   glutDisplayFunc(HandleDisplay);
   glutReshapeFunc(HandleReshape);
-  glutIdleFunc(NULL);
+  glutIdleFunc(nullptr);
   glutKeyboardFunc(HandleKey);
   glutKeyboardUpFunc(HandleKeyUp);
   glutSpecialFunc(HandleSpecialKeys);
@@ -659,7 +659,7 @@ static void Help() {
 }
 
 int main(int argc, char *argv[]) {
-  const char* alt_name = NULL;
+  const char* alt_name = nullptr;
   for (int c = 1; c < argc; ++c) {
     int parse_error = 0;
     if (!strcmp(argv[c], "-h") || !strcmp(argv[c], "-help")) {
@@ -701,7 +701,7 @@ int main(int argc, char *argv[]) {
   kParams.fade = kFadeMax;
   if (!kParams.SetCurrentFile(0)) return 1;
 
-  if (alt_name != NULL) kParams.SetAltFile(alt_name);
+  if (alt_name != nullptr) kParams.SetAltFile(alt_name);
 
 #if defined(__unix__) || defined(__CYGWIN__)
   // Work around GLUT compositor bug.
