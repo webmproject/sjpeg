@@ -55,18 +55,18 @@ bool MemorySink::Commit(size_t used_size, size_t extra_size, uint8_t** data) {
   assert(pos_ <= max_pos_);
   size_t new_size = pos_ + extra_size;
   if (new_size > max_pos_) {
-  // TODO(skal): the x2 growth is probably over-shooting. Need to tune
-  // depending on use-case (ie.: what is the expected average final size?)
+    // TODO(skal): the x2 growth is probably over-shooting. Need to tune
+    // depending on use-case (ie.: what is the expected average final size?)
     new_size += 256;
     if (new_size < 2 * max_pos_) {
       new_size = 2 * max_pos_;
-  }
+    }
     uint8_t* const new_buf = new (std::nothrow) uint8_t[new_size];
     if (new_buf == nullptr) return false;
 
     if (pos_ > 0) memcpy(new_buf, buf_, pos_);
-  delete[] buf_;
-  buf_ = new_buf;
+    delete[] buf_;
+    buf_ = new_buf;
     max_pos_ = new_size;
   }
   *data = buf_ + pos_;
