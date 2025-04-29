@@ -1182,10 +1182,11 @@ void Encoder::CollectHistograms() {
   int16_t* in = in_blocks_;
   const int mb_x_max = W_ / block_w_;
   const int mb_y_max = H_ / block_h_;
+  const bool use_extra_memory = use_extra_memory_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     const bool yclip = (mb_y == mb_y_max);
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      if (!use_extra_memory_) {
+      if (!use_extra_memory) {
         in = in_blocks_;
       }
       GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
@@ -1231,11 +1232,12 @@ void Encoder::SinglePassScan() {
   const int mb_y_max = H_ / block_h_;
   const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
                                                         : quantize_block_;
+  const bool have_coeffs = have_coeffs_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     const bool yclip = (mb_y == mb_y_max);
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
       if (!CheckBuffers()) return;
-      if (!have_coeffs_) {
+      if (!have_coeffs) {
         in = in_blocks_;
         GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
         fDCT_(in, mcu_blocks_);
@@ -1527,10 +1529,12 @@ void Encoder::SinglePassScanOptimized() {
   int16_t* in = in_blocks_;
   const int mb_x_max = W_ / block_w_;
   const int mb_y_max = H_ / block_h_;
+  const bool have_coeffs = have_coeffs_;
+  const bool reuse_run_levels = reuse_run_levels_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     const bool yclip = (mb_y == mb_y_max);
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      if (!have_coeffs_) {
+      if (!have_coeffs) {
         in = in_blocks_;
         GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
         fDCT_(in, mcu_blocks_);
@@ -1539,13 +1543,13 @@ void Encoder::SinglePassScanOptimized() {
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           RunLevel* const run_levels =
-              reuse_run_levels_ ? all_run_levels_ + nb_run_levels_
-                                : base_run_levels;
+              reuse_run_levels ? all_run_levels_ + nb_run_levels_
+                               : base_run_levels;
           const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
                                         coeffs, run_levels);
           coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
           AddEntropyStats(coeffs, run_levels);
-          if (reuse_run_levels_) {
+          if (reuse_run_levels) {
             nb_run_levels_ += coeffs->nb_coeffs_;
             ++coeffs;
             assert(coeffs <= &base_coeffs[nb_mbs]);
