@@ -170,7 +170,7 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink)
 
 Encoder::~Encoder() {
   Free(all_run_levels_);
-  DesallocateBlocks();   // clean-up leftovers in case of we had an error
+  DeallocateBlocks();   // clean-up leftovers in case of we had an error
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -316,7 +316,7 @@ bool Encoder::AllocateBlocks(size_t num_blocks) {
   return true;
 }
 
-void Encoder::DesallocateBlocks() {
+void Encoder::DeallocateBlocks() {
   Free(in_blocks_base_);
   in_blocks_base_ = nullptr;
   in_blocks_ = nullptr;          // sanity
@@ -1255,7 +1255,7 @@ void Encoder::SinglePassScan() {
 }
 
 void Encoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
-  DesallocateBlocks();     // we can free up some coeffs memory at this point
+  DeallocateBlocks();     // we can free up some coeffs memory at this point
   if (!CheckBuffers()) return;  // call needed to finalize all_run_levels_
   assert(reuse_run_levels_);
   const RunLevel* run_levels = all_run_levels_;
@@ -1628,7 +1628,7 @@ bool Encoder::Encode() {
   WriteEOI();
   ok_ = ok_ && bw_.Finalize();
 
-  DesallocateBlocks();
+  DeallocateBlocks();
   return ok_;
 }
 
