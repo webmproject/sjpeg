@@ -1762,7 +1762,7 @@ bool FinishEncoding(Encoder* const enc, const EncoderParam& param) {
 ////////////////////////////////////////////////////////////////////////////////
 // sub-class for YUV 4:2:0 version
 
-class Encoder420 : public Encoder {
+class Encoder420 final : public Encoder {
  public:
   Encoder420(int W, int H, const uint8_t* const rgb, int step,
              ByteSink* const sink)
@@ -1792,7 +1792,7 @@ class Encoder420 : public Encoder {
 ////////////////////////////////////////////////////////////////////////////////
 // sub-class for YUV 4:4:4 version
 
-class Encoder444 : public Encoder {
+class Encoder444 final : public Encoder {
  public:
   Encoder444(int W, int H, const uint8_t* const rgb, int step,
              ByteSink* const sink)
@@ -1820,7 +1820,7 @@ class Encoder444 : public Encoder {
 ////////////////////////////////////////////////////////////////////////////////
 // sub-class for YUV 4:0:0 version
 
-class Encoder400 : public Encoder {
+class Encoder400 final : public Encoder {
  public:
   Encoder400(int W, int H, const uint8_t* const src, int step,
              ByteSink* const sink)
@@ -1846,7 +1846,7 @@ class Encoder400 : public Encoder {
 };
 
 // This variant takes luma plane as input directly.
-class Encoder400G : public Encoder {
+class Encoder400G final : public Encoder {
  public:
   Encoder400G(int W, int H, const uint8_t* const gray, int step,
               ByteSink* const sink)
@@ -1870,7 +1870,7 @@ class Encoder400G : public Encoder {
 ////////////////////////////////////////////////////////////////////////////////
 // Ad-hoc functions for NV21/NV12
 
-class EncoderNV12 : public Encoder {
+class EncoderNV12 final : public Encoder {
  public:
   EncoderNV12(const uint8_t* y, int y_step, const uint8_t* uv, int uv_step,
               int W, int H, ByteSink* const sink, bool is_nv12)
@@ -1963,7 +1963,7 @@ bool EncodeNV21(const uint8_t* y, int y_stride,
 ////////////////////////////////////////////////////////////////////////////////
 // Direct YUV444 encoder
 
-class EncoderYUV444 : public Encoder {
+class EncoderYUV444 final : public Encoder {
  public:
   EncoderYUV444(const uint8_t* y, int y_step,
                 const uint8_t* u, int u_step,
@@ -2089,7 +2089,7 @@ bool EncodeYUV420(const uint8_t* Y, int Y_stride,
 ////////////////////////////////////////////////////////////////////////////////
 // sub-class for the sharp YUV 4:2:0 version
 
-class EncoderSharp420 : public EncoderYUV420 {
+class EncoderSharp420 final : public EncoderYUV420 {
  public:
   EncoderSharp420(int W, int H, const uint8_t* const rgb, int step,
                   ByteSink* const sink)
