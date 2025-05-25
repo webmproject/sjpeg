@@ -232,6 +232,8 @@ install(
 
 ################################################################################
 # Man page.
+if(SJPEG_BUILD_EXAMPLES)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/man/sjpeg.1
               ${CMAKE_CURRENT_SOURCE_DIR}/man/vjpeg.1
   DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
+endif()
