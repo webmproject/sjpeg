@@ -836,9 +836,13 @@ static uint32_t QuantizeErrorNEON(const int16_t in[64],
     sum2 = vmlal_u16(sum2, vget_high_u16(G), vget_high_u16(G));
   }
   const uint32x4_t sum3 = vaddq_u32(sum1, sum2);
+#if defined(SJPEG_AARCH64)
+  const uint32_t err = vaddvq_u32(sum3);
+#else
   const uint64x2_t sum4 = vpaddlq_u32(sum3);
   const uint64_t sum5 = vgetq_lane_u64(sum4, 0) + vgetq_lane_u64(sum4, 1);
   const uint32_t err = (uint32_t)sum5;
+#endif
   return err;
 }
 

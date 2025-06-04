@@ -34,6 +34,10 @@
 #define SJPEG_USE_NEON
 #endif
 
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC)
+#define SJPEG_AARCH64
+#endif
+
 #if defined(SJPEG_NEED_ASM_HEADERS)
 #if defined(SJPEG_USE_SSE2)
 #include <emmintrin.h>
