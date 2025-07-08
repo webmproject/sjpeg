@@ -28,10 +28,6 @@
 #include "bit_writer.h"
 // IWYU pragma: end_exports
 
-#ifndef NULL
-#define NULL 0
-#endif
-
 #define SJPEG_STRINGIFY_HELPER(x) #x
 #define SJPEG_STRINGIFY(x) SJPEG_STRINGIFY_HELPER(x)
 
