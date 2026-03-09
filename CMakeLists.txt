@@ -229,6 +229,15 @@ install(
   DESTINATION ${ConfigPackageLocation}
 )
 
+# Generate pkg-config file
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/sjpeg.pc.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/sjpeg.pc"
+  @ONLY
+)
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/sjpeg.pc"
+  DESTINATION lib/pkgconfig)
 
 ################################################################################
 # Man page.

@@ -1,0 +1,17 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${exec_prefix}/include
+
+Name: sjpeg
+Description: Lightweight JPEG encoder with simple C API and optional C++ interface
+Version: @PROJECT_VERSION@
+
+Requires: libjpeg libpng
+Requires.private:
+
+Libs: -L${libdir} -lsjpeg -ljpeg -lpng
+Libs.private:
+
+Cflags: -I${includedir}
+Cflags.private:
