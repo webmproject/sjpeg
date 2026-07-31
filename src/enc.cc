@@ -75,6 +75,20 @@ const uint8_t kZigzag[64] = {
   53, 60, 61, 54, 47, 55, 62, 63,
 };
 
+// Inverse of kZigzag: maps a natural coefficient index to its zig-zag scan
+// position (kInvZigzag[kZigzag[i]] == i). Used by the SIMD run-length emitters
+// to turn a natural-order non-zero bitmask into a zig-zag-ordered one.
+static const uint8_t kInvZigzag[64] = {
+  0,   1,  5,  6, 14, 15, 27, 28,
+  2,   4,  7, 13, 16, 26, 29, 42,
+  3,   8, 12, 17, 25, 30, 41, 43,
+  9,  11, 18, 24, 31, 40, 44, 53,
+  10, 19, 23, 32, 39, 45, 52, 54,
+  20, 22, 33, 38, 46, 51, 55, 60,
+  21, 34, 37, 47, 50, 56, 59, 61,
+  35, 36, 48, 49, 57, 58, 62, 63,
+};
+
 const uint8_t kDefaultMatrices[2][64] = {
   // these are the default luma/chroma matrices (JPEG spec section K.1)
   { 16,  11,  10,  16,  24,  40,  51,  61,
@@ -465,9 +479,16 @@ void Encoder::InitCodes(bool only_ac) {
 ////////////////////////////////////////////////////////////////////////////////
 // Quantize coefficients and pseudo-code coefficients
 
+#if defined(__has_builtin)
+#define SJPEG_HAS_BUILTIN(x) __has_builtin(x)
+#else
+#define SJPEG_HAS_BUILTIN(x) 0
+#endif
+
 static int CalcLog2(int v) {
-#if defined(__GNUC__) && \
-    ((__GNUC__ == 3 && __GNUC_MINOR__ >= 4) || __GNUC__ >= 4)
+#if SJPEG_HAS_BUILTIN(__builtin_clz) || \
+    (defined(__GNUC__) && \
+     ((__GNUC__ == 3 && __GNUC_MINOR__ >= 4) || __GNUC__ >= 4))
   return 32 - __builtin_clz(v);
 #else
   const int kLog2[16] = {
@@ -476,6 +497,26 @@ static int CalcLog2(int v) {
   return (v & ~0xff) ? 8 + kLog2[v >> 8] :
          (v & ~0x0f) ? 4 + kLog2[v >> 4] :
                        0 + kLog2[v];
+#endif
+}
+
+// Count trailing zeros of a non-zero 64-bit value.
+// 'x' must be non-zero.
+static inline int TrailingZeros64(uint64_t x) {
+#if SJPEG_HAS_BUILTIN(__builtin_ctzll) || \
+    (defined(__GNUC__) && \
+     ((__GNUC__ == 3 && __GNUC_MINOR__ >= 4) || __GNUC__ >= 4))
+  return __builtin_ctzll(x);
+#else
+  int c = 63;
+  x &= ~x + 1;
+  if (x & 0x00000000FFFFFFFF) c -= 32;
+  if (x & 0x0000FFFF0000FFFF) c -= 16;
+  if (x & 0x00FF00FF00FF00FF) c -= 8;
+  if (x & 0x0F0F0F0F0F0F0F0F) c -= 4;
+  if (x & 0x3333333333333333) c -= 2;
+  if (x & 0x5555555555555555) c -= 1;
+  return c;
 #endif
 }
 
@@ -515,6 +556,8 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
   int prev = 1;
   int nb = 0;
   int16_t tmp[64], masked[64];
+  const __m128i zero = _mm_setzero_si128();
+  uint64_t nzn = 0;  // natural-order non-zero mask: bit j set iff tmp[j] != 0.
   for (int i = 0; i < 64; i += 8) {
     const __m128i m_bias = LOAD_16(bias + i);
     const __m128i m_mult = LOAD_16(iquant + i);
@@ -527,18 +570,30 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
     const __m128i G = _mm_xor_si128(F, B);                    // v ^ mask
     STORE_16(F, tmp + i);
     STORE_16(G, masked + i);
+    // Record which lanes are non-zero (F >= 0, so "> 0" == "!= 0"): pack the 8
+    // per-lane 0xFFFF/0 compare results to one byte each and movemask to an
+    // 8-bit chunk placed at bit offset i.
+    const __m128i cmp = _mm_cmpgt_epi16(F, zero);
+    const int m8 = _mm_movemask_epi8(_mm_packs_epi16(cmp, cmp)) & 0xff;
+    nzn |= static_cast<uint64_t>(m8) << i;
   }
-  for (int i = 1; i < 64; ++i) {
+  // Emit run/level entries. Remap the non-zero AC set (drop DC = bit 0) from
+  // natural to zig-zag order, then iterate set bits with 'ctz' so we touch only
+  // the (few) non-zero coefficients: the classic zig-zag scan without the
+  // data-dependent per-coefficient branch. Output is bit-identical.
+  uint64_t zz = 0;
+  for (uint64_t b = nzn & ~1ull; b != 0; b &= b - 1) {
+    zz |= 1ull << kInvZigzag[TrailingZeros64(b)];
+  }
+  for (uint64_t b = zz; b != 0; b &= b - 1) {
+    const int i = static_cast<int>(TrailingZeros64(b));
     const int j = kZigzag[i];
-    const int v = tmp[j];
-    if (v > 0) {
-      const int n = CalcLog2(v);
-      const uint16_t code = masked[j] & ((1 << n) - 1);
-      rl[nb].level_ = (code << 4) | n;
-      rl[nb].run_ = i - prev;
-      prev = i + 1;
-      ++nb;
-    }
+    const int n = CalcLog2(tmp[j]);
+    const uint16_t code = masked[j] & ((1 << n) - 1);
+    rl[nb].level_ = (code << 4) | n;
+    rl[nb].run_ = i - prev;
+    prev = i + 1;
+    ++nb;
   }
   const int dc = (in[0] < 0) ? -tmp[0] : tmp[0];
   out->idx_ = idx;
@@ -558,6 +613,11 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
   int prev = 1;
   int nb = 0;
   uint16_t tmp[64], masked[64];
+  uint64_t nzn = 0;  // natural-order non-zero mask: bit j set iff tmp[j] != 0.
+  // Per-lane bit weights, used to turn a NEON compare result into a bitmask
+  // (NEON has no movemask instruction).
+  static const uint16_t kBitWeights[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+  const uint16x8_t weights = vld1q_u16(kBitWeights);
   for (int i = 0; i < 64; i += 8) {
     const uint16x8_t m_bias = vld1q_u16(bias + i);
     const uint16x8_t m_mult = vld1q_u16(iquant + i);
@@ -574,18 +634,36 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
     const uint16x8_t G = veorq_u16(F, vreinterpretq_u16_s16(sign));  // v ^ mask
     vst1q_u16(tmp + i, F);
     vst1q_u16(masked + i, G);
+    // Record which lanes are non-zero. vtstq(F, F) gives 0xFFFF where F != 0;
+    // AND with the bit weights and horizontally add to an 8-bit chunk.
+    const uint16x8_t nz = vandq_u16(vtstq_u16(F, F), weights);
+#if defined(__aarch64__)
+    const int m8 = vaddvq_u16(nz);
+#else
+    uint16x4_t s = vadd_u16(vget_low_u16(nz), vget_high_u16(nz));
+    s = vpadd_u16(s, s);
+    s = vpadd_u16(s, s);
+    const int m8 = vget_lane_u16(s, 0);
+#endif
+    nzn |= static_cast<uint64_t>(m8) << i;
   }
-  for (int i = 1; i < 64; ++i) {
+  // Emit run/level entries. Remap the non-zero AC set (drop DC = bit 0) from
+  // natural to zig-zag order, then iterate set bits with 'ctz' so we touch only
+  // the (few) non-zero coefficients: the classic zig-zag scan without the
+  // data-dependent per-coefficient branch. Output is bit-identical.
+  uint64_t zz = 0;
+  for (uint64_t b = nzn & ~1ull; b != 0; b &= b - 1) {
+    zz |= 1ull << kInvZigzag[TrailingZeros64(b)];
+  }
+  for (uint64_t b = zz; b != 0; b &= b - 1) {
+    const int i = static_cast<int>(TrailingZeros64(b));
     const int j = kZigzag[i];
-    const int v = tmp[j];
-    if (v > 0) {
-      const int n = CalcLog2(v);
-      const uint16_t code = masked[j] & ((1 << n) - 1);
-      rl[nb].level_ = (code << 4) | n;
-      rl[nb].run_ = i - prev;
-      prev = i + 1;
-      ++nb;
-    }
+    const int n = CalcLog2(tmp[j]);
+    const uint16_t code = masked[j] & ((1 << n) - 1);
+    rl[nb].level_ = (code << 4) | n;
+    rl[nb].run_ = i - prev;
+    prev = i + 1;
+    ++nb;
   }
   const int dc = (in[0] < 0) ? -tmp[0] : tmp[0];
   out->idx_ = idx;
