@@ -294,6 +294,22 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
 ////////////////////////////////////////////////////////////////////////////////
 // Ad-hoc functions for specialized cases
 
+// Encodes a packed BGRA buffer (4 bytes/pixel, byte order B,G,R,A; alpha
+// ignored) directly, without an intermediate RGB copy. 'stride' is in bytes and
+// must be >= 4*width. YUV_AUTO / YUV_SHARP fall back to an internal RGB copy.
+bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
+                const EncoderParam& param, sjpeg::ByteSink* sink);
+bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
+                const EncoderParam& param, std::string* output);
+
+// Encodes a packed RGBA buffer (4 bytes/pixel, byte order R,G,B,A; alpha
+// ignored) directly, without an intermediate RGB copy. 'stride' is in bytes and
+// must be >= 4*width. YUV_AUTO / YUV_SHARP fall back to an internal RGB copy.
+bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
+                const EncoderParam& param, sjpeg::ByteSink* sink);
+bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
+                const EncoderParam& param, std::string* output);
+
 // These function are specialized for encoding grayscale input using YUV400,
 // and behave like the generic Encode() functions above. The input samples
 // in gray[] are interpreted as the Luma samples, without transformation.

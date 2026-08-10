@@ -17,12 +17,13 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
-#include <stdlib.h>
+#include <float.h>  // for FLT_MAX
 #include <math.h>
-#include <float.h>    // for FLT_MAX
 #include <stdint.h>
+#include <stdlib.h>
 
 #include <cstdlib>
+#include <memory>
 #include <mutex>  // NOLINT
 #include <new>
 
@@ -1821,7 +1822,8 @@ const uint8_t* Encoder::GetReplicatedSamples(const uint8_t* rgb,
                                              int rgb_step,
                                              int sub_w, int sub_h,
                                              int w, int h) {
-  Replicate8b(rgb, rgb_step, replicated_buffer_, 3 * w, sub_w, sub_h, w, h, 3);
+  Replicate8b(rgb, rgb_step, replicated_buffer_, pix_step_ * w, sub_w, sub_h, w,
+              h, pix_step_);
   return replicated_buffer_;
 }
 
@@ -1851,18 +1853,22 @@ bool FinishEncoding(Encoder* const enc, const EncoderParam& param) {
 class Encoder420 final : public Encoder {
  public:
   Encoder420(int W, int H, const uint8_t* const rgb, int step,
-             ByteSink* const sink)
+             ByteSink* const sink, PixelFormat fmt = kRGBInput)
       : Encoder(SJPEG_YUV_420, W, H, sink), rgb_(rgb), step_(step) {
     ok_ = (rgb != nullptr);
+    if (fmt != kRGBInput) {
+      pix_step_ = 4;
+      get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
+    }
   }
   virtual ~Encoder420() {}
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
-    const uint8_t* rgb = rgb_ + (3 * mb_x + mb_y * step_) * 16;
+    const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 16;
     int step = step_;
     if (clipped) {
       rgb = GetReplicatedSamples(rgb, step,
                                  W_ - mb_x * 16, H_ - mb_y * 16, 16, 16);
-      step = 3 * 16;
+      step = pix_step_ * 16;
     }
     get_yuv_block_(rgb, step, out);
     if (clipped) {
@@ -1881,19 +1887,23 @@ class Encoder420 final : public Encoder {
 class Encoder444 final : public Encoder {
  public:
   Encoder444(int W, int H, const uint8_t* const rgb, int step,
-             ByteSink* const sink)
+             ByteSink* const sink, PixelFormat fmt = kRGBInput)
       : Encoder(SJPEG_YUV_444, W, H, sink), rgb_(rgb), step_(step) {
     ok_ = (rgb != nullptr);
+    if (fmt != kRGBInput) {
+      pix_step_ = 4;
+      get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
+    }
   }
   virtual ~Encoder444() {}
 
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
-    const uint8_t* rgb = rgb_ + (3 * mb_x + mb_y * step_) * 8;
+    const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 8;
     int step = step_;
     if (clipped) {
       rgb = GetReplicatedSamples(rgb, step,
                                  W_ - mb_x * 8, H_ - mb_y * 8, 8, 8);
-      step = 3 * 8;
+      step = pix_step_ * 8;
     }
     get_yuv_block_(rgb, step, out);
   }
@@ -1909,19 +1919,23 @@ class Encoder444 final : public Encoder {
 class Encoder400 final : public Encoder {
  public:
   Encoder400(int W, int H, const uint8_t* const src, int step,
-             ByteSink* const sink)
+             ByteSink* const sink, PixelFormat fmt = kRGBInput)
       : Encoder(SJPEG_YUV_400, W, H, sink), rgb_(src), step_(step) {
     ok_ = (src != nullptr);
+    if (fmt != kRGBInput) {
+      pix_step_ = 4;
+      get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
+    }
   }
   virtual ~Encoder400() {}
 
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
-    const uint8_t* rgb = rgb_ + (3 * mb_x + mb_y * step_) * 8;
+    const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 8;
     int step = step_;
     if (clipped) {
       rgb = GetReplicatedSamples(rgb, step_,
                                  W_ - mb_x * 8, H_ - mb_y * 8, 8, 8);
-      step = 3 * 8;
+      step = pix_step_ * 8;
     }
     get_yuv_block_(rgb, step, out);
   }
@@ -2207,22 +2221,22 @@ class EncoderSharp420 final : public EncoderYUV420 {
 ////////////////////////////////////////////////////////////////////////////////
 // all-in-one factory to pickup the right encoder instance
 
-Encoder* EncoderFactory(const uint8_t* rgb,
-                        int W, int H, int stride, SjpegYUVMode yuv_mode,
-                        ByteSink* const sink) {
+Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
+                        SjpegYUVMode yuv_mode, ByteSink* const sink,
+                        PixelFormat fmt = kRGBInput) {
   if (yuv_mode == SJPEG_YUV_AUTO) {
     yuv_mode = SjpegRiskiness(rgb, W, H, stride, nullptr);
   }
 
   Encoder* enc = nullptr;
   if (yuv_mode == SJPEG_YUV_420) {
-    enc = new (std::nothrow) Encoder420(W, H, rgb, stride, sink);
+    enc = new (std::nothrow) Encoder420(W, H, rgb, stride, sink, fmt);
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
     enc = new (std::nothrow) EncoderSharp420(W, H, rgb, stride, sink);
   } else if (yuv_mode == SJPEG_YUV_444) {
-    enc = new (std::nothrow) Encoder444(W, H, rgb, stride, sink);
+    enc = new (std::nothrow) Encoder444(W, H, rgb, stride, sink, fmt);
   } else if (yuv_mode == SJPEG_YUV_400) {
-    enc = new (std::nothrow) Encoder400(W, H, rgb, stride, sink);
+    enc = new (std::nothrow) Encoder400(W, H, rgb, stride, sink, fmt);
   }
   if (enc == nullptr || !enc->Ok()) {
     delete enc;
@@ -2405,6 +2419,60 @@ size_t Encode(const uint8_t* rgb, int width, int height, int stride,
   return size;
 }
 
+bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
+                const EncoderParam& param, ByteSink* sink) {
+  if (bgra == nullptr || sink == nullptr) return false;
+  if (width <= 0 || height <= 0 || std::abs(stride) < 4 * width) return false;
+  const SjpegYUVMode mode = param.yuv_mode;
+  if (mode == SJPEG_YUV_AUTO || mode == SJPEG_YUV_SHARP) {
+    // Fallback: convert to a scratch RGB plane and reuse the RGB path.
+    const int rgb_stride = 3 * width;
+    std::unique_ptr<uint8_t[]> rgb(new (std::nothrow)
+                                       uint8_t[(size_t)rgb_stride * height]);
+    if (rgb == nullptr) return false;
+    for (int y = 0; y < height; ++y) {
+      const uint8_t* s = bgra + (size_t)y * stride;
+      uint8_t* d = rgb.get() + (size_t)y * rgb_stride;
+      for (int x = 0; x < width; ++x, s += 4, d += 3) {
+        d[0] = s[2];
+        d[1] = s[1];
+        d[2] = s[0];
+      }
+    }
+    return Encode(rgb.get(), width, height, rgb_stride, param, sink);
+  }
+  Encoder* const enc =
+      EncoderFactory(bgra, width, height, stride, mode, sink, kBGRAInput);
+  return FinishEncoding(enc, param);
+}
+
+bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
+                const EncoderParam& param, ByteSink* sink) {
+  if (rgba == nullptr || sink == nullptr) return false;
+  if (width <= 0 || height <= 0 || std::abs(stride) < 4 * width) return false;
+  const SjpegYUVMode mode = param.yuv_mode;
+  if (mode == SJPEG_YUV_AUTO || mode == SJPEG_YUV_SHARP) {
+    // Fallback: convert to a scratch RGB plane and reuse the RGB path.
+    const int rgb_stride = 3 * width;
+    std::unique_ptr<uint8_t[]> rgb(new (std::nothrow)
+                                       uint8_t[(size_t)rgb_stride * height]);
+    if (rgb == nullptr) return false;
+    for (int y = 0; y < height; ++y) {
+      const uint8_t* s = rgba + (size_t)y * stride;
+      uint8_t* d = rgb.get() + (size_t)y * rgb_stride;
+      for (int x = 0; x < width; ++x, s += 4, d += 3) {
+        d[0] = s[0];
+        d[1] = s[1];
+        d[2] = s[2];
+      }
+    }
+    return Encode(rgb.get(), width, height, rgb_stride, param, sink);
+  }
+  Encoder* const enc =
+      EncoderFactory(rgba, width, height, stride, mode, sink, kRGBAInput);
+  return FinishEncoding(enc, param);
+}
+
 bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
                 const EncoderParam& param, ByteSink* sink) {
   if (gray == nullptr || sink == nullptr) return false;
@@ -2425,6 +2493,24 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
   output->reserve(width * height / 4);
   StringSink sink(output);
   return Encode(rgb, width, height, stride, param, &sink);
+}
+
+bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
+                const EncoderParam& param, std::string* output) {
+  if (output == nullptr) return false;
+  output->clear();
+  output->reserve((size_t)width * height / 4);
+  StringSink sink(output);
+  return EncodeBGRA(bgra, width, height, stride, param, &sink);
+}
+
+bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
+                const EncoderParam& param, std::string* output) {
+  if (output == nullptr) return false;
+  output->clear();
+  output->reserve((size_t)width * height / 4);
+  StringSink sink(output);
+  return EncodeRGBA(rgba, width, height, stride, param, &sink);
 }
 
 bool EncodeGray(const uint8_t* gray, int width, int height, int stride,

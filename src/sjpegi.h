@@ -91,10 +91,14 @@ extern int YUVToRiskIdx(int16_t y, int16_t u, int16_t v);
 ///////////////////////////////////////////////////////////////////////////////
 // RGB->YUV conversion
 
+// Internal pixel format for the input samples fed to the block functions.
+enum PixelFormat { kRGBInput = 0, kBGRAInput = 1, kRGBAInput = 2 };
+
 // convert 16x16 RGB block into YUV420, or 8x8 RGB block into YUV444 or YUV400
 typedef void (*RGBToYUVBlockFunc)(const uint8_t* src, int src_stride,
                                   int16_t* blocks);
-extern RGBToYUVBlockFunc GetBlockFunc(SjpegYUVMode mode);
+extern RGBToYUVBlockFunc GetBlockFunc(SjpegYUVMode mode,
+                                      PixelFormat fmt = kRGBInput);
 
 // convert a row of RGB samples to YUV444
 typedef void (*RGBToIndexRowFunc)(const uint8_t* src, int width,
@@ -339,7 +343,8 @@ struct Encoder {
                                        int sub_w, int sub_h);
   // set blocks that are totally outside of the picture to an average value
   void AverageExtraLuma(int sub_w, int sub_h, int16_t* out);
-  uint8_t replicated_buffer_[3 * 16 * 16];   // tmp buffer for replication
+  uint8_t replicated_buffer_[4 * 16 * 16];  // tmp buffer for replication
+  int pix_step_ = 3;  // bytes per input pixel (3=RGB, 4=BGRA/RGBA)
 
   sjpeg::RGBToYUVBlockFunc get_yuv_block_;  // set by GetBlockFunc()
   bool adaptive_bias_;   // if true, use per-block perceptual bias modulation
