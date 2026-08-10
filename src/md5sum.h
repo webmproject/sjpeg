@@ -30,7 +30,7 @@ class MD5Digest {
   explicit MD5Digest(const std::string& data = "")
       : A(0x67452301), B(0xefcdab89), C(0x98badcfe), D(0x10325476) {
     uint32_t s = data.size();
-    assert(data.size() < (1ull << 32));
+    assert(static_cast<uint64_t>(data.size()) < (1ull << 32));
     uint32_t i, j;
     for (i = 0; i + 64 <= s; i += 64) Add((const uint8_t*)&data[i]);
     uint8_t block[64 + 64];
