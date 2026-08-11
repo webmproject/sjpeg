@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#define SJPEG_VERSION 0x000100   // 0.1.0
+#define SJPEG_VERSION 0x000101   // 0.1.1
 
 #if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
