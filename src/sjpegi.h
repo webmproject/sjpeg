@@ -19,7 +19,7 @@
 #ifndef SJPEG_JPEGI_H_
 #define SJPEG_JPEGI_H_
 
-#include "sjpeg.h"
+#include "sjpeg.h"  // IWYU pragma: export
 #include "bit_writer.h"
 
 #ifndef NULL
