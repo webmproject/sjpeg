@@ -183,6 +183,9 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
   const int s = sjpeg::kRGBSize;  // shortcut
   const int kRGB3 = s * s * s;
   const int gray = (s / 2) * (1 + s) * s;   // gray level for y=0,u=128,v=128
+  // idx packs y + s * (u + s * v), so the samples with neutral chroma are
+  // exactly the ones in [gray_min, gray_min + s), whatever their luma.
+  const int gray_min = gray - gray % s;
 
   cvrt_func(rgb, width, &row2[0]);  // convert first row ahead
   for (int j = 1; j < height; ++j) {
@@ -200,11 +203,13 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
         total_score += score;
         count += 1.0;
       }
-      gray_count += (std::abs(idx0 - gray) < s);
+      gray_count += (idx0 >= gray_min && idx0 < gray_min + s);
     }
   }
   if (count > 0) total_score /= count;
-  gray_count /= (width * height);
+  // the loops above visit (width - 1) x (height - 1) samples
+  const double num_samples = (width - 1.) * (height - 1.);
+  if (num_samples > 0.) gray_count /= num_samples;
 
   // number of pixels evaluated
   const double frac = 100. * count / (width * height);

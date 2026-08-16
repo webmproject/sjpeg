@@ -393,6 +393,56 @@ TEST(Dimensions) {
   }
 }
 
+// Flat picture of the given color.
+std::vector<uint8_t> MakeFlatRGB(int width, int height, int r, int g, int b) {
+  const uint8_t color[3] = { static_cast<uint8_t>(r), static_cast<uint8_t>(g),
+                             static_cast<uint8_t>(b) };
+  std::vector<uint8_t> rgb(3 * static_cast<size_t>(width) * height);
+  for (size_t i = 0; i < rgb.size(); ++i) rgb[i] = color[i % 3];
+  return rgb;
+}
+
+TEST(Riskiness) {
+  const int kSizes[] = { 8, 16, 32, 64, 128, 400 };
+  for (size_t s = 0; s < ARRAY_SIZE(kSizes); ++s) {
+    const int size = kSizes[s];
+    // a gray picture is detected as such, whatever its dimensions
+    const std::vector<uint8_t> gray = MakeFlatRGB(size, size, 128, 128, 128);
+    float risk = -1.f;
+    CHECK(SjpegRiskiness(&gray[0], size, size, 3 * size, &risk)
+              == SJPEG_YUV_400);
+    CHECK(risk >= 0.f && risk <= 100.f);
+
+    // A flat but tinted picture is not gray either, even though its packed
+    // y/u/v index sits close to the one of the gray level.
+    const std::vector<uint8_t> tint = MakeFlatRGB(size, size, 140, 120, 90);
+    CHECK(SjpegRiskiness(&tint[0], size, size, 3 * size, nullptr)
+              != SJPEG_YUV_400);
+
+    // and neither is a colored one
+    std::vector<uint8_t> color(3 * static_cast<size_t>(size) * size);
+    for (int y = 0; y < size; ++y) {
+      for (int x = 0; x < size; ++x) {
+        uint8_t* const p = &color[3 * (x + static_cast<size_t>(y) * size)];
+        p[0] = ((x ^ y) & 8) ? 220 : 20;
+        p[1] = 40;
+        p[2] = ((x ^ y) & 8) ? 20 : 220;
+      }
+    }
+    CHECK(SjpegRiskiness(&color[0], size, size, 3 * size, nullptr)
+              != SJPEG_YUV_400);
+  }
+  // end to end: YUV_AUTO on a gray picture emits a single quantization matrix
+  const int kWidth = 40, kHeight = 24;
+  const std::vector<uint8_t> gray = MakeFlatRGB(kWidth, kHeight, 90, 90, 90);
+  sjpeg::EncoderParam param(75.f);
+  param.yuv_mode = SJPEG_YUV_AUTO;
+  std::string out;
+  CHECK(EncodeRGB(gray, kWidth, kHeight, param, &out));
+  uint8_t quant[2][64];
+  CHECK(SjpegFindQuantizer(out, quant) == 1);
+}
+
 TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
