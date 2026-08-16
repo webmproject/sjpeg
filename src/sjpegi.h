@@ -69,6 +69,9 @@ extern bool SupportsNEON();
 #define M_SOS   0xffda
 #define M_DQT   0xffdb
 
+// Maximum picture dimension: SOF stores the width and height on 16 bits.
+enum { kMaxDimension = 0xffff };
+
 // Forward 8x8 Fourier transforms, in-place.
 typedef void (*FdctFunc)(int16_t *coeffs, int num_blocks);
 FdctFunc GetFdct();
