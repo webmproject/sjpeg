@@ -213,7 +213,7 @@ void Encoder::SetDefaultMinQuantMatrices() {
 }
 
 void Encoder::SetCompressionMethod(int method) {
-  assert(method >= 0 && method <= 8);
+  method = (method < 0) ? 0 : (method > 8) ? 8 : method;
   use_adaptive_quant_ = (method >= 3);
   optimize_size_ = (method != 0) && (method != 3);
   use_extra_memory_ = (method == 3) || (method == 4) || (method == 7);

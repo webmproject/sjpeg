@@ -85,7 +85,7 @@ extern const int kRGBSize;
 extern const uint8_t kSharpnessScore[];
 
 // internal riskiness scoring functions:
-extern double DCTRiskinessScore(const int16_t yuv[3 * 8],
+extern double DCTRiskinessScore(const int16_t yuv[3 * 64],
                                 int16_t scores[8 * 8]);
 extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
                                   int16_t scores[8 * 8]);
@@ -321,7 +321,7 @@ struct Encoder {
   float ComputePSNR() const;
 
  protected:
-  bool SetError();   // sets ok_ to true
+  bool SetError();   // sets ok_ to false, and returns false
 
   // format-specific parameters, set by virtual InitComponents()
   const SjpegYUVMode yuv_mode_;   // 444, 420 or 400 only
