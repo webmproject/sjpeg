@@ -160,6 +160,59 @@ TEST(InvalidArguments) {
   CHECK(!sjpeg::EncodeGray(nullptr, kWidth, kHeight, kWidth, param, &out));
 }
 
+std::vector<uint8_t> MakePlane(int width, int height, int base) {
+  g_seed = kSeed;
+  std::vector<uint8_t> plane(static_cast<size_t>(width) * height);
+  for (size_t i = 0; i < plane.size(); ++i) {
+    plane[i] = static_cast<uint8_t>(base + (Random8b() >> 2));
+  }
+  return plane;
+}
+
+// Copies 'plane' into a buffer with the given stride, padding the extra bytes
+// with a value that must never show up in the output.
+std::vector<uint8_t> WithStride(const std::vector<uint8_t>& plane,
+                                int width, int height, int stride) {
+  std::vector<uint8_t> out(static_cast<size_t>(stride) * height, 0xd5);
+  for (int y = 0; y < height; ++y) {
+    memcpy(&out[static_cast<size_t>(y) * stride],
+           &plane[static_cast<size_t>(y) * width], width);
+  }
+  return out;
+}
+
+typedef bool (*EncodeYUVFunc)(const uint8_t*, int, const uint8_t*, int,
+                              const uint8_t*, int, int, int,
+                              const sjpeg::EncoderParam&, sjpeg::ByteSink*);
+
+// The padding bytes of the U/V planes must never reach the output, whatever
+// the strides are. Dimensions are picked so that the last MCU row/column is
+// clipped, since that's where the samples are replicated.
+void CheckStrides(EncodeYUVFunc encode, int sub) {
+  const int kWidth = 20, kHeight = 20;
+  const int uv_w = (kWidth + sub - 1) / sub, uv_h = (kHeight + sub - 1) / sub;
+  const std::vector<uint8_t> Y = MakePlane(kWidth, kHeight, 20);
+  const std::vector<uint8_t> U = MakePlane(uv_w, uv_h, 60);
+  const std::vector<uint8_t> V = MakePlane(uv_w, uv_h, 140);
+  const sjpeg::EncoderParam param(80.f);
+  std::string ref;
+  for (int u_pad = 0; u_pad <= 7; ++u_pad) {
+    for (int v_pad = 0; v_pad <= 7; v_pad += 7) {
+      const int u_stride = uv_w + u_pad, v_stride = uv_w + v_pad;
+      const std::vector<uint8_t> u = WithStride(U, uv_w, uv_h, u_stride);
+      const std::vector<uint8_t> v = WithStride(V, uv_w, uv_h, v_stride);
+      std::string out;
+      CHECK(encode(&Y[0], kWidth, &u[0], u_stride, &v[0], v_stride,
+                   kWidth, kHeight, param, sjpeg::MakeByteSink(&out).get()));
+      if (ref.empty()) ref = out;
+      CHECK(!out.empty() && out == ref);
+    }
+  }
+}
+
+TEST(EncodeYUV420Strides) { CheckStrides(&sjpeg::EncodeYUV420, 2); }
+TEST(EncodeYUV444Strides) { CheckStrides(&sjpeg::EncodeYUV444, 1); }
+
 TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
