@@ -219,6 +219,38 @@ void CheckStrides(EncodeYUVFunc encode, int sub) {
 TEST(EncodeYUV420Strides) { CheckStrides(&sjpeg::EncodeYUV420, 2); }
 TEST(EncodeYUV444Strides) { CheckStrides(&sjpeg::EncodeYUV444, 1); }
 
+TEST(EncodeNV) {
+  const int kWidth = 18, kHeight = 14;
+  const int uv_h = (kHeight + 1) / 2, uv_stride = 2 * ((kWidth + 1) / 2);
+  const std::vector<uint8_t> Y = MakePlane(kWidth, kHeight, 30);
+  const std::vector<uint8_t> UV = MakePlane(uv_stride, uv_h, 90);
+  const sjpeg::EncoderParam param(75.f);
+  std::string out12, out21;
+  CHECK(sjpeg::EncodeNV12(&Y[0], kWidth, &UV[0], uv_stride, kWidth, kHeight,
+                          param, sjpeg::MakeByteSink(&out12).get()));
+  CHECK(sjpeg::EncodeNV21(&Y[0], kWidth, &UV[0], uv_stride, kWidth, kHeight,
+                          param, sjpeg::MakeByteSink(&out21).get()));
+  CHECK(HasSize(out12, kWidth, kHeight));
+  CHECK(out12 != out21);   // U and V are swapped
+
+  // one invalid argument at a time
+  std::string out;
+  const auto holder = sjpeg::MakeByteSink(&out);
+  sjpeg::ByteSink* const sink = holder.get();
+  const auto nv12 = [&](const uint8_t* y, int y_step, const uint8_t* uv,
+                        int uv_step, int W, int H, sjpeg::ByteSink* s) {
+    return sjpeg::EncodeNV12(y, y_step, uv, uv_step, W, H, param, s);
+  };
+  CHECK(!nv12(&Y[0], kWidth, &UV[0], uv_stride, kWidth, kHeight, nullptr));
+  CHECK(!nv12(nullptr, kWidth, &UV[0], uv_stride, kWidth, kHeight, sink));
+  CHECK(!nv12(&Y[0], kWidth, nullptr, uv_stride, kWidth, kHeight, sink));
+  CHECK(!nv12(&Y[0], kWidth, &UV[0], uv_stride, 0, kHeight, sink));
+  CHECK(!nv12(&Y[0], kWidth - 1, &UV[0], uv_stride, kWidth, kHeight, sink));
+  CHECK(!nv12(&Y[0], kWidth, &UV[0], uv_stride - 1, kWidth, kHeight, sink));
+  CHECK(!sjpeg::EncodeNV21(&Y[0], kWidth, &UV[0], uv_stride, kWidth, kHeight,
+                           param, nullptr));
+}
+
 TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
