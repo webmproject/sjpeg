@@ -363,6 +363,36 @@ TEST(AllocationFailure) {
   }
 }
 
+TEST(Dimensions) {
+  const int kWidth = 35, kHeight = 19;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  std::string jpg;
+  CHECK(SjpegCompress(&rgb[0], kWidth, kHeight, 60.f, &jpg));
+  const uint8_t* const data = reinterpret_cast<const uint8_t*>(jpg.data());
+  const size_t size = jpg.size();
+
+  // all three pointers are optional
+  int width = 0, height = 0, is_yuv420 = -1;
+  CHECK(SjpegDimensions(jpg, &width, &height, &is_yuv420));
+  CHECK(width == kWidth && height == kHeight);
+  width = height = 0;
+  CHECK(SjpegDimensions(data, size, &width, nullptr, nullptr));
+  CHECK(width == kWidth);
+  CHECK(SjpegDimensions(data, size, nullptr, &height, nullptr));
+  CHECK(height == kHeight);
+  CHECK(SjpegDimensions(data, size, nullptr, nullptr, &is_yuv420));
+  CHECK(SjpegDimensions(data, size, nullptr, nullptr, nullptr));
+
+  // truncated or invalid input is rejected, and never read out of bounds
+  CHECK(!SjpegDimensions(nullptr, size, &width, &height, nullptr));
+  for (size_t n = 0; n <= size; ++n) {
+    int w = -1, h = -1, yuv420 = -1;
+    if (SjpegDimensions(data, n, &w, &h, &yuv420)) {
+      CHECK(w == kWidth && h == kHeight);   // never a partial answer
+    }
+  }
+}
+
 TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
