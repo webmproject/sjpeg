@@ -95,6 +95,13 @@ BitWriter::BitWriter(ByteSink* const sink) : sink_(sink), buf_(nullptr) {
   byte_pos_ = 0;
 }
 
+bool BitWriter::CommitFailed() {
+  sink_->Reset();   // this can free the memory buf_ points to
+  buf_ = nullptr;
+  byte_pos_ = 0;
+  return false;
+}
+
 void BitWriter::Flush() {
   // align and pad the bitstream
   // nb_pad is the number of '1' bits we need to insert to reach a byte-aligned
@@ -109,6 +116,7 @@ void BitWriter::Flush() {
 ///////////////////////////////////////////////////////////////////////////////
 
 void BitCounter::AddBits(const uint32_t bits, size_t nbits) {
+  assert(nbits > 0);
   size_ += nbits;
   bit_pos_ += nbits;
   bits_ |= bits << (32 - bit_pos_);

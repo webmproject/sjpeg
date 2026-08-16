@@ -443,6 +443,48 @@ TEST(Riskiness) {
   CHECK(SjpegFindQuantizer(out, quant) == 1);
 }
 
+// Behaves like a memory sink, but starts refusing to commit after a while.
+class FailingSink : public sjpeg::ByteSink {
+ public:
+  explicit FailingSink(int num_ok) : num_ok_(num_ok) {}
+  virtual ~FailingSink() {}
+  virtual bool Commit(size_t used_size, size_t extra_size, uint8_t** data) {
+    pos_ += used_size;
+    if (num_ok_ <= 0) return false;
+    --num_ok_;
+    buf_.resize(pos_ + extra_size);
+    *data = extra_size ? &buf_[pos_] : nullptr;
+    return true;
+  }
+  virtual bool Finalize() { buf_.resize(pos_); return true; }
+  virtual void Reset() { buf_.clear(); pos_ = 0; }
+
+ private:
+  std::vector<uint8_t> buf_;
+  size_t pos_ = 0;
+  int num_ok_;
+};
+
+// A sink that stops accepting data must be reported, not crash. This is what
+// a file sink running out of space looks like.
+TEST(SinkFailure) {
+  const int kWidth = 32, kHeight = 32;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  bool seen_failure = false, seen_success = false;
+  for (int num_ok = 0; num_ok < 64; ++num_ok) {
+    FailingSink sink(num_ok);
+    sjpeg::EncoderParam param(90.f);
+    param.yuv_mode = SJPEG_YUV_420;
+    if (EncodeRGB(rgb, kWidth, kHeight, param, &sink)) {
+      seen_success = true;
+    } else {
+      seen_failure = true;
+    }
+  }
+  CHECK(seen_failure);   // the test is only meaningful if both happened
+  CHECK(seen_success);
+}
+
 TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
