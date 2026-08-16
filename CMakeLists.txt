@@ -27,6 +27,7 @@ set(CMAKE_CXX_STANDARD 11)
 # Options for coder / decoder executables.
 option(SJPEG_ENABLE_SIMD "Enable any SIMD optimization." ON)
 option(SJPEG_BUILD_EXAMPLES "Build the sjpeg / vjpeg command line tools." ON)
+option(SJPEG_BUILD_TESTS "Build the unit tests." ON)
 
 set(SJPEG_DEP_LIBRARIES)
 set(SJPEG_DEP_INCLUDE_DIRS)
@@ -196,6 +197,14 @@ if(SJPEG_BUILD_EXAMPLES)
   target_link_libraries(vjpeg ${SJPEG_DEP_GL_LIBRARIES} sjpeg sjpeg-utils)
 
   install(TARGETS sjpeg-bin vjpeg RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
+# Build the unit tests if asked for.
+if(SJPEG_BUILD_TESTS)
+  enable_testing()
+  add_executable(unit_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit_test.cc)
+  target_link_libraries(unit_test sjpeg)
+  add_test(NAME unit_test COMMAND unit_test)
 endif()
 
 # Install the different headers and libraries.
