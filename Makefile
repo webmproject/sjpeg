@@ -19,9 +19,11 @@ EXTRA_FLAGS += -std=c++11
 
 # OpenGL and GLUT
 ifeq ($(strip $(shell uname)), Darwin)
-  EXTRA_FLAGS += -I/opt/local/include
+  # Homebrew and MacPorts use different prefixes for libpng / libjpeg.
+  LOCAL_PREFIX = $(firstword $(wildcard /opt/homebrew /opt/local) /usr/local)
+  EXTRA_FLAGS += -I$(LOCAL_PREFIX)/include
   EXTRA_FLAGS += -Wno-deprecated-declarations
-  EXTRA_LIBS  += -L/opt/local/lib
+  EXTRA_LIBS  += -L$(LOCAL_PREFIX)/lib
   GL_LIBS = -framework GLUT -framework OpenGL
   EXTRA_FLAGS += -DHAVE_GLUT_GLUT_H
 else
