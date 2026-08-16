@@ -87,10 +87,9 @@ class BitWriter {
   // Verifies the that output buffer can store at least 'size' more bytes.
   // Also flushes the previously written data.
   bool Reserve(size_t size) {
-    const bool ok = sink_->Commit(byte_pos_, size, &buf_);
-    if (!ok) sink_->Reset();
+    if (!sink_->Commit(byte_pos_, size, &buf_)) return CommitFailed();
     byte_pos_ = 0;
-    return ok;
+    return true;
   }
 
   // Make sure we can write 24 bits by flushing the past ones.
@@ -145,6 +144,8 @@ class BitWriter {
   bool Finalize() { return Reserve(0) && sink_->Finalize(); }
 
  private:
+  bool CommitFailed();
+
   ByteSink* sink_;
 
   int nb_bits_;      // number of unwritten bits
