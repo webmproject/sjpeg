@@ -104,8 +104,13 @@ HDRS = \
 OUT_LIBS = src/libsjpeg.a examples/libutils.a
 OUT_EXAMPLES =  examples/sjpeg
 OUT_EXAMPLES += examples/vjpeg
+OUT_TESTS = tests/unit_test
 
-OUTPUT = $(OUT_LIBS) $(OUT_EXAMPLES)
+OUTPUT = $(OUT_LIBS) $(OUT_EXAMPLES) $(OUT_TESTS)
+
+# Without this, the built-in '%: %.o' rule takes over 'unit_test' and links it
+# with $(CC) instead of running it.
+.PHONY: all clean dist ex install test test_cmd test_png_jpg unit_test
 
 ex: $(OUT_EXAMPLES)
 all: ex
@@ -135,7 +140,16 @@ examples/vjpeg: EXTRA_FLAGS += -DSJPEG_HAVE_OPENGL
 $(OUT_EXAMPLES):
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
-test: test_cmd test_png_jpg
+tests/unit_test: tests/unit_test.o
+tests/unit_test: src/libsjpeg.a
+
+$(OUT_TESTS):
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
+test: unit_test test_cmd test_png_jpg
+
+unit_test: $(OUT_TESTS)
+	./tests/unit_test
 
 test_cmd: $(OUT_EXAMPLES)
 	cd tests && ./test_cmd.sh
@@ -161,7 +175,8 @@ dist: all
 
 clean:
 	$(RM) $(OUTPUT) *~ \
-              examples/*.o examples/*~ man/*~ src/*.o src/*~ tests/*~ \
+              examples/*.o examples/*~ man/*~ src/*.o src/*~ \
+              tests/*.o tests/*~ \
               examples/*.lo src/*.lo
 
 DIST_FILES= \
@@ -202,6 +217,7 @@ DIST_FILES= \
          examples/utils.cc  \
          tests/test_cmd.sh  \
          tests/test_png_jpg.sh  \
+         tests/unit_test.cc  \
          tests/testdata/source1.png \
          tests/testdata/source1.itl.png \
          tests/testdata/source2.jpg \
