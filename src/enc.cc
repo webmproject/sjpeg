@@ -157,7 +157,8 @@ static struct DefaultMemory : public MemoryManager {
 ////////////////////////////////////////////////////////////////////////////////
 // Encoder main class
 
-Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink)
+Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink,
+                 MemoryManager* const memory)
   : yuv_mode_(yuv_mode), W_(W), H_(H),
     ok_(true),
     bw_(sink),
@@ -171,7 +172,7 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink)
     qdelta_max_chroma_(kDefaultDeltaMaxChroma),
     passes_(1),
     search_hook_(nullptr),
-    memory_hook_(&kDefaultMemory) {
+    memory_hook_((memory == nullptr) ? &kDefaultMemory : memory) {
   SetCompressionMethod(kDefaultMethod);
   SetQuality(kDefaultQuality);
   get_yuv_block_ = GetBlockFunc(yuv_mode_);
@@ -1853,8 +1854,9 @@ bool FinishEncoding(Encoder* const enc, const EncoderParam& param) {
 class Encoder420 final : public Encoder {
  public:
   Encoder420(int W, int H, const uint8_t* const rgb, int step,
-             ByteSink* const sink, PixelFormat fmt = kRGBInput)
-      : Encoder(SJPEG_YUV_420, W, H, sink), rgb_(rgb), step_(step) {
+             ByteSink* const sink, PixelFormat fmt = kRGBInput,
+             MemoryManager* const memory = nullptr)
+      : Encoder(SJPEG_YUV_420, W, H, sink, memory), rgb_(rgb), step_(step) {
     ok_ = (rgb != nullptr);
     if (fmt != kRGBInput) {
       pix_step_ = 4;
@@ -1887,8 +1889,9 @@ class Encoder420 final : public Encoder {
 class Encoder444 final : public Encoder {
  public:
   Encoder444(int W, int H, const uint8_t* const rgb, int step,
-             ByteSink* const sink, PixelFormat fmt = kRGBInput)
-      : Encoder(SJPEG_YUV_444, W, H, sink), rgb_(rgb), step_(step) {
+             ByteSink* const sink, PixelFormat fmt = kRGBInput,
+             MemoryManager* const memory = nullptr)
+      : Encoder(SJPEG_YUV_444, W, H, sink, memory), rgb_(rgb), step_(step) {
     ok_ = (rgb != nullptr);
     if (fmt != kRGBInput) {
       pix_step_ = 4;
@@ -1919,8 +1922,9 @@ class Encoder444 final : public Encoder {
 class Encoder400 final : public Encoder {
  public:
   Encoder400(int W, int H, const uint8_t* const src, int step,
-             ByteSink* const sink, PixelFormat fmt = kRGBInput)
-      : Encoder(SJPEG_YUV_400, W, H, sink), rgb_(src), step_(step) {
+             ByteSink* const sink, PixelFormat fmt = kRGBInput,
+             MemoryManager* const memory = nullptr)
+      : Encoder(SJPEG_YUV_400, W, H, sink, memory), rgb_(src), step_(step) {
     ok_ = (src != nullptr);
     if (fmt != kRGBInput) {
       pix_step_ = 4;
@@ -1949,8 +1953,9 @@ class Encoder400 final : public Encoder {
 class Encoder400G final : public Encoder {
  public:
   Encoder400G(int W, int H, const uint8_t* const gray, int step,
-              ByteSink* const sink)
-      : Encoder(SJPEG_YUV_400, W, H, sink), gray_(gray), step_(step) {}
+              ByteSink* const sink, MemoryManager* const memory = nullptr)
+      : Encoder(SJPEG_YUV_400, W, H, sink, memory),
+        gray_(gray), step_(step) {}
   virtual ~Encoder400G() {}
 
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
@@ -1973,8 +1978,9 @@ class Encoder400G final : public Encoder {
 class EncoderNV12 final : public Encoder {
  public:
   EncoderNV12(const uint8_t* y, int y_step, const uint8_t* uv, int uv_step,
-              int W, int H, ByteSink* const sink, bool is_nv12)
-      : Encoder(SJPEG_YUV_420, W, H, sink),
+              int W, int H, ByteSink* const sink, bool is_nv12,
+              MemoryManager* const memory = nullptr)
+      : Encoder(SJPEG_YUV_420, W, H, sink, memory),
         y_(y), y_step_(y_step), uv_(uv), uv_step_(uv_step), is_nv12_(is_nv12) {
     assert(sink != nullptr);
   }
@@ -2046,7 +2052,8 @@ static bool EncodeNV(const uint8_t* y, int y_stride,
   if (std::abs(uv_stride) < 2 * ((width + 1) / 2)) return false;
   Encoder* const enc =
       new (std::nothrow) EncoderNV12(y, y_stride, uv, uv_stride,
-                                     width, height, output, is_nv12);
+                                     width, height, output, is_nv12,
+                                     param.memory);
   return FinishEncoding(enc, param);
 }
 
@@ -2076,8 +2083,9 @@ class EncoderYUV444 final : public Encoder {
   EncoderYUV444(const uint8_t* y, int y_step,
                 const uint8_t* u, int u_step,
                 const uint8_t* v, int v_step,
-                int W, int H, ByteSink* const sink)
-      : Encoder(SJPEG_YUV_444, W, H, sink),
+                int W, int H, ByteSink* const sink,
+                MemoryManager* const memory = nullptr)
+      : Encoder(SJPEG_YUV_444, W, H, sink, memory),
         y_(y), u_(u), v_(v), y_step_(y_step), u_step_(u_step), v_step_(v_step) {
     ok_ = (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
   }
@@ -2121,7 +2129,7 @@ bool EncodeYUV444(const uint8_t* Y, int Y_stride,
   if (std::abs(V_stride) < width) return false;
   Encoder* const enc =
       new (std::nothrow) EncoderYUV444(Y, Y_stride, U, U_stride, V, V_stride,
-                                       width, height, output);
+                                       width, height, output, param.memory);
   return FinishEncoding(enc, param);
 }
 
@@ -2133,8 +2141,9 @@ class EncoderYUV420 : public Encoder {
   EncoderYUV420(const uint8_t* y, int y_step,
                 const uint8_t* u, int u_step,
                 const uint8_t* v, int v_step,
-                int W, int H, ByteSink* const sink)
-      : Encoder(SJPEG_YUV_420, W, H, sink),
+                int W, int H, ByteSink* const sink,
+                MemoryManager* const memory = nullptr)
+      : Encoder(SJPEG_YUV_420, W, H, sink, memory),
         y_(y), u_(u), v_(v), y_step_(y_step), u_step_(u_step), v_step_(v_step) {
     ok_ = (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
   }
@@ -2190,7 +2199,7 @@ bool EncodeYUV420(const uint8_t* Y, int Y_stride,
   if (std::abs(V_stride) < (width + 1) / 2) return false;
   Encoder* const enc =
       new (std::nothrow) EncoderYUV420(Y, Y_stride, U, U_stride, V, V_stride,
-                                       width, height, output);
+                                       width, height, output, param.memory);
   return FinishEncoding(enc, param);
 }
 
@@ -2200,8 +2209,8 @@ bool EncodeYUV420(const uint8_t* Y, int Y_stride,
 class EncoderSharp420 final : public EncoderYUV420 {
  public:
   EncoderSharp420(int W, int H, const uint8_t* const rgb, int step,
-                  ByteSink* const sink)
-      : EncoderYUV420(nullptr, 0, nullptr, 0, nullptr, 0, W, H, sink),
+                  ByteSink* const sink, MemoryManager* const memory = nullptr)
+      : EncoderYUV420(nullptr, 0, nullptr, 0, nullptr, 0, W, H, sink, memory),
         yuv_memory_(nullptr) {
     const int uv_w = (W + 1) >> 1;
     const int uv_h = (H + 1) >> 1;
@@ -2231,20 +2240,21 @@ class EncoderSharp420 final : public EncoderYUV420 {
 
 Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
                         SjpegYUVMode yuv_mode, ByteSink* const sink,
-                        PixelFormat fmt = kRGBInput) {
+                        PixelFormat fmt = kRGBInput,
+                        MemoryManager* const memory = nullptr) {
   if (yuv_mode == SJPEG_YUV_AUTO) {
     yuv_mode = SjpegRiskiness(rgb, W, H, stride, nullptr);
   }
 
   Encoder* enc = nullptr;
   if (yuv_mode == SJPEG_YUV_420) {
-    enc = new (std::nothrow) Encoder420(W, H, rgb, stride, sink, fmt);
+    enc = new (std::nothrow) Encoder420(W, H, rgb, stride, sink, fmt, memory);
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
-    enc = new (std::nothrow) EncoderSharp420(W, H, rgb, stride, sink);
+    enc = new (std::nothrow) EncoderSharp420(W, H, rgb, stride, sink, memory);
   } else if (yuv_mode == SJPEG_YUV_444) {
-    enc = new (std::nothrow) Encoder444(W, H, rgb, stride, sink, fmt);
+    enc = new (std::nothrow) Encoder444(W, H, rgb, stride, sink, fmt, memory);
   } else if (yuv_mode == SJPEG_YUV_400) {
-    enc = new (std::nothrow) Encoder400(W, H, rgb, stride, sink, fmt);
+    enc = new (std::nothrow) Encoder400(W, H, rgb, stride, sink, fmt, memory);
   }
   if (enc == nullptr || !enc->Ok()) {
     delete enc;
@@ -2404,7 +2414,8 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
     if (!search_hook_->Setup(param)) return false;
   }
 
-  memory_hook_ = (param.memory == nullptr) ? &kDefaultMemory : param.memory;
+  assert(memory_hook_ == (param.memory == nullptr ? &kDefaultMemory
+                                                  : param.memory));
   return true;
 }
 
@@ -2414,7 +2425,8 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
   if (width <= 0 || height <= 0 || std::abs(stride) < 3 * width) return false;
 
   Encoder* const enc = EncoderFactory(rgb, width, height, stride,
-                                      param.yuv_mode, sink);
+                                      param.yuv_mode, sink, kRGBInput,
+                                      param.memory);
   return FinishEncoding(enc, param);
 }
 
@@ -2449,8 +2461,8 @@ bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
     }
     return Encode(rgb.get(), width, height, rgb_stride, param, sink);
   }
-  Encoder* const enc =
-      EncoderFactory(bgra, width, height, stride, mode, sink, kBGRAInput);
+  Encoder* const enc = EncoderFactory(bgra, width, height, stride, mode, sink,
+                                      kBGRAInput, param.memory);
   return FinishEncoding(enc, param);
 }
 
@@ -2476,8 +2488,8 @@ bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
     }
     return Encode(rgb.get(), width, height, rgb_stride, param, sink);
   }
-  Encoder* const enc =
-      EncoderFactory(rgba, width, height, stride, mode, sink, kRGBAInput);
+  Encoder* const enc = EncoderFactory(rgba, width, height, stride, mode, sink,
+                                      kRGBAInput, param.memory);
   return FinishEncoding(enc, param);
 }
 
@@ -2486,8 +2498,9 @@ bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
   if (gray == nullptr || sink == nullptr) return false;
   if (width <= 0 || height <= 0 || std::abs(stride) < width) return false;
 
-  Encoder* const enc =
-      new (std::nothrow) Encoder400G(width, height, gray, stride, sink);
+  Encoder* const enc = new (std::nothrow) Encoder400G(width, height, gray,
+                                                      stride, sink,
+                                                      param.memory);
   return FinishEncoding(enc, param);
 }
 

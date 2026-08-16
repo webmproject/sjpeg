@@ -251,6 +251,53 @@ TEST(EncodeNV) {
                            param, nullptr));
 }
 
+// Records every block it hands out, and refuses to release a pointer that
+// doesn't come from it.
+class TrackingMemory : public sjpeg::MemoryManager {
+ public:
+  virtual ~TrackingMemory() {}
+  virtual void* Alloc(size_t size) {
+    void* const ptr = malloc(size);
+    if (ptr != nullptr) {
+      ++num_allocs;
+      live.push_back(ptr);
+    }
+    return ptr;
+  }
+  virtual void Free(void* const ptr) {
+    if (ptr == nullptr) return;
+    for (size_t i = 0; i < live.size(); ++i) {
+      if (live[i] == ptr) {
+        live.erase(live.begin() + i);
+        free(ptr);
+        return;
+      }
+    }
+    ++num_foreign_frees;   // not ours: releasing it would corrupt the heap
+  }
+  int num_allocs = 0;
+  int num_foreign_frees = 0;
+  std::vector<void*> live;
+};
+
+TEST(MemoryManager) {
+  const int kWidth = 40, kHeight = 24;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  const SjpegYUVMode kModes[] = { SJPEG_YUV_420, SJPEG_YUV_SHARP,
+                                  SJPEG_YUV_444, SJPEG_YUV_400 };
+  for (size_t m = 0; m < ARRAY_SIZE(kModes); ++m) {
+    TrackingMemory memory;
+    sjpeg::EncoderParam param(75.f);
+    param.yuv_mode = kModes[m];
+    param.memory = &memory;
+    std::string out;
+    CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    CHECK(memory.num_allocs > 0);          // it was used at all
+    CHECK(memory.num_foreign_frees == 0);  // and used for every free()
+    CHECK(memory.live.empty());            // no leak
+  }
+}
+
 TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
