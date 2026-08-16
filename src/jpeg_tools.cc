@@ -31,16 +31,17 @@ namespace {
 // the passed JPEG buffer. It assumes the streams starts wih an SOI marker,
 // like any valid JPEG should. Returned value points to the beginning of the
 // marker and is guarantied to contain a least 8 bytes of valid data.
-const uint8_t* GetSOFData(const uint8_t* src, int size) {
-  if (src == nullptr) return nullptr;
-  const uint8_t* const end = src + size - 8;   // 8 bytes of safety, for marker
-  src += 2;   // skip M_SOI
-  for (; src < end && *src != 0xff; ++src) { /* search first 0xff marker */ }
-  while (src < end) {
-    const uint32_t marker = static_cast<uint32_t>((src[0] << 8) | src[1]);
-    if (marker == M_SOF0 || marker == M_SOF1) return src;
-    const size_t s = 2 + ((src[2] << 8) | src[3]);
-    src += s;
+// Positions are used instead of pointers, to never build one past the end.
+const uint8_t* GetSOFData(const uint8_t* src, size_t size) {
+  if (src == nullptr || size < 2 + 8) return nullptr;
+  const size_t end = size - 8;   // 8 bytes of safety, for the marker
+  size_t pos = 2;   // skip M_SOI
+  while (pos < end && src[pos] != 0xff) { ++pos; }  // search first 0xff marker
+  while (pos < end) {
+    const uint32_t marker =
+        static_cast<uint32_t>((src[pos] << 8) | src[pos + 1]);
+    if (marker == M_SOF0 || marker == M_SOF1) return src + pos;
+    pos += 2 + ((src[pos + 2] << 8) | src[pos + 3]);
   }
   return nullptr;  // No SOF marker found
 }
@@ -48,10 +49,10 @@ const uint8_t* GetSOFData(const uint8_t* src, int size) {
 
 bool SjpegDimensions(const uint8_t* src0, size_t size,
                      int* width, int* height, int* is_yuv420) {
-  if (width == nullptr || height == nullptr) return false;
-  const uint8_t* src = GetSOFData(src0, size);
-  const size_t left_over = size - (src - src0);
-  if (src == nullptr || left_over < 8 + 3 * 1) return false;
+  const uint8_t* const src = GetSOFData(src0, size);
+  if (src == nullptr) return false;
+  const size_t left_over = size - static_cast<size_t>(src - src0);
+  if (left_over < 8 + 3 * 1) return false;
   if (height != nullptr) *height = (src[5] << 8) | src[6];
   if (width != nullptr) *width = (src[7] << 8) | src[8];
   if (is_yuv420 != nullptr) {
