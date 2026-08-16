@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <memory>
+#include <mutex>  // NOLINT
 #include <vector>
 using std::vector;
 
@@ -111,9 +112,9 @@ static uint32_t kLinearToGammaTab[GAMMA_TABLE_SIZE + 2];
 static uint32_t kGammaToLinearTab[MAX_Y_T + 1];   // size scales with Y_FIX
 
 static void InitGammaTablesF() {
-  static bool done = false;
+  static std::once_flag once;
   assert(2 * GAMMA_TO_LINEAR_BITS < 32);  // we use uint32_t intermediate values
-  if (!done) {
+  std::call_once(once, []() {
     int v;
     const double norm = 1. / MAX_Y_T;
     const double scale = 1. / GAMMA_TABLE_SIZE;
@@ -148,8 +149,7 @@ static void InitGammaTablesF() {
     // to prevent small rounding errors to cause read-overflow:
     kLinearToGammaTab[GAMMA_TABLE_SIZE + 1] =
         kLinearToGammaTab[GAMMA_TABLE_SIZE];
-    done = true;
-  }
+  });
 }
 
 // return value has a fixed-point precision of GAMMA_TO_LINEAR_BITS
@@ -408,8 +408,8 @@ static void (*kSharpFilterRow)(const int16_t* A, const int16_t* B,
                                int len, const uint16_t* best_y, uint16_t* out);
 
 static void InitFunctionPointers() {
-  static bool done = false;
-  if (!done) {
+  static std::once_flag once;
+  std::call_once(once, []() {
     kSharpUpdateY = SharpUpdateY_C;
     kSharpUpdateRGB = SharpUpdateRGB_C;
     kSharpFilterRow = SharpFilterRow_C;
@@ -427,8 +427,7 @@ static void InitFunctionPointers() {
       kSharpFilterRow = SharpFilterRow_NEON;
     }
 #endif
-    done = true;
-  }
+  });
 }
 
 //------------------------------------------------------------------------------
