@@ -2154,7 +2154,7 @@ class EncoderYUV420 : public Encoder {
     if (clipped) {
       const int sub_w = ((W_ + 1) >> 1) - mb_x * 8;
       const int sub_h = ((H_ + 1) >> 1) - mb_y * 8;
-      Convert8To16bClipped(U, v_step_, out + 4 * 64, sub_w, sub_h);
+      Convert8To16bClipped(U, u_step_, out + 4 * 64, sub_w, sub_h);
       Convert8To16bClipped(V, v_step_, out + 5 * 64, sub_w, sub_h);
     } else {
       Convert8To16b(U, u_step_, out + 4 * 64);
