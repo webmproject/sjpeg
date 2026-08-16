@@ -245,7 +245,7 @@ int YUVToRiskIdx(int16_t y, int16_t u, int16_t v) {
 
 // return riskiness score on an 8x8 block. Input is YUV444 block
 // of DCT coefficients (Y/U/V).
-double DCTRiskinessScore(const int16_t yuv[3 * 8], int16_t scores[8 * 8]) {
+double DCTRiskinessScore(const int16_t yuv[3 * 64], int16_t scores[8 * 8]) {
   uint16_t idx[64];
   for (int k = 0; k < 64; ++k) {
     idx[k] = YUVToRiskIdx(yuv[k + 0 * 64], yuv[k + 1 * 64],  yuv[k + 2 * 64]);

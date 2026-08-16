@@ -485,6 +485,26 @@ TEST(SinkFailure) {
   CHECK(seen_success);
 }
 
+TEST(CompressionMethod) {
+  const int kWidth = 48, kHeight = 32;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  std::string out[11];
+  for (int method = -1; method <= 9; ++method) {
+    uint8_t* data = nullptr;
+    const size_t size = SjpegEncode(&rgb[0], kWidth, kHeight, 3 * kWidth,
+                                    &data, 76.f, method, SJPEG_YUV_420);
+    CHECK(size > 0 && data != nullptr);
+    if (data != nullptr) {
+      out[method + 1].assign(reinterpret_cast<const char*>(data), size);
+      CHECK(HasSize(out[method + 1], kWidth, kHeight));
+    }
+    SjpegFreeBuffer(data);
+  }
+  // methods outside of [0..8] are clamped to the nearest valid one
+  CHECK(out[0] == out[1]);     // -1 -> 0
+  CHECK(out[10] == out[9]);    //  9 -> 8
+}
+
 TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {

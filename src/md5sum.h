@@ -19,6 +19,7 @@
 #ifndef SJPEG_MD5SUM_H_
 #define SJPEG_MD5SUM_H_
 
+#include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <string>
