@@ -1678,7 +1678,9 @@ bool Encoder::Encode() {
   assert(nb_comps_ <= MAX_COMP);
   assert(mcu_blocks_ <= 6);
   // validate some input parameters
-  if (W_ <= 0 || H_ <= 0) return false;
+  if (W_ <= 0 || H_ <= 0 || W_ > kMaxDimension || H_ > kMaxDimension) {
+    return SetError();
+  }
 
   mb_w_ = (W_ + (block_w_ - 1)) / block_w_;
   mb_h_ = (H_ + (block_h_ - 1)) / block_h_;

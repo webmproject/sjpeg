@@ -298,6 +298,26 @@ TEST(MemoryManager) {
   }
 }
 
+// Dimensions are stored on 16 bits in the SOF marker. Anything larger must be
+// refused rather than silently truncated.
+TEST(LargeDimensions) {
+  const int kMaxDim = 0xffff, kSmallDim = 2;
+  const std::vector<uint8_t> rgb(
+      3 * static_cast<size_t>(kMaxDim + 1) * kSmallDim, 0x80);
+  const sjpeg::EncoderParam param(50.f);
+  std::string out;
+  CHECK(EncodeRGB(rgb, kMaxDim, kSmallDim, param, &out));
+  CHECK(HasSize(out, kMaxDim, kSmallDim));
+  CHECK(!EncodeRGB(rgb, kMaxDim + 1, kSmallDim, param, &out));
+  CHECK(!EncodeRGB(rgb, kSmallDim, kMaxDim + 1, param, &out));
+  CHECK(!sjpeg::EncodeGray(&rgb[0], kMaxDim + 1, kSmallDim, kMaxDim + 1,
+                           param, &out));
+  uint8_t* data = nullptr;
+  CHECK(SjpegEncode(&rgb[0], kMaxDim + 1, kSmallDim, 3 * (kMaxDim + 1), &data,
+                    50.f, 4, SJPEG_YUV_420) == 0);
+  CHECK(data == nullptr);
+}
+
 TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
