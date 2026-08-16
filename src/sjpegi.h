@@ -209,7 +209,10 @@ struct Histo {
 
 struct Encoder {
  public:
-  Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* sink);
+  // 'memory' can be null (default manager). It is passed at construction,
+  // and not later, because sub-classes can allocate in their constructor.
+  Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* sink,
+          MemoryManager* memory);
   virtual ~Encoder();
   bool Ok() const { return ok_; }
 
