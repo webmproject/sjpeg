@@ -1976,11 +1976,7 @@ class EncoderNV12 final : public Encoder {
               int W, int H, ByteSink* const sink, bool is_nv12)
       : Encoder(SJPEG_YUV_420, W, H, sink),
         y_(y), y_step_(y_step), uv_(uv), uv_step_(uv_step), is_nv12_(is_nv12) {
-    ok_ = (y_ != nullptr) && (uv_ != nullptr) &&
-          (W > 0) && (H > 0) &&
-          (std::abs(y_step) >= W) &&
-          (std::abs(uv_step) >= (W + 1) / 2) &&
-          (sink != nullptr);
+    assert(sink != nullptr);
   }
 
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
@@ -2038,15 +2034,29 @@ class EncoderNV12 final : public Encoder {
   bool is_nv12_;
 };
 
+// Common implementation for NV12 (U/V/U/V...) and NV21 (V/U/V/U...).
+// Arguments are checked here: the base class uses 'output' at construction.
+static bool EncodeNV(const uint8_t* y, int y_stride,
+                     const uint8_t* uv, int uv_stride,
+                     int width, int height, bool is_nv12,
+                     const EncoderParam& param, ByteSink* output) {
+  if (y == nullptr || uv == nullptr || output == nullptr) return false;
+  if (width <= 0 || height <= 0) return false;
+  if (std::abs(y_stride) < width) return false;
+  if (std::abs(uv_stride) < 2 * ((width + 1) / 2)) return false;
+  Encoder* const enc =
+      new (std::nothrow) EncoderNV12(y, y_stride, uv, uv_stride,
+                                     width, height, output, is_nv12);
+  return FinishEncoding(enc, param);
+}
+
 // Encode from NV12 samples, using YUV420 format
 bool EncodeNV12(const uint8_t* y, int y_stride,
                 const uint8_t* uv, int uv_stride,
                 int width, int height,
                 const EncoderParam& param, ByteSink* output) {
-  Encoder* const enc =
-      new (std::nothrow) EncoderNV12(y, y_stride, uv, uv_stride,
-                                     width, height, output, true);
-  return FinishEncoding(enc, param);
+  return EncodeNV(y, y_stride, uv, uv_stride, width, height, true,
+                  param, output);
 }
 
 // Encode from NV21 samples, using YUV420 format
@@ -2054,10 +2064,8 @@ bool EncodeNV21(const uint8_t* y, int y_stride,
                 const uint8_t* vu, int vu_stride,
                 int width, int height,
                 const EncoderParam& param, ByteSink* output) {
-  Encoder* const enc =
-      new (std::nothrow) EncoderNV12(y, y_stride, vu, vu_stride,
-                                     width, height, output, false);
-  return FinishEncoding(enc, param);
+  return EncodeNV(y, y_stride, vu, vu_stride, width, height, false,
+                  param, output);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
