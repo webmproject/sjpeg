@@ -215,7 +215,7 @@ size_t Encoder::HeaderSize() const {
       size += (xmp_.size() / 65458 + 1) * 40;
     }
   }
-  size += 2 * 65 + 2 + 2;         // DQT
+  size += (nb_comps_ == 1 ? 1 : 2) * 65 + 2 + 2;  // DQT
   size += 8 + 3 * nb_comps_ + 2;  // SOF
   size += 6 + 2 * nb_comps_ + 2;  // SOS
   size += 2;                      // EOI
