@@ -151,6 +151,12 @@ TEST(InvalidArguments) {
   CHECK(enc(&rgb[0], kWidth, -1, 3 * kWidth, &data, SJPEG_YUV_420) == 0);
   CHECK(enc(&rgb[0], kWidth, kHeight, 3 * kWidth - 1, &data,
             SJPEG_YUV_420) == 0);
+
+  // unknown yuv_mode: no encoder can be created for it. 7 is the largest
+  // value the enum can hold without being out of range.
+  CHECK(enc(&rgb[0], kWidth, kHeight, 3 * kWidth,
+            &data, static_cast<SjpegYUVMode>(7)) == 0);
+  CHECK(data == nullptr);
   const sjpeg::EncoderParam param;
   std::string out;
   CHECK(!sjpeg::Encode(nullptr, kWidth, kHeight, 3 * kWidth, param, &out));
