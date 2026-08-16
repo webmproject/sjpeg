@@ -2260,10 +2260,10 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
   MemorySink sink(width * height / 4);
   Encoder* const enc = EncoderFactory(rgb, width, height, stride, yuv_mode,
                                       &sink);
+  if (enc == nullptr) return 0;
   enc->SetQuality(quality);
   enc->SetCompressionMethod(method);
   size_t size = 0;
-  *out_data = nullptr;
   if (enc->Encode()) sink.Release(out_data, &size);
   delete enc;
   return size;
