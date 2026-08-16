@@ -88,7 +88,7 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   nb_run_levels_ = 0;
   int16_t* in = in_blocks_;
   for (int n = 0; n < mb_w_ * mb_h_; ++n) {
-    CheckBuffers();
+    if (!CheckBuffers()) return;
     for (int c = 0; c < nb_comps_; ++c) {
       for (int i = 0; i < nb_blocks_[c]; ++i) {
         RunLevel* const run_levels = all_run_levels_ + nb_run_levels_;
@@ -139,6 +139,7 @@ void Encoder::LoopScan() {
     if (search_hook_->for_size) {
       // compute pass to store coeffs / runs / dc_code_
       StoreRunLevels(base_coeffs);
+      if (!ok_) break;
       if (optimize_size_) {
         StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
         if (use_trellis_) InitCodes(true);
@@ -176,18 +177,19 @@ void Encoder::LoopScan() {
   // optimize Huffman table now, if we haven't already during the search
   if (!search_hook_->for_size || !last_is_best) {
     StoreRunLevels(base_coeffs);
-    if (optimize_size_) {
+    if (ok_ && optimize_size_) {
       StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
     }
   }
 
   // finish bitstream
-  WriteDQT();
-  WriteSOF();
-  WriteDHT();
-  WriteSOS();
-  FinalPassScan(nb_mbs, base_coeffs);
-
+  if (ok_) {
+    WriteDQT();
+    WriteSOF();
+    WriteDHT();
+    WriteSOS();
+    FinalPassScan(nb_mbs, base_coeffs);
+  }
   Free(base_coeffs);
 }
 

@@ -318,6 +318,51 @@ TEST(LargeDimensions) {
   CHECK(data == nullptr);
 }
 
+// Refuses to allocate after the first 'num_ok' calls.
+class FailingMemory : public TrackingMemory {
+ public:
+  explicit FailingMemory(int num_ok) : num_ok_(num_ok) {}
+  virtual ~FailingMemory() {}
+  virtual void* Alloc(size_t size) {
+    if (num_ok_ <= 0) {
+      ++num_refused;
+      return nullptr;
+    }
+    --num_ok_;
+    return TrackingMemory::Alloc(size);
+  }
+  int num_refused = 0;
+
+ private:
+  int num_ok_;
+};
+
+// An allocation failure must be reported, whatever the stage it occurs at,
+// without crashing and without leaking.
+TEST(AllocationFailure) {
+  const int kWidth = 51, kHeight = 33;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  const struct { sjpeg::EncoderParam::TargetMode mode; float value; } kTargets[]
+      = { { sjpeg::EncoderParam::TARGET_NONE, 0.f },
+          { sjpeg::EncoderParam::TARGET_SIZE, 2000.f },
+          { sjpeg::EncoderParam::TARGET_PSNR, 38.f } };
+  for (size_t t = 0; t < ARRAY_SIZE(kTargets); ++t) {
+    for (int num_ok = 0; num_ok < 8; ++num_ok) {
+      FailingMemory memory(num_ok);
+      sjpeg::EncoderParam param(80.f);
+      param.yuv_mode = SJPEG_YUV_420;
+      param.memory = &memory;
+      param.target_mode = kTargets[t].mode;
+      param.target_value = kTargets[t].value;
+      if (t > 0) param.passes = 5;
+      std::string out;
+      const bool ok = EncodeRGB(rgb, kWidth, kHeight, param, &out);
+      CHECK(ok == (memory.num_refused == 0));
+      CHECK(memory.live.empty());
+    }
+  }
+}
+
 TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
