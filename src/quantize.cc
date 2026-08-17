@@ -42,7 +42,9 @@ const uint8_t kZigzag[64] = {
 
 // Inverse of kZigzag: maps a natural coefficient index to its zig-zag scan
 // position (kInvZigzag[kZigzag[i]] == i). Used by the SIMD run-length emitters
-// to turn a natural-order non-zero bitmask into a zig-zag-ordered one.
+// to turn a natural-order non-zero bitmask into a zig-zag-ordered one -- which
+// is exactly what SJPEG_USE_ZIGZAG_PERMUTE makes unnecessary.
+#if !SJPEG_USE_ZIGZAG_PERMUTE || defined(SJPEG_USE_SSE2)
 static const uint8_t kInvZigzag[64] = {
   0,   1,  5,  6, 14, 15, 27, 28,
   2,   4,  7, 13, 16, 26, 29, 42,
@@ -53,6 +55,7 @@ static const uint8_t kInvZigzag[64] = {
   21, 34, 37, 47, 50, 56, 59, 61,
   35, 36, 48, 49, 57, 58, 62, 63,
 };
+#endif
 
 const uint8_t kDefaultMatrices[2][64] = {
   // these are the default luma/chroma matrices (JPEG spec section K.1)
@@ -145,6 +148,16 @@ void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
     assert(QUANTIZE(qthresh, iquant, ibias) > 0);
     assert(QUANTIZE(qthresh - 1, iquant, ibias) == 0);
   }
+#if SJPEG_USE_ZIGZAG_PERMUTE
+  // Same two matrices, permuted once here so that QuantizeBlock() can work
+  // directly in scan order. 64 entries per matrix change, against 64 per
+  // block otherwise.
+  for (size_t i = 0; i < 64; ++i) {
+    const int j = kZigzag[i];
+    q->iquant_zz_[i] = q->iquant_[j];
+    q->bias_zz_[i] = q->bias_[j];
+  }
+#endif
 }
 
 void Encoder::SetCostCodes(int idx) {
@@ -217,23 +230,66 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
 #undef STORE_16
 
 #elif defined(SJPEG_USE_NEON)
+
+#if SJPEG_USE_ZIGZAG_PERMUTE
+// Byte indices into the 128 bytes of in[], one 16-byte vector per group of
+// eight coefficients: entry [k][2t], [k][2t+1] are the two bytes of the
+// coefficient at zig-zag position 8k+t, that is 2*kZigzag[8k+t] and +1.
+static const uint8_t kZigzagBytes[8][16] = {
+  {   0,   1,   2,   3,  16,  17,  32,  33,  18,  19,   4,   5,   6,   7,  20,  21 },
+  {  34,  35,  48,  49,  64,  65,  50,  51,  36,  37,  22,  23,   8,   9,  10,  11 },
+  {  24,  25,  38,  39,  52,  53,  66,  67,  80,  81,  96,  97,  82,  83,  68,  69 },
+  {  54,  55,  40,  41,  26,  27,  12,  13,  14,  15,  28,  29,  42,  43,  56,  57 },
+  {  70,  71,  84,  85,  98,  99, 112, 113, 114, 115, 100, 101,  86,  87,  72,  73 },
+  {  58,  59,  44,  45,  30,  31,  46,  47,  60,  61,  74,  75,  88,  89, 102, 103 },
+  { 116, 117, 118, 119, 104, 105,  90,  91,  76,  77,  62,  63,  78,  79,  92,  93 },
+  { 106, 107, 120, 121, 122, 123, 108, 109,  94,  95, 110, 111, 124, 125, 126, 127 },
+};
+#endif    // SJPEG_USE_ZIGZAG_PERMUTE
+
 static int QuantizeBlockNEON(const int16_t in[64], int idx,
                              const Quantizer* const Q,
                              DCTCoeffs* const out, RunLevel* const rl) {
+#if SJPEG_USE_ZIGZAG_PERMUTE
+  const uint16_t* const bias = Q->bias_zz_;
+  const uint16_t* const iquant = Q->iquant_zz_;
+#else
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
+#endif
   int prev = 1;
   int nb = 0;
   uint16_t tmp[64], masked[64];
-  uint64_t nzn = 0;  // natural-order non-zero mask: bit j set iff tmp[j] != 0.
+  // Non-zero mask, one bit per coefficient, in the same order as tmp[]:
+  // zig-zag when we permute the input, natural order otherwise.
+  uint64_t nzn = 0;
   // Per-lane bit weights, used to turn a NEON compare result into a bitmask
   // (NEON has no movemask instruction).
   static const uint16_t kBitWeights[8] = {1, 2, 4, 8, 16, 32, 64, 128};
   const uint16x8_t weights = vld1q_u16(kBitWeights);
+#if SJPEG_USE_ZIGZAG_PERMUTE
+  // The whole block as two 64-byte tables, so that one vqtbl4q_u8 pair can
+  // gather any eight coefficients. Out-of-range indices return zero, which is
+  // what makes the two halves OR together cleanly.
+  const uint8_t* const src = reinterpret_cast<const uint8_t*>(in);
+  uint8x16x4_t t_lo, t_hi;
+  for (int i = 0; i < 4; ++i) {
+    t_lo.val[i] = vld1q_u8(src + 16 * i);
+    t_hi.val[i] = vld1q_u8(src + 16 * i + 64);
+  }
+  const uint8x16_t k64 = vdupq_n_u8(64);
+#endif
   for (int i = 0; i < 64; i += 8) {
     const uint16x8_t m_bias = vld1q_u16(bias + i);
     const uint16x8_t m_mult = vld1q_u16(iquant + i);
+#if SJPEG_USE_ZIGZAG_PERMUTE
+    const uint8x16_t shuf = vld1q_u8(kZigzagBytes[i >> 3]);
+    const int16x8_t A =                                    // in[kZigzag[i]]
+        vreinterpretq_s16_u8(vorrq_u8(vqtbl4q_u8(t_lo, shuf),
+                                      vqtbl4q_u8(t_hi, vsubq_u8(shuf, k64))));
+#else
     const int16x8_t A = vld1q_s16(in + i);                           // in[i]
+#endif
     const uint16x8_t B = vreinterpretq_u16_s16(vabsq_s16(A));        // abs(in)
     const int16x8_t sign = vshrq_n_s16(A, 15);                       // sign
     const uint16x8_t C = vaddq_u16(B, m_bias);                       // + bias
@@ -259,17 +315,27 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
 #endif
     nzn |= static_cast<uint64_t>(m8) << i;
   }
-  // Emit run/level entries. Remap the non-zero AC set (drop DC = bit 0) from
-  // natural to zig-zag order, then iterate set bits with 'ctz' so we touch only
+  // Emit run/level entries, iterating the set bits with 'ctz' so we touch only
   // the (few) non-zero coefficients: the classic zig-zag scan without the
   // data-dependent per-coefficient branch. Output is bit-identical.
+#if SJPEG_USE_ZIGZAG_PERMUTE
+  // tmp[] and masked[] are in scan order already, so the mask is the scan
+  // (bit 0 is the DC, which is coded separately).
+  const uint64_t zz = nzn & ~1ull;
+#else
+  // Remap the non-zero AC set from natural to zig-zag order first.
   uint64_t zz = 0;
   for (uint64_t b = nzn & ~1ull; b != 0; b &= b - 1) {
     zz |= 1ull << kInvZigzag[TrailingZeros64(b)];
   }
+#endif
   for (uint64_t b = zz; b != 0; b &= b - 1) {
     const int i = static_cast<int>(TrailingZeros64(b));
+#if SJPEG_USE_ZIGZAG_PERMUTE
+    const int j = i;
+#else
     const int j = kZigzag[i];
+#endif
     const int n = CalcLog2(tmp[j]);
     const uint16_t code = masked[j] & ((1 << n) - 1);
     rl[nb].level_ = (code << 4) | n;
@@ -277,7 +343,7 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
     prev = i + 1;
     ++nb;
   }
-  const int dc = (in[0] < 0) ? -tmp[0] : tmp[0];
+  const int dc = (in[0] < 0) ? -tmp[0] : tmp[0];   // zig-zag 0 == natural 0
   out->idx_ = idx;
   out->last_ = prev - 1;
   out->nb_coeffs_ = nb;
