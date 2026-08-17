@@ -140,6 +140,75 @@ extern void SetQuantMatrix(const uint8_t in[64], float q_factor,
                            uint8_t out[64]);
 extern void SetMinQuantMatrix(const uint8_t* const m, uint8_t out[64],
                               int tolerance);
+extern void SetDefaultMinQuantMatrix(uint8_t out[64]);
+
+////////////////////////////////////////////////////////////////////////////////
+// Shared by files enc.cc was split into. Everything else in those files is
+// either a member of Encoder (already declared below) or file-local.
+
+// Encoder defaults. Also read by EncoderParam, hence not file-local.
+extern const float kDefaultQuality;
+extern const int kDefaultMethod;
+extern const int32_t kDefaultBias;         // rounding bias for AC coefficients
+extern const int kDefaultDeltaMaxLuma;     // for adaptive quantization
+extern const int kDefaultDeltaMaxChroma;
+
+// Manager used when the caller supplies none.
+extern MemoryManager* GetDefaultMemoryManager();
+
+// Fixed-point precisions: FP_BITS for the reciprocal dividers used in place of
+// a division, AC_BITS for the extra precision left over by the fdct's scaling.
+enum { FP_BITS = 16, AC_BITS = 4 };
+
+#if defined(__has_builtin)
+#define SJPEG_HAS_BUILTIN(x) __has_builtin(x)
+#else
+#define SJPEG_HAS_BUILTIN(x) 0
+#endif
+
+#if SJPEG_HAS_BUILTIN(__builtin_clz) || \
+    (defined(__GNUC__) && \
+     ((__GNUC__ == 3 && __GNUC_MINOR__ >= 4) || __GNUC__ >= 4))
+#define SJPEG_HAVE_CLZ
+#endif
+
+#if SJPEG_HAS_BUILTIN(__builtin_ctzll) || \
+    (defined(__GNUC__) && \
+     ((__GNUC__ == 3 && __GNUC_MINOR__ >= 4) || __GNUC__ >= 4))
+#define SJPEG_HAVE_CTZ
+#endif
+
+// Number of bits needed to code 'v' > 0, i.e. 1 + floor(log2(v)).
+static inline int CalcLog2(int v) {
+#if defined(SJPEG_HAVE_CLZ)
+  return 32 - __builtin_clz(v);
+#else
+  const int kLog2[16] = {
+    0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4 };
+  assert(v > 0 && v < (1 << 12));
+  return (v & ~0xff) ? 8 + kLog2[v >> 8] :
+         (v & ~0x0f) ? 4 + kLog2[v >> 4] :
+                       0 + kLog2[v];
+#endif
+}
+
+// Count trailing zeros of a non-zero 64-bit value.
+// 'x' must be non-zero.
+static inline int TrailingZeros64(uint64_t x) {
+#if defined(SJPEG_HAVE_CTZ)
+  return __builtin_ctzll(x);
+#else
+  int c = 63;
+  x &= ~x + 1;
+  if (x & 0x00000000FFFFFFFF) c -= 32;
+  if (x & 0x0000FFFF0000FFFF) c -= 16;
+  if (x & 0x00FF00FF00FF00FF) c -= 8;
+  if (x & 0x0F0F0F0F0F0F0F0F) c -= 4;
+  if (x & 0x3333333333333333) c -= 2;
+  if (x & 0x5555555555555555) c -= 1;
+  return c;
+#endif
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // main structs
@@ -268,6 +337,9 @@ struct Encoder {
 
   // collect transformed coeffs (unquantized) only
   void CollectCoeffs();
+
+  // points Huffman_tables_[] at the standard tables of JPEG section K.3
+  void SetDefaultHuffmanTables();
 
   // 2-pass Huffman optimizing scan
   void ResetEntropyStats();
@@ -449,6 +521,24 @@ struct Encoder {
   static void (*fDCT_)(int16_t* in, int num_blocks);
   static void InitializeStaticPointers();
 };
+
+////////////////////////////////////////////////////////////////////////////////
+// Defined in encoders.cc, used by the public entry points in api.cc.
+
+// Returns the Encoder sub-class matching 'yuv_mode' (resolving SJPEG_YUV_AUTO
+// along the way), or null if it could not be constructed.
+extern Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
+                               SjpegYUVMode yuv_mode, ByteSink* const sink,
+                               PixelFormat fmt = kRGBInput,
+                               MemoryManager* const memory = nullptr);
+
+// Same, for a single-channel (4:0:0) input.
+extern Encoder* GrayEncoderFactory(const uint8_t* gray, int W, int H,
+                                   int stride, ByteSink* const sink,
+                                   MemoryManager* const memory = nullptr);
+
+// Encodes with 'enc' and destroys it, tolerating a null 'enc'.
+extern bool FinishEncoding(Encoder* const enc, const EncoderParam& param);
 
 ////////////////////////////////////////////////////////////////////////////////
 
