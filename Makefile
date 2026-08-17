@@ -142,6 +142,8 @@ $(OUT_EXAMPLES):
 
 tests/unit_test: tests/unit_test.o
 tests/unit_test: src/libsjpeg.a
+# the tests encode from several threads at once
+tests/unit_test: EXTRA_LIBS += -lpthread
 
 $(OUT_TESTS):
 	$(CXX) -o $@ $^ $(LDFLAGS)

@@ -203,7 +203,10 @@ endif()
 if(SJPEG_BUILD_TESTS)
   enable_testing()
   add_executable(unit_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/unit_test.cc)
-  target_link_libraries(unit_test sjpeg)
+  # the tests encode from several threads at once
+  set(THREADS_PREFER_PTHREAD_FLAG ON)
+  find_package(Threads REQUIRED)
+  target_link_libraries(unit_test sjpeg Threads::Threads)
   add_test(NAME unit_test COMMAND unit_test)
 endif()
 

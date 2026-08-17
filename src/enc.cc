@@ -21,11 +21,15 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>  // for memcpy / memset
 
 #include <cstdlib>
 #include <memory>
 #include <mutex>  // NOLINT
 #include <new>
+#include <string>
+
+#include "bit_writer.h"
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
@@ -2216,13 +2220,15 @@ class EncoderSharp420 final : public EncoderYUV420 {
         yuv_memory_(nullptr) {
     const int uv_w = (W + 1) >> 1;
     const int uv_h = (H + 1) >> 1;
-    yuv_memory_ = Alloc<uint8_t>(W * H + 2 * uv_w * uv_h);
+    const size_t y_size = (size_t)W * H;
+    const size_t uv_size = (size_t)uv_w * uv_h;
+    yuv_memory_ = Alloc<uint8_t>(y_size + 2 * uv_size);
     ok_ = (yuv_memory_ != nullptr);
     if (ok_) {
       y_ = yuv_memory_;
       y_step_ = W;
-      u_ = yuv_memory_ + W * H;
-      v_ = u_ + uv_w * uv_h;
+      u_ = yuv_memory_ + y_size;
+      v_ = u_ + uv_size;
       u_step_ = uv_w;
       v_step_ = uv_w;
       ApplySharpYUVConversion(rgb, W, H, step,
@@ -2277,7 +2283,7 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
   if (width <= 0 || height <= 0 || std::abs(stride) < 3 * width) return 0;
   *out_data = nullptr;  // safety
 
-  MemorySink sink(width * height / 4);
+  MemorySink sink((size_t)width * height / 4);
   Encoder* const enc = EncoderFactory(rgb, width, height, stride, yuv_mode,
                                       &sink);
   if (enc == nullptr) return 0;
@@ -2434,7 +2440,7 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
 
 size_t Encode(const uint8_t* rgb, int width, int height, int stride,
               const EncoderParam& param, uint8_t** out_data) {
-  MemorySink sink(width * height / 4);    // estimation of output size
+  MemorySink sink((size_t)width * height / 4);    // estimation of output size
   if (!Encode(rgb, width, height, stride, param, &sink)) return 0;
   size_t size;
   sink.Release(out_data, &size);
@@ -2513,7 +2519,7 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
             const EncoderParam& param, std::string* output) {
   if (output == nullptr) return false;
   output->clear();
-  output->reserve(width * height / 4);
+  output->reserve((size_t)width * height / 4);
   StringSink sink(output);
   return Encode(rgb, width, height, stride, param, &sink);
 }
@@ -2540,7 +2546,7 @@ bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
                 const EncoderParam& param, std::string* output) {
   if (output == nullptr) return false;
   output->clear();
-  output->reserve(width * height / 4);
+  output->reserve((size_t)width * height / 4);
   StringSink sink(output);
   return EncodeGray(gray, width, height, stride, param, &sink);
 }

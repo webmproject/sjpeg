@@ -15,11 +15,13 @@
 //  Unit tests for the library's API. Usage:
 //     ./unit_test [test-name]...
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <string>
+#include <thread>  // NOLINT
 #include <vector>
 
 #include "sjpeg.h"
@@ -93,7 +95,7 @@ std::vector<uint8_t> MakeRGB(int width, int height) {
 // Encodes a whole picture, with the packed stride.
 template<class T> bool EncodeRGB(const std::vector<uint8_t>& rgb, int W, int H,
                                  const sjpeg::EncoderParam& param, T* out) {
-  return sjpeg::Encode(&rgb[0], W, H, 3 * W, param, out);
+  return sjpeg::Encode(rgb.data(), W, H, 3 * W, param, out);
 }
 
 // True if the bitstream announces the expected dimensions.
@@ -105,11 +107,33 @@ bool HasSize(const std::string& jpg, int W, int H) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+// The sharp-YUV tables are built lazily: concurrent encoders must not race on
+// them, nor see one half-filled. Runs first, since they are only initialized
+// once per process and any earlier test would have done it already.
+TEST(Threads) {
+  const int W = 33, H = 21, kNumThreads = 8;
+  const std::vector<uint8_t> rgb = MakeRGB(W, H);
+  std::vector<std::string> out(kNumThreads);
+  std::vector<std::thread> threads;
+  for (int t = 0; t < kNumThreads; ++t) {
+    threads.push_back(std::thread([&, t]() {
+      sjpeg::EncoderParam param(72.f);
+      param.yuv_mode = SJPEG_YUV_SHARP;
+      sjpeg::Encode(rgb.data(), W, H, 3 * W, param, &out[t]);
+    }));
+  }
+  for (size_t t = 0; t < threads.size(); ++t) threads[t].join();
+  // same input, same parameters: the bitstreams must all be identical
+  for (int t = 0; t < kNumThreads; ++t) {
+    CHECK(!out[t].empty() && out[t] == out[0]);
+  }
+}
+
 TEST(Compress) {
   const int kWidth = 61, kHeight = 37;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   std::string out;
-  CHECK(SjpegCompress(&rgb[0], kWidth, kHeight, 75.f, &out));
+  CHECK(SjpegCompress(rgb.data(), kWidth, kHeight, 75.f, &out));
   CHECK(out.size() > 0);
   int width = 0, height = 0, is_yuv420 = -1;
   CHECK(SjpegDimensions(out, &width, &height, &is_yuv420));
@@ -146,15 +170,16 @@ TEST(InvalidArguments) {
     return SjpegEncode(src, W, H, stride, dst, 75.f, 4, mode);
   };
   CHECK(enc(nullptr, kWidth, kHeight, 3 * kWidth, &data, SJPEG_YUV_420) == 0);
-  CHECK(enc(&rgb[0], kWidth, kHeight, 3 * kWidth, nullptr, SJPEG_YUV_420) == 0);
-  CHECK(enc(&rgb[0], 0, kHeight, 3 * kWidth, &data, SJPEG_YUV_420) == 0);
-  CHECK(enc(&rgb[0], kWidth, -1, 3 * kWidth, &data, SJPEG_YUV_420) == 0);
-  CHECK(enc(&rgb[0], kWidth, kHeight, 3 * kWidth - 1, &data,
+  CHECK(enc(rgb.data(), kWidth, kHeight, 3 * kWidth, nullptr,
+            SJPEG_YUV_420) == 0);
+  CHECK(enc(rgb.data(), 0, kHeight, 3 * kWidth, &data, SJPEG_YUV_420) == 0);
+  CHECK(enc(rgb.data(), kWidth, -1, 3 * kWidth, &data, SJPEG_YUV_420) == 0);
+  CHECK(enc(rgb.data(), kWidth, kHeight, 3 * kWidth - 1, &data,
             SJPEG_YUV_420) == 0);
 
   // unknown yuv_mode: no encoder can be created for it. 7 is the largest
   // value the enum can hold without being out of range.
-  CHECK(enc(&rgb[0], kWidth, kHeight, 3 * kWidth,
+  CHECK(enc(rgb.data(), kWidth, kHeight, 3 * kWidth,
             &data, static_cast<SjpegYUVMode>(7)) == 0);
   CHECK(data == nullptr);
   const sjpeg::EncoderParam param;
@@ -194,10 +219,9 @@ typedef bool (*EncodeYUVFunc)(const uint8_t*, int, const uint8_t*, int,
 // The padding bytes of the U/V planes must never reach the output, whatever
 // the strides are. Dimensions are picked so that the last MCU row/column is
 // clipped, since that's where the samples are replicated.
-void CheckStrides(EncodeYUVFunc encode, int sub) {
-  const int kWidth = 20, kHeight = 20;
-  const int uv_w = (kWidth + sub - 1) / sub, uv_h = (kHeight + sub - 1) / sub;
-  const std::vector<uint8_t> Y = MakePlane(kWidth, kHeight, 20);
+void CheckStrides(EncodeYUVFunc encode, int sub, int width, int height) {
+  const int uv_w = (width + sub - 1) / sub, uv_h = (height + sub - 1) / sub;
+  const std::vector<uint8_t> Y = MakePlane(width, height, 20);
   const std::vector<uint8_t> U = MakePlane(uv_w, uv_h, 60);
   const std::vector<uint8_t> V = MakePlane(uv_w, uv_h, 140);
   const sjpeg::EncoderParam param(80.f);
@@ -208,16 +232,24 @@ void CheckStrides(EncodeYUVFunc encode, int sub) {
       const std::vector<uint8_t> u = WithStride(U, uv_w, uv_h, u_stride);
       const std::vector<uint8_t> v = WithStride(V, uv_w, uv_h, v_stride);
       std::string out;
-      CHECK(encode(&Y[0], kWidth, &u[0], u_stride, &v[0], v_stride,
-                   kWidth, kHeight, param, sjpeg::MakeByteSink(&out).get()));
+      CHECK(encode(Y.data(), width, u.data(), u_stride, v.data(), v_stride,
+                   width, height, param, sjpeg::MakeByteSink(&out).get()));
       if (ref.empty()) ref = out;
       CHECK(!out.empty() && out == ref);
     }
   }
 }
 
-TEST(EncodeYUV420Strides) { CheckStrides(&sjpeg::EncodeYUV420, 2); }
-TEST(EncodeYUV444Strides) { CheckStrides(&sjpeg::EncodeYUV444, 1); }
+// 17x13 is odd in both directions: the chroma planes have a half sample in
+// the last row and column, on top of the clipped MCU.
+TEST(EncodeYUV420Strides) {
+  CheckStrides(&sjpeg::EncodeYUV420, 2, 20, 20);
+  CheckStrides(&sjpeg::EncodeYUV420, 2, 17, 13);
+}
+TEST(EncodeYUV444Strides) {
+  CheckStrides(&sjpeg::EncodeYUV444, 1, 20, 20);
+  CheckStrides(&sjpeg::EncodeYUV444, 1, 17, 13);
+}
 
 TEST(EncodeNV) {
   const int kWidth = 18, kHeight = 14;
@@ -226,10 +258,12 @@ TEST(EncodeNV) {
   const std::vector<uint8_t> UV = MakePlane(uv_stride, uv_h, 90);
   const sjpeg::EncoderParam param(75.f);
   std::string out12, out21;
-  CHECK(sjpeg::EncodeNV12(&Y[0], kWidth, &UV[0], uv_stride, kWidth, kHeight,
-                          param, sjpeg::MakeByteSink(&out12).get()));
-  CHECK(sjpeg::EncodeNV21(&Y[0], kWidth, &UV[0], uv_stride, kWidth, kHeight,
-                          param, sjpeg::MakeByteSink(&out21).get()));
+  CHECK(sjpeg::EncodeNV12(Y.data(), kWidth, UV.data(), uv_stride,
+                          kWidth, kHeight, param,
+                          sjpeg::MakeByteSink(&out12).get()));
+  CHECK(sjpeg::EncodeNV21(Y.data(), kWidth, UV.data(), uv_stride,
+                          kWidth, kHeight, param,
+                          sjpeg::MakeByteSink(&out21).get()));
   CHECK(HasSize(out12, kWidth, kHeight));
   CHECK(out12 != out21);   // U and V are swapped
 
@@ -241,14 +275,69 @@ TEST(EncodeNV) {
                         int uv_step, int W, int H, sjpeg::ByteSink* s) {
     return sjpeg::EncodeNV12(y, y_step, uv, uv_step, W, H, param, s);
   };
-  CHECK(!nv12(&Y[0], kWidth, &UV[0], uv_stride, kWidth, kHeight, nullptr));
-  CHECK(!nv12(nullptr, kWidth, &UV[0], uv_stride, kWidth, kHeight, sink));
-  CHECK(!nv12(&Y[0], kWidth, nullptr, uv_stride, kWidth, kHeight, sink));
-  CHECK(!nv12(&Y[0], kWidth, &UV[0], uv_stride, 0, kHeight, sink));
-  CHECK(!nv12(&Y[0], kWidth - 1, &UV[0], uv_stride, kWidth, kHeight, sink));
-  CHECK(!nv12(&Y[0], kWidth, &UV[0], uv_stride - 1, kWidth, kHeight, sink));
-  CHECK(!sjpeg::EncodeNV21(&Y[0], kWidth, &UV[0], uv_stride, kWidth, kHeight,
-                           param, nullptr));
+  CHECK(!nv12(Y.data(), kWidth, UV.data(), uv_stride,
+              kWidth, kHeight, nullptr));
+  CHECK(!nv12(nullptr, kWidth, UV.data(), uv_stride, kWidth, kHeight, sink));
+  CHECK(!nv12(Y.data(), kWidth, nullptr, uv_stride, kWidth, kHeight, sink));
+  CHECK(!nv12(Y.data(), kWidth, UV.data(), uv_stride, 0, kHeight, sink));
+  CHECK(!nv12(Y.data(), kWidth - 1, UV.data(), uv_stride,
+              kWidth, kHeight, sink));
+  CHECK(!nv12(Y.data(), kWidth, UV.data(), uv_stride - 1,
+              kWidth, kHeight, sink));
+  CHECK(!sjpeg::EncodeNV21(Y.data(), kWidth, UV.data(), uv_stride,
+                           kWidth, kHeight, param, nullptr));
+}
+
+// Vertically flips 'height' rows of 'row_size' bytes.
+std::vector<uint8_t> Flip(const std::vector<uint8_t>& src, int row_size,
+                          int height) {
+  std::vector<uint8_t> dst(src.size());
+  for (int y = 0; y < height; ++y) {
+    memcpy(&dst[static_cast<size_t>(y) * row_size],
+           &src[static_cast<size_t>(height - 1 - y) * row_size], row_size);
+  }
+  return dst;
+}
+
+// Last row of 'p', to be paired with a negative stride.
+const uint8_t* Last(const std::vector<uint8_t>& p, int row_size, int height) {
+  return p.data() + static_cast<size_t>(height - 1) * row_size;
+}
+
+// Only |stride| is validated: a negative stride is legal, and describes a
+// bottom-up buffer. It must encode exactly like the flipped picture does with
+// a positive one. 17x13 is odd both ways, so the last MCU clips too.
+TEST(NegativeStrides) {
+  const int W = 17, H = 13, uv_w = (W + 1) / 2, uv_h = (H + 1) / 2;
+  const int uv_stride = 2 * uv_w;
+  const sjpeg::EncoderParam p(78.f);
+  const std::vector<uint8_t> rgb = MakeRGB(W, H), Y = MakePlane(W, H, 20);
+  const std::vector<uint8_t> U = MakePlane(uv_w, uv_h, 60);
+  const std::vector<uint8_t> V = MakePlane(uv_w, uv_h, 140);
+  const std::vector<uint8_t> UV = MakePlane(uv_stride, uv_h, 90);
+  std::string a, b;
+  const auto match = [&a, &b]() { CHECK(!a.empty() && a == b);
+                                  a.clear();
+                                  b.clear(); };
+  CHECK(EncodeRGB(Flip(rgb, 3 * W, H), W, H, p, &a));
+  CHECK(sjpeg::Encode(Last(rgb, 3 * W, H), W, H, -3 * W, p, &b));
+  match();
+
+  CHECK(sjpeg::EncodeYUV420(Flip(Y, W, H).data(), W,
+                            Flip(U, uv_w, uv_h).data(), uv_w,
+                            Flip(V, uv_w, uv_h).data(), uv_w, W, H, p,
+                            sjpeg::MakeByteSink(&a).get()));
+  CHECK(sjpeg::EncodeYUV420(Last(Y, W, H), -W, Last(U, uv_w, uv_h), -uv_w,
+                            Last(V, uv_w, uv_h), -uv_w, W, H, p,
+                            sjpeg::MakeByteSink(&b).get()));
+  match();
+
+  CHECK(sjpeg::EncodeNV12(Flip(Y, W, H).data(), W,
+                          Flip(UV, uv_stride, uv_h).data(), uv_stride, W, H, p,
+                          sjpeg::MakeByteSink(&a).get()));
+  CHECK(sjpeg::EncodeNV12(Last(Y, W, H), -W, Last(UV, uv_stride, uv_h),
+                          -uv_stride, W, H, p, sjpeg::MakeByteSink(&b).get()));
+  match();
 }
 
 // Records every block it hands out, and refuses to release a pointer that
@@ -310,11 +399,11 @@ TEST(LargeDimensions) {
   CHECK(HasSize(out, kMaxDim, kSmallDim));
   CHECK(!EncodeRGB(rgb, kMaxDim + 1, kSmallDim, param, &out));
   CHECK(!EncodeRGB(rgb, kSmallDim, kMaxDim + 1, param, &out));
-  CHECK(!sjpeg::EncodeGray(&rgb[0], kMaxDim + 1, kSmallDim, kMaxDim + 1,
+  CHECK(!sjpeg::EncodeGray(rgb.data(), kMaxDim + 1, kSmallDim, kMaxDim + 1,
                            param, &out));
   uint8_t* data = nullptr;
-  CHECK(SjpegEncode(&rgb[0], kMaxDim + 1, kSmallDim, 3 * (kMaxDim + 1), &data,
-                    50.f, 4, SJPEG_YUV_420) == 0);
+  CHECK(SjpegEncode(rgb.data(), kMaxDim + 1, kSmallDim, 3 * (kMaxDim + 1),
+                    &data, 50.f, 4, SJPEG_YUV_420) == 0);
   CHECK(data == nullptr);
 }
 
@@ -367,7 +456,7 @@ TEST(Dimensions) {
   const int kWidth = 35, kHeight = 19;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   std::string jpg;
-  CHECK(SjpegCompress(&rgb[0], kWidth, kHeight, 60.f, &jpg));
+  CHECK(SjpegCompress(rgb.data(), kWidth, kHeight, 60.f, &jpg));
   const uint8_t* const data = reinterpret_cast<const uint8_t*>(jpg.data());
   const size_t size = jpg.size();
 
@@ -409,14 +498,14 @@ TEST(Riskiness) {
     // a gray picture is detected as such, whatever its dimensions
     const std::vector<uint8_t> gray = MakeFlatRGB(size, size, 128, 128, 128);
     float risk = -1.f;
-    CHECK(SjpegRiskiness(&gray[0], size, size, 3 * size, &risk)
+    CHECK(SjpegRiskiness(gray.data(), size, size, 3 * size, &risk)
               == SJPEG_YUV_400);
     CHECK(risk >= 0.f && risk <= 100.f);
 
     // A flat but tinted picture is not gray either, even though its packed
     // y/u/v index sits close to the one of the gray level.
     const std::vector<uint8_t> tint = MakeFlatRGB(size, size, 140, 120, 90);
-    CHECK(SjpegRiskiness(&tint[0], size, size, 3 * size, nullptr)
+    CHECK(SjpegRiskiness(tint.data(), size, size, 3 * size, nullptr)
               != SJPEG_YUV_400);
 
     // and neither is a colored one
@@ -429,7 +518,7 @@ TEST(Riskiness) {
         p[2] = ((x ^ y) & 8) ? 20 : 220;
       }
     }
-    CHECK(SjpegRiskiness(&color[0], size, size, 3 * size, nullptr)
+    CHECK(SjpegRiskiness(color.data(), size, size, 3 * size, nullptr)
               != SJPEG_YUV_400);
   }
   // end to end: YUV_AUTO on a gray picture emits a single quantization matrix
@@ -441,6 +530,33 @@ TEST(Riskiness) {
   CHECK(EncodeRGB(gray, kWidth, kHeight, param, &out));
   uint8_t quant[2][64];
   CHECK(SjpegFindQuantizer(out, quant) == 1);
+}
+
+// TARGET_SIZE converges by comparing ComputeSize(), which adds HeaderSize(),
+// against the requested value. SJPEG_YUV_400 writes a single quantization
+// matrix where the other modes write two: charging it for both (67 bytes)
+// makes the search settle on the wrong quality. SJPEG_YUV_420 is the control.
+TEST(TargetSize) {
+  const int W = 96, H = 64;
+  const std::vector<uint8_t> rgb = MakeRGB(W, H);
+  const SjpegYUVMode kModes[] = { SJPEG_YUV_400, SJPEG_YUV_420 };
+  for (size_t m = 0; m < ARRAY_SIZE(kModes); ++m) {
+    // a plain encode gives a size that the search is sure to be able to reach
+    sjpeg::EncoderParam param(60.f);
+    param.yuv_mode = kModes[m];
+    std::string out;
+    CHECK(EncodeRGB(rgb, W, H, param, &out));
+    const double target = out.size();
+
+    param.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
+    param.target_value = static_cast<float>(target);
+    param.tolerance = 1.f;   // percent
+    param.passes = 12;
+    CHECK(EncodeRGB(rgb, W, H, param, &out));
+    // The search stops on |dq| rather than on the size, so it only lands
+    // close by. One quantization matrix too many costs several percent.
+    CHECK(fabs(out.size() - target) < 0.03 * target);
+  }
 }
 
 // Behaves like a memory sink, but starts refusing to commit after a while.
@@ -491,7 +607,7 @@ TEST(CompressionMethod) {
   std::string out[11];
   for (int method = -1; method <= 9; ++method) {
     uint8_t* data = nullptr;
-    const size_t size = SjpegEncode(&rgb[0], kWidth, kHeight, 3 * kWidth,
+    const size_t size = SjpegEncode(rgb.data(), kWidth, kHeight, 3 * kWidth,
                                     &data, 76.f, method, SJPEG_YUV_420);
     CHECK(size > 0 && data != nullptr);
     if (data != nullptr) {
