@@ -352,16 +352,31 @@ static bool SearchBestPrev(const TrellisNode* const nodes0, TrellisNode* node,
                            uint32_t lambda) {
   bool found = false;
   assert(codes[0xf0] != 0);
+  // Careful: the loop overwrites node->disto, so this has to be computed
+  // before it runs. node->disto is the smallest distortion any candidate can
+  // produce, since disto0[] is non-decreasing and cur->pos <= node->pos - 1.
   const uint32_t base_disto = node->disto + disto0[node->pos - 1];
   for (const TrellisNode* cur = node - 1; cur >= nodes0; --cur) {
     const int run = node->pos - 1 - cur->pos;
     if (run < 0) continue;
     uint32_t bits = node->nbits;
     bits += (run >> 4) * (codes[0xf0] & 0xff);
+    const uint32_t disto = base_disto - disto0[cur->pos];
+#if defined(SJPEG_USE_TRELLIS_PRUNE)
+    // Exact early-out. The scan walks back towards the sink, so the run only
+    // grows: disto grows with it, because disto0[] is non-decreasing, and so
+    // does the ZRL part of bits. Both terms of this bound are therefore
+    // monotone in the direction of travel, and the two left out of it -- the
+    // symbol's own code length and cur->score -- are non-negative. So once the
+    // bound reaches the incumbent, no remaining predecessor can beat it, and
+    // the rest of the scan is dead. Bit-exact: this drops only candidates that
+    // provably lose, so the winning node and every field copied out of it are
+    // what the full O(n^2) scan produces.
+    if (disto + lambda * bits >= node->score) break;
+#endif
     const uint32_t sym = ((run & 15) << 4) | node->nbits;
     assert(codes[sym] != 0);
     bits += codes[sym] & 0xff;
-    const uint32_t disto = base_disto - disto0[cur->pos];
     const score_t score = disto + lambda * bits + cur->score;
     if (score < node->score) {
       node->score = score;

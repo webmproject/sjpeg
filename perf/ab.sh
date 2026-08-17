@@ -39,7 +39,7 @@ trap cleanup EXIT
 # The list is spelled out so a reader can see it, and checked against the source
 # right below so it cannot go stale: a toggle added to the encoder without a
 # line here would never be measured, and nothing would say so.
-TOGGLES="FAST_BITWRITER FAST_BITCOUNTER CHUNKED_COMMIT FUSED_STATS"
+TOGGLES="FAST_BITWRITER FAST_BITCOUNTER CHUNKED_COMMIT FUSED_STATS TRELLIS_PRUNE"
 
 in_source=$(grep -rhoE 'SJPEG_DISABLE_[A-Z_][A-Z_]*' src/ |
             sed 's/^SJPEG_DISABLE_//' | sort -u | tr '\n' ' ')

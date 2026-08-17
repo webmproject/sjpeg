@@ -34,6 +34,8 @@
 //   SJPEG_USE_CHUNKED_COMMIT    commit the output in slabs, not once per MCU
 //   SJPEG_USE_FUSED_STATS       gather the entropy statistics while storing the
 //                               run/levels, rather than re-walking them after
+//   SJPEG_USE_TRELLIS_PRUNE     end the trellis' predecessor scan once nothing
+//                               left in it can win
 //
 // Declaring them here, rather than next to each use, is what lets perf/ab.sh
 // check its own list against the source: a toggle it does not know about would
@@ -53,6 +55,10 @@
 
 #if !defined(SJPEG_DISABLE_FUSED_STATS)
 #define SJPEG_USE_FUSED_STATS
+#endif
+
+#if !defined(SJPEG_DISABLE_TRELLIS_PRUNE)
+#define SJPEG_USE_TRELLIS_PRUNE
 #endif
 
 #endif    // SJPEG_PERF_TOGGLES_H_
