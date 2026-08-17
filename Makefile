@@ -213,6 +213,7 @@ DIST_FILES= \
          NEWS  \
          README  \
          CMakeLists.txt \
+         doc/perf-plan.md  \
          cmake/android.cmake \
          cmake/cpu.cmake \
          cmake/sjpegConfig.cmake.in \
