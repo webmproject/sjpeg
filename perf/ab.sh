@@ -39,7 +39,7 @@ trap cleanup EXIT
 # The list is spelled out so a reader can see it, and checked against the source
 # right below so it cannot go stale: a toggle added to the encoder without a
 # line here would never be measured, and nothing would say so.
-TOGGLES="FAST_BITWRITER FAST_BITCOUNTER CHUNKED_COMMIT FUSED_STATS ZIGZAG_PERMUTE"
+TOGGLES="FAST_BITWRITER FAST_BITCOUNTER CHUNKED_COMMIT FUSED_STATS"
 
 in_source=$(grep -rhoE 'SJPEG_DISABLE_[A-Z_][A-Z_]*' src/ |
             sed 's/^SJPEG_DISABLE_//' | sort -u | tr '\n' ' ')
@@ -57,9 +57,9 @@ for t in $TOGGLES; do ALL_OFF="$ALL_OFF -DSJPEG_DISABLE_$t"; done
 # Does disabling $1 change anything on this machine? A toggle that gates code
 # behind an architecture or SIMD test compiles to nothing on a machine without
 # that path, and its leave-one-out then builds the same program twice. Worth
-# knowing before reading the column as a result: on x86 the zig-zag column reads
-# -3.3%..+10.3% across the eight rows, all of it from a binary that is
-# byte-for-byte the one it is being compared against.
+# knowing before reading the column as a result: the zig-zag permutation, since
+# withdrawn, once read -3.3%..+10.3% across the eight rows on x86, all of it
+# from a binary that was byte-for-byte the one it was compared against.
 #
 # Only a source that mentions the macro can change. If a header mentions it that
 # is every source, but then the first one already differs and the loop stops.

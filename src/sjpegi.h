@@ -221,21 +221,6 @@ struct HuffmanTable {
   int nb_syms_;          // cached value of sum(bits_[])
 };
 
-// Quantize straight into zig-zag order, by shuffling the input block with a
-// vector permutation and reading pre-permuted quantizer matrices. Removes the
-// Quantize straight into zig-zag order, saving the natural-to-zig-zag bit remap
-// that the run/level emission needs otherwise. Bit-exact; aarch64 only, since
-// it wants a whole-register byte shuffle (vqtbl4q_u8). The SSE2 path has no
-// equivalent below SSSE3, and keeps the natural-order scan. Define
-// SJPEG_DISABLE_ZIGZAG_PERMUTE to force that scan on aarch64 too.
-//
-// Declared here rather than in perf_toggles.h with the others: it needs the
-// architecture macros above, which that header is included too early to see.
-#if defined(SJPEG_USE_NEON) && defined(SJPEG_AARCH64) && \
-    !defined(SJPEG_DISABLE_ZIGZAG_PERMUTE)
-#define SJPEG_USE_ZIGZAG_PERMUTE
-#endif
-
 // quantizer matrices
 struct Quantizer {
   uint8_t quant_[64];      // direct quantizer matrix
@@ -244,12 +229,6 @@ struct Quantizer {
   uint16_t qthresh_[64];   // minimal absolute value that produce non-zero coeff
   uint16_t bias_[64];      // bias, for coring
   const uint32_t* codes_;  // codes for bit-cost calculation
-#if defined(SJPEG_USE_ZIGZAG_PERMUTE)
-  // Last, so that the fields above keep the offsets they had without the
-  // permutation: the trellis is sensitive to this struct's layout.
-  uint16_t iquant_zz_[64];  // iquant_[] and bias_[], in zig-zag order
-  uint16_t bias_zz_[64];
-#endif
 };
 
 // compact Run/Level storage, separate from DCTCoeffs infos

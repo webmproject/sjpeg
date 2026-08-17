@@ -35,10 +35,6 @@
 //   SJPEG_USE_FUSED_STATS       gather the entropy statistics while storing the
 //                               run/levels, rather than re-walking them after
 //
-// SJPEG_USE_ZIGZAG_PERMUTE is the exception, and stays in sjpegi.h: it is gated
-// on the instruction set as well, and this header is reached from bit_writer.h,
-// before sjpegi.h has worked out what the target can do.
-//
 // Declaring them here, rather than next to each use, is what lets perf/ab.sh
 // check its own list against the source: a toggle it does not know about would
 // silently stay enabled in the "before" build and never be measured.
