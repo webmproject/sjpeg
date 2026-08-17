@@ -204,8 +204,15 @@ bool Encoder::SetError() {
 }
 
 bool Encoder::CheckBuffers() {
-  // maximum macroblock size, worst-case, is 24bits*64*6 coeffs = 1152bytes
-  ok_ = ok_ && bw_.Reserve(2048);
+  // Worst-case macroblock is 24bits*64*6 coeffs = 1152 bytes, doubled by 0xff
+  // stuffing, so 2560 covers one MCU. Writer serves that out of a larger slab
+  // and only reaches the sink when the slab runs out. Slab follows the image
+  // rather than being fixed: at a flat 256k, a 64x64 thumbnail whose JPEG is
+  // 3kB holds half a megabyte of capacity, and a string never gives it back.
+  size_t chunk = (size_t)W_ * H_ / 4;
+  if (chunk < 4096) chunk = 4096;
+  if (chunk > (256 << 10)) chunk = 256 << 10;
+  ok_ = ok_ && bw_.ReserveMore(2560, chunk);
   if (!ok_) return false;
 
   if (reuse_run_levels_) {
