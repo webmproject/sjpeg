@@ -346,7 +346,6 @@ struct Encoder {
   void AddEntropyStats(const DCTCoeffs* const coeffs,
                        const RunLevel* const run_levels);
   void CompileEntropyStats();
-  void StoreOptimalHuffmanTables(size_t nb_mbs, const DCTCoeffs* coeffs);
 
   void SinglePassScan();           // finalizing scan
   void SinglePassScanOptimized();  // optimize the Huffman table + finalize scan

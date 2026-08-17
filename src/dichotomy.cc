@@ -85,6 +85,11 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
                                                         : quantize_block_;
   if (use_trellis_) InitCodes(true);
 
+  // run/levels are in registers here, so frequencies come for free. Whoever
+  // needs the tables afterwards only has to CompileEntropyStats().
+  const bool collect_stats = optimize_size_;
+  if (collect_stats) ResetEntropyStats();
+
   ResetDCs();
   nb_run_levels_ = 0;
   int16_t* in = in_blocks_;
@@ -96,6 +101,7 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
         const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
                                       coeffs, run_levels);
         coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
+        if (collect_stats) AddEntropyStats(coeffs, run_levels);
         nb_run_levels_ += coeffs->nb_coeffs_;
         ++coeffs;
         in += 64;
@@ -142,7 +148,7 @@ void Encoder::LoopScan() {
       StoreRunLevels(base_coeffs);
       if (!ok_) break;
       if (optimize_size_) {
-        StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
+        CompileEntropyStats();   // stats were gathered by StoreRunLevels()
         if (use_trellis_) InitCodes(true);
       }
       result = ComputeSize(base_coeffs);
@@ -182,7 +188,7 @@ void Encoder::LoopScan() {
     if (!search_hook_->for_size || !last_is_best) {
       StoreRunLevels(base_coeffs);
       if (ok_ && optimize_size_) {
-        StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
+        CompileEntropyStats();
       }
     }
 

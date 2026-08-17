@@ -425,16 +425,4 @@ void Encoder::CompileEntropyStats() {
   }
 }
 
-void Encoder::StoreOptimalHuffmanTables(size_t nb_mbs,
-                                        const DCTCoeffs* coeffs) {
-  // optimize Huffman tables
-  ResetEntropyStats();
-  const RunLevel* run_levels = all_run_levels_;
-  for (size_t n = 0; n < nb_mbs; ++n) {
-    AddEntropyStats(&coeffs[n], run_levels);
-    run_levels += coeffs[n].nb_coeffs_;
-  }
-  CompileEntropyStats();
-}
-
 }    // namespace sjpeg
