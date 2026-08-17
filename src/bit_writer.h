@@ -84,6 +84,7 @@ typedef Sink<std::vector<uint8_t> > VectorSink;
 // All of them are bit-exact: same bytes out, either way.
 //   SJPEG_USE_FAST_BITWRITER    64bit lazily-flushed BitWriter
 //   SJPEG_USE_FAST_BITCOUNTER   the same, for the size-estimating counter
+//   SJPEG_USE_CHUNKED_COMMIT    commit the output in slabs, not once per MCU
 // See doc/perf-plan.md for what each of them buys.
 
 #if !defined(SJPEG_USE_FAST_BITWRITER)
@@ -92,6 +93,10 @@ typedef Sink<std::vector<uint8_t> > VectorSink;
 
 #if !defined(SJPEG_USE_FAST_BITCOUNTER)
 #define SJPEG_USE_FAST_BITCOUNTER 1
+#endif
+
+#if !defined(SJPEG_USE_CHUNKED_COMMIT)
+#define SJPEG_USE_CHUNKED_COMMIT 1
 #endif
 
 #if SJPEG_USE_FAST_BITWRITER
@@ -142,6 +147,23 @@ class BitWriter {
     reserved_ = size;
     return true;
   }
+
+#if SJPEG_USE_CHUNKED_COMMIT
+  // Same as Reserve(), but a no-op while the slab we already hold has room
+  // for 'size' more bytes. Committing is what costs: for the string and
+  // vector sinks it is a virtual call into resize(), which also zeroes the
+  // bytes it adds. Only the size of the commit changes, never its content.
+  bool ReserveMore(size_t size, size_t chunk) {
+    assert(size <= chunk);
+    if (byte_pos_ + size <= reserved_) return true;
+    return Reserve(chunk);
+  }
+#else
+  bool ReserveMore(size_t size, size_t chunk) {
+    (void)chunk;
+    return Reserve(size);
+  }
+#endif
 
 #if SJPEG_USE_FAST_BITWRITER
   // Flush whole bytes out of the accumulator.

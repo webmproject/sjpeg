@@ -204,8 +204,21 @@ bool Encoder::SetError() {
 }
 
 bool Encoder::CheckBuffers() {
-  // maximum macroblock size, worst-case, is 24bits*64*6 coeffs = 1152bytes
-  ok_ = ok_ && bw_.Reserve(2048);
+  // Maximum macroblock size, worst-case, is 24bits*64*6 coeffs = 1152 bytes,
+  // which 0xff stuffing can double, so 2560 covers one MCU with slack.
+  //
+  // We ask for that much per MCU, but let the writer serve it out of a larger
+  // slab, so the sink is only involved once every so many MCUs.
+  //
+  // The slab is the output the sinks themselves expect -- width * height / 4 --
+  // held between a page and a quarter megabyte, rather than a fixed quarter
+  // megabyte. Fixed, a 64x64 thumbnail whose JPEG is 3kB came back in a
+  // std::string holding half a megabyte: Sink<std::string> resizes down when it
+  // finishes, but a string never returns capacity.
+  size_t chunk = (size_t)W_ * H_ / 4;
+  if (chunk < 4096) chunk = 4096;
+  if (chunk > (256 << 10)) chunk = 256 << 10;
+  ok_ = ok_ && bw_.ReserveMore(2560, chunk);
   if (!ok_) return false;
 
   if (reuse_run_levels_) {
