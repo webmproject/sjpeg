@@ -99,6 +99,17 @@ typedef Sink<std::vector<uint8_t> > VectorSink;
 #define SJPEG_USE_CHUNKED_COMMIT 1
 #endif
 
+// The hottest inline members below are called once per coefficient. Left to
+// its own cost model the compiler keeps some of them out of line, which is
+// expensive at that frequency, so we insist.
+#if defined(__GNUC__) || defined(__clang__)
+#define SJPEG_INLINE inline __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define SJPEG_INLINE __forceinline
+#else
+#define SJPEG_INLINE inline
+#endif
+
 #if SJPEG_USE_FAST_BITWRITER
 // returns true if any byte of 'x' is 0xff
 static inline bool HasFF(uint64_t x) {
@@ -201,11 +212,13 @@ class BitWriter {
   // Writes the sequence 'bits' of length 'nb' (less or equal to 32).
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
   // calling this function.
+  SJPEG_INLINE
   void PutBits(uint32_t bits, int nb) {
     assert(nb <= 32 && nb > 0);
     assert((bits & ~(~0u >> (32 - nb))) == 0);
     // Only flush when the accumulator would not fit the new symbol. With 56
     // usable bits, about five symbols pile up per flush instead of one.
+    // (marked SJPEG_INLINE above for the same reason as the merged put)
     if (nb_bits_ + nb > 56) FlushBits();
     nb_bits_ += nb;
     bits_ |= static_cast<uint64_t>(bits) << (64 - nb_bits_);
@@ -260,6 +273,9 @@ class BitWriter {
 #if SJPEG_USE_FAST_BITWRITER
   // Write a packed code immediately followed by its 'n'-bit suffix. Both fit
   // in one PutBits() call: 16 bits of code and 11 of suffix, worst case.
+  // Forced: this is called once per non-zero coefficient, and left to its own
+  // devices the compiler emits a call, which costs ~7% of a whole encode.
+  SJPEG_INLINE
   void PutPackedCodeAndSuffix(uint32_t code, uint32_t suffix, int n) {
     const int len = code & 0xff;
     PutBits(((code >> 16) << n) | suffix, len + n);
@@ -296,10 +312,12 @@ struct BitCounter {
 
 #if SJPEG_USE_FAST_BITCOUNTER
   // Count a packed code immediately followed by its 'n'-bit suffix.
+  SJPEG_INLINE
   void AddPackedCodeAndSuffix(uint32_t code, uint32_t suffix, int n) {
     const int len = code & 0xff;
     AddBits(((code >> 16) << n) | suffix, len + n);
   }
+  SJPEG_INLINE
   void AddBits(const uint32_t bits, size_t nbits) {
     assert(nbits > 0);
     if (bit_pos_ + nbits > 56) Flush();
