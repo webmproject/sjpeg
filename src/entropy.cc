@@ -182,8 +182,15 @@ void Encoder::CodeBlock(const DCTCoeffs* const coeffs,
     const uint32_t suffix = rl[i].level_;
     const int n = suffix & 0x0f;
     const int sym = (run << 4) | n;
+    // n is the magnitude category of a non-zero coefficient, so it is >= 1
+    // here. The zero case is only reachable through the ZRL escape above.
+    assert(n > 0);
+#if SJPEG_USE_FAST_BITWRITER
+    bw_.PutPackedCodeAndSuffix(codes[sym], suffix >> 4, n);
+#else
     bw_.PutPackedCode(codes[sym]);
     bw_.PutBits(suffix >> 4, n);
+#endif
   }
   if (coeffs->last_ < 63) {     // EOB
     bw_.PutPackedCode(codes[0x00]);

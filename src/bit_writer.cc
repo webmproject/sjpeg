@@ -91,14 +91,16 @@ std::shared_ptr<ByteSink> MakeByteSink(std::vector<uint8_t>* const output) {
 
 BitWriter::BitWriter(ByteSink* const sink) : sink_(sink), buf_(nullptr) {
   nb_bits_ = 0;
-  bits_ = 0x00000000U;
+  bits_ = 0;
   byte_pos_ = 0;
+  reserved_ = 0;
 }
 
 bool BitWriter::CommitFailed() {
   sink_->Reset();   // this can free the memory buf_ points to
   buf_ = nullptr;
   byte_pos_ = 0;
+  reserved_ = 0;
   return false;
 }
 
