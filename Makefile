@@ -105,12 +105,15 @@ OUT_LIBS = src/libsjpeg.a examples/libutils.a
 OUT_EXAMPLES =  examples/sjpeg
 OUT_EXAMPLES += examples/vjpeg
 OUT_TESTS = tests/unit_test
+OUT_PERF = perf/bench
 
-OUTPUT = $(OUT_LIBS) $(OUT_EXAMPLES) $(OUT_TESTS)
+OUTPUT = $(OUT_LIBS) $(OUT_EXAMPLES) $(OUT_TESTS) $(OUT_PERF)
 
 # Without this, the built-in '%: %.o' rule takes over 'unit_test' and links it
 # with $(CC) instead of running it.
-.PHONY: all clean dist ex install test test_cmd test_png_jpg unit_test
+# 'bench' is phony and 'perf' is not a target, on purpose: a target named after
+# the existing perf/ directory would be considered up-to-date and never run.
+.PHONY: all bench clean dist ex install test test_cmd test_png_jpg unit_test
 
 ex: $(OUT_EXAMPLES)
 all: ex
@@ -148,6 +151,19 @@ tests/unit_test: EXTRA_LIBS += -lpthread
 $(OUT_TESTS):
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
+# The benchmark. Not built by 'all': it is a development tool, and it needs
+# examples/utils.h for the image readers.
+bench: $(OUT_PERF)
+
+perf/bench.o: EXTRA_FLAGS += -Iexamples/
+perf/bench: perf/bench.o
+perf/bench: examples/libutils.a
+perf/bench: src/libsjpeg.a
+perf/bench: EXTRA_LIBS += $(UTILS_LIBS)
+
+$(OUT_PERF):
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
 test: unit_test test_cmd test_png_jpg
 
 unit_test: $(OUT_TESTS)
@@ -178,7 +194,7 @@ dist: all
 clean:
 	$(RM) $(OUTPUT) *~ \
               examples/*.o examples/*~ man/*~ src/*.o src/*~ \
-              tests/*.o tests/*~ \
+              tests/*.o tests/*~ perf/*.o perf/*~ \
               examples/*.lo src/*.lo
 
 DIST_FILES= \
@@ -218,6 +234,8 @@ DIST_FILES= \
          examples/vjpeg.cc  \
          examples/utils.h  \
          examples/utils.cc  \
+         perf/bench.cc  \
+         perf/verify.sh  \
          tests/test_cmd.sh  \
          tests/test_png_jpg.sh  \
          tests/unit_test.cc  \

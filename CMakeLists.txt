@@ -28,6 +28,9 @@ set(CMAKE_CXX_STANDARD 11)
 option(SJPEG_ENABLE_SIMD "Enable any SIMD optimization." ON)
 option(SJPEG_BUILD_EXAMPLES "Build the sjpeg / vjpeg command line tools." ON)
 option(SJPEG_BUILD_TESTS "Build the unit tests." ON)
+# Off by default, to match the Makefile, which deliberately keeps bench out of
+# 'all' because it is a development tool.
+option(SJPEG_BUILD_PERF "Build the encoding benchmark." OFF)
 
 set(SJPEG_DEP_LIBRARIES)
 set(SJPEG_DEP_INCLUDE_DIRS)
@@ -197,6 +200,18 @@ if(SJPEG_BUILD_EXAMPLES)
   target_link_libraries(vjpeg ${SJPEG_DEP_GL_LIBRARIES} sjpeg sjpeg-utils)
 
   install(TARGETS sjpeg-bin vjpeg RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
+# Build the benchmark if asked for. Not installed: it is a development tool.
+if(SJPEG_BUILD_PERF)
+  # Named sjpeg-bench, not bench: a project that add_subdirectory()s sjpeg and
+  # has its own 'bench' target would otherwise fail at generate time.
+  add_executable(sjpeg-bench ${CMAKE_CURRENT_SOURCE_DIR}/perf/bench.cc)
+  # examples/ is not on the global include path: the examples reach utils.h
+  # relatively, from their own directory.
+  target_include_directories(sjpeg-bench
+                             PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples)
+  target_link_libraries(sjpeg-bench sjpeg sjpeg-utils)
 endif()
 
 # Build the unit tests if asked for.
