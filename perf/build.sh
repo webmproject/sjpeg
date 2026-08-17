@@ -10,6 +10,7 @@
 #
 #   ./perf/build.sh /tmp/bench_on
 #   ./perf/build.sh /tmp/bench_off -DSJPEG_DISABLE_FAST_BITWRITER
+#   JOBS=2 ./perf/build.sh /tmp/bench_on      # small board, little memory
 #
 # NOTE: use bash, not zsh (see verify.sh).
 
@@ -18,8 +19,13 @@ OUT=${1:?usage: build.sh <output-path> [extra CPPFLAGS...]}
 shift
 cd "$(dirname "$0")/.."
 
+# One job per core by default. score_7.cc is half a megabyte of tables and
+# wants real memory to compile, so this is worth turning down by hand on a
+# small board rather than guessing high.
+JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
+
 find src examples perf tests -name '*.o' -delete
 rm -f src/libsjpeg.a examples/libutils.a perf/bench
-make bench -j8 CPPFLAGS="$*" >/dev/null
+make bench -j"$JOBS" CPPFLAGS="$*" >/dev/null
 cp perf/bench "$OUT"
 echo "built $OUT ${*:+with $*}"

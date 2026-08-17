@@ -53,6 +53,19 @@ echo " host    : $(uname -sm)"
 echo " compiler: $(${CXX:-g++} --version 2>/dev/null | head -1)"
 echo " commit  : $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
 echo " work dir: $W"
+# Which paths this build actually compiles in. Worth printing rather than
+# assuming: a 32-bit userland on a 64-bit ARM board defines neither
+# SJPEG_AARCH64 nor, without -mfpu=neon, SJPEG_USE_NEON -- so the vector
+# kernels and the zig-zag permutation quietly disappear, and the numbers
+# below come out smaller for a reason that has nothing to do with the code.
+# The toggle names are filtered out of it: they are this series' doing, not the
+# machine's, and they get their own line as soon as there is a way to tell which
+# of them actually compile to something here.
+echo ' platform:' $(echo '#include "sjpegi.h"' |
+                    ${CXX:-g++} -Isrc -dM -E -x c++ - 2>/dev/null |
+                    awk '/^#define SJPEG_(USE|HAVE|AARCH64)/ { print $2 }' |
+                    grep -Ev "SJPEG_USE_($(echo $TOGGLES | tr ' ' '|'))" |
+                    sort | tr '\n' ' ')
 echo "=============================================================="
 echo
 
