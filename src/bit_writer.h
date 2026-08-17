@@ -83,10 +83,15 @@ typedef Sink<std::vector<uint8_t> > VectorSink;
 // command line to build the previous implementation instead, for A/B timing.
 // All of them are bit-exact: same bytes out, either way.
 //   SJPEG_USE_FAST_BITWRITER    64bit lazily-flushed BitWriter
+//   SJPEG_USE_FAST_BITCOUNTER   the same, for the size-estimating counter
 // See doc/perf-plan.md for what each of them buys.
 
 #if !defined(SJPEG_USE_FAST_BITWRITER)
 #define SJPEG_USE_FAST_BITWRITER 1
+#endif
+
+#if !defined(SJPEG_USE_FAST_BITCOUNTER)
+#define SJPEG_USE_FAST_BITCOUNTER 1
 #endif
 
 #if SJPEG_USE_FAST_BITWRITER
@@ -266,11 +271,58 @@ struct BitCounter {
   BitCounter() : bits_(0), bit_pos_(0), size_(0) {}
 
   void AddPackedCode(const uint32_t code) { AddBits(code >> 16, code & 0xff); }
+
+#if SJPEG_USE_FAST_BITCOUNTER
+  // Count a packed code immediately followed by its 'n'-bit suffix.
+  void AddPackedCodeAndSuffix(uint32_t code, uint32_t suffix, int n) {
+    const int len = code & 0xff;
+    AddBits(((code >> 16) << n) | suffix, len + n);
+  }
+  void AddBits(const uint32_t bits, size_t nbits) {
+    assert(nbits > 0);
+    if (bit_pos_ + nbits > 56) Flush();
+    size_ += nbits;
+    bit_pos_ += nbits;
+    bits_ |= static_cast<uint64_t>(bits) << (64 - bit_pos_);
+  }
+  // Not const: the pending bytes still owe us their escapes.
+  size_t Size() { Flush(); return size_; }
+
+ private:
+  // Number of bytes equal to 0xff among the 'nb' most significant ones.
+  static int CountFF(uint64_t v, int nb) {
+    // The usual haszero() trick is not usable as-is here: it only answers
+    // "is there one", because a zero byte borrows into its neighbour and
+    // marks it too. Masking to 0x7f before the add keeps the carries local,
+    // which is what makes the result countable.
+    const uint64_t x = ~v;   // 0xff bytes are now zero bytes
+    uint64_t z = ((x & 0x7f7f7f7f7f7f7f7full) + 0x7f7f7f7f7f7f7f7full) | x;
+    z = ~z & 0x8080808080808080ull;    // one 0x80 per zero byte
+    z >>= 64 - 8 * nb;                 // keep the top 'nb' bytes
+#if defined(__GNUC__) || defined(__clang__)
+    return __builtin_popcountll(z);
+#else
+    int n = 0;
+    while (z != 0) { z &= z - 1; ++n; }
+    return n;
+#endif
+  }
+  void Flush() {
+    const int nb = static_cast<int>(bit_pos_ >> 3);
+    if (nb == 0) return;
+    size_ += 8 * CountFF(bits_, nb);
+    bits_ <<= 8 * nb;
+    bit_pos_ -= 8 * nb;
+  }
+
+  uint64_t bits_;
+#else
   void AddBits(const uint32_t bits, size_t nbits);
   size_t Size() const { return size_; }
 
  private:
   uint32_t bits_;
+#endif    // SJPEG_USE_FAST_BITCOUNTER
   size_t bit_pos_;
   size_t size_;
 };

@@ -259,8 +259,14 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
       const uint32_t suffix = rl[i].level_;
       const size_t nbits = suffix & 0x0f;
       const int sym = (run << 4) | nbits;
+      assert(nbits > 0);   // as in CodeBlock(): zero only comes from the ZRL
+#if SJPEG_USE_FAST_BITCOUNTER
+      bc->AddPackedCodeAndSuffix(codes[sym], suffix >> 4,
+                                 static_cast<int>(nbits));
+#else
       bc->AddPackedCode(codes[sym]);
       bc->AddBits(suffix >> 4, nbits);
+#endif
     }
     if (c.last_ < 63) bc->AddPackedCode(codes[0x00]);  // EOB
     rl += c.nb_coeffs_;
