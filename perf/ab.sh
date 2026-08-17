@@ -4,9 +4,11 @@
 #   usage: ab.sh [work-dir]        (default: a fresh temporary directory)
 #
 #   AB_PER_TOGGLE=1     add a leave-one-out column for each optimization
+#   AB_NO_BREAKDOWN=1   skip the profile-free breakdown at the end
 #   COMPARE_REPEAT=3    best-of-3 for every timing, for a machine with a wide
 #                       noise floor -- the control row below says whether this
 #                       machine is one
+#   BD_ITERS=15         fewer repetitions inside the breakdown (small board)
 #   JOBS=2              fewer parallel compiles (board short on memory)
 #
 # Builds the tree twice from the same sources -- once as shipped, once with
@@ -14,6 +16,13 @@
 # reports what the difference is worth here. The disabled build is what the
 # encoder was before the series, so it is the honest "before" column without
 # needing to check out an older commit.
+#
+# It then runs perf/breakdown.sh, which is not an A/B at all: it describes the
+# encoder as it currently stands -- where the time goes, what the vector layer
+# is worth, how the trellis and the multi-pass search scale -- using only
+# differences between runs of the same binary. That is the part that says where
+# to work next, and it needs no profiler, which matters because perf is blocked
+# by perf_event_paranoid on at least one of the machines this gets run on.
 #
 # NOTE: use bash, not zsh (see verify.sh).
 
@@ -133,6 +142,13 @@ echo
 
 echo "## speed: before (all disabled) vs after (as shipped)"
 ./perf/compare.sh "$W/bench_before" "$W/bench_after" || exit 1
+
+if [ -z "${AB_NO_BREAKDOWN:-}" ]; then
+  echo
+  echo "## where this machine actually spends the time (no A/B, no profiler)"
+  echo
+  ./perf/breakdown.sh "$W/bench_after"
+fi
 
 if [ -n "${AB_PER_TOGGLE:-}" ]; then
   echo

@@ -245,7 +245,11 @@ DIST_FILES= \
          examples/vjpeg.cc  \
          examples/utils.h  \
          examples/utils.cc  \
+         perf/ab.sh  \
          perf/bench.cc  \
+         perf/breakdown.sh  \
+         perf/build.sh  \
+         perf/compare.sh  \
          perf/sweep.sh  \
          perf/verify.sh  \
          tests/test_cmd.sh  \
