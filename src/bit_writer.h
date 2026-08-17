@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "perf_toggles.h"
 #include "sjpeg.h"
 
 namespace sjpeg {
@@ -78,26 +79,6 @@ typedef Sink<std::string> StringSink;
 typedef Sink<std::vector<uint8_t> > VectorSink;
 
 ///////////////////////////////////////////////////////////////////////////////
-// Performance toggles. Defined here rather than in sjpegi.h because this
-// header is included on its own by bit_writer.cc. Set any of them to 0 on the
-// command line to build the previous implementation instead, for A/B timing.
-// All of them are bit-exact: same bytes out, either way.
-//   SJPEG_USE_FAST_BITWRITER    64bit lazily-flushed BitWriter
-//   SJPEG_USE_FAST_BITCOUNTER   the same, for the size-estimating counter
-//   SJPEG_USE_CHUNKED_COMMIT    commit the output in slabs, not once per MCU
-// See doc/perf-plan.md for what each of them buys.
-
-#if !defined(SJPEG_USE_FAST_BITWRITER)
-#define SJPEG_USE_FAST_BITWRITER 1
-#endif
-
-#if !defined(SJPEG_USE_FAST_BITCOUNTER)
-#define SJPEG_USE_FAST_BITCOUNTER 1
-#endif
-
-#if !defined(SJPEG_USE_CHUNKED_COMMIT)
-#define SJPEG_USE_CHUNKED_COMMIT 1
-#endif
 
 // The hottest inline members below are called once per coefficient. Left to
 // its own cost model the compiler keeps some of them out of line, which is
@@ -110,7 +91,7 @@ typedef Sink<std::vector<uint8_t> > VectorSink;
 #define SJPEG_INLINE inline
 #endif
 
-#if SJPEG_USE_FAST_BITWRITER
+#if defined(SJPEG_USE_FAST_BITWRITER)
 // returns true if any byte of 'x' is 0xff
 static inline bool HasFF(uint64_t x) {
   const uint64_t y = ~x;    // 0xff bytes are now zero bytes
@@ -159,7 +140,7 @@ class BitWriter {
     return true;
   }
 
-#if SJPEG_USE_CHUNKED_COMMIT
+#if defined(SJPEG_USE_CHUNKED_COMMIT)
   // Same as Reserve(), but a no-op while the slab we already hold has room
   // for 'size' more bytes. Committing is what costs: for the string and
   // vector sinks it is a virtual call into resize(), which also zeroes the
@@ -176,7 +157,7 @@ class BitWriter {
   }
 #endif
 
-#if SJPEG_USE_FAST_BITWRITER
+#if defined(SJPEG_USE_FAST_BITWRITER)
   // Flush whole bytes out of the accumulator.
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
   // calling this function. Note that the fast path below stores 8 bytes
@@ -270,7 +251,7 @@ class BitWriter {
   // Handy helper to write a packed code in one call.
   void PutPackedCode(uint32_t code) { PutBits(code >> 16, code & 0xff); }
 
-#if SJPEG_USE_FAST_BITWRITER
+#if defined(SJPEG_USE_FAST_BITWRITER)
   // Write a packed code immediately followed by its 'n'-bit suffix. Both fit
   // in one PutBits() call: 16 bits of code and 11 of suffix, worst case.
   // Forced: this is called once per non-zero coefficient, and left to its own
@@ -294,7 +275,7 @@ class BitWriter {
   ByteSink* sink_;
 
   int nb_bits_;      // number of unwritten bits
-#if SJPEG_USE_FAST_BITWRITER
+#if defined(SJPEG_USE_FAST_BITWRITER)
   uint64_t bits_;    // accumulator for unwritten bits
 #else
   uint32_t bits_;    // accumulator for unwritten bits
@@ -310,7 +291,7 @@ struct BitCounter {
 
   void AddPackedCode(const uint32_t code) { AddBits(code >> 16, code & 0xff); }
 
-#if SJPEG_USE_FAST_BITCOUNTER
+#if defined(SJPEG_USE_FAST_BITCOUNTER)
   // Count a packed code immediately followed by its 'n'-bit suffix.
   SJPEG_INLINE
   void AddPackedCodeAndSuffix(uint32_t code, uint32_t suffix, int n) {

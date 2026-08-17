@@ -185,7 +185,7 @@ void Encoder::CodeBlock(const DCTCoeffs* const coeffs,
     // n is the magnitude category of a non-zero coefficient, so it is >= 1
     // here. The zero case is only reachable through the ZRL escape above.
     assert(n > 0);
-#if SJPEG_USE_FAST_BITWRITER
+#if defined(SJPEG_USE_FAST_BITWRITER)
     bw_.PutPackedCodeAndSuffix(codes[sym], suffix >> 4, n);
 #else
     bw_.PutPackedCode(codes[sym]);
@@ -425,6 +425,9 @@ void Encoder::CompileEntropyStats() {
   }
 }
 
+#if !defined(SJPEG_USE_FUSED_STATS)
+// Only the non-fused path calls this: with SJPEG_USE_FUSED_STATS the statistics
+// are gathered as the run/levels are stored, and this pass does not exist.
 void Encoder::StoreOptimalHuffmanTables(size_t nb_mbs,
                                         const DCTCoeffs* coeffs) {
   // optimize Huffman tables
@@ -436,5 +439,6 @@ void Encoder::StoreOptimalHuffmanTables(size_t nb_mbs,
   }
   CompileEntropyStats();
 }
+#endif    // !SJPEG_USE_FUSED_STATS
 
 }    // namespace sjpeg

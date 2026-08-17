@@ -44,7 +44,7 @@ const uint8_t kZigzag[64] = {
 // position (kInvZigzag[kZigzag[i]] == i). Used by the SIMD run-length emitters
 // to turn a natural-order non-zero bitmask into a zig-zag-ordered one -- which
 // is exactly what SJPEG_USE_ZIGZAG_PERMUTE makes unnecessary.
-#if !SJPEG_USE_ZIGZAG_PERMUTE || defined(SJPEG_USE_SSE2)
+#if !defined(SJPEG_USE_ZIGZAG_PERMUTE) || defined(SJPEG_USE_SSE2)
 static const uint8_t kInvZigzag[64] = {
   0,   1,  5,  6, 14, 15, 27, 28,
   2,   4,  7, 13, 16, 26, 29, 42,
@@ -148,7 +148,7 @@ void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
     assert(QUANTIZE(qthresh, iquant, ibias) > 0);
     assert(QUANTIZE(qthresh - 1, iquant, ibias) == 0);
   }
-#if SJPEG_USE_ZIGZAG_PERMUTE
+#if defined(SJPEG_USE_ZIGZAG_PERMUTE)
   // Same two matrices, permuted once here so that QuantizeBlock() can work
   // directly in scan order. 64 entries per matrix change, against 64 per
   // block otherwise.
@@ -231,7 +231,7 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
 
 #elif defined(SJPEG_USE_NEON)
 
-#if SJPEG_USE_ZIGZAG_PERMUTE
+#if defined(SJPEG_USE_ZIGZAG_PERMUTE)
 // Byte indices into the 128 bytes of in[], one 16-byte vector per group of
 // eight coefficients: entry [k][2t], [k][2t+1] are the two bytes of the
 // coefficient at zig-zag position 8k+t, that is 2*kZigzag[8k+t] and +1.
@@ -250,7 +250,7 @@ static const uint8_t kZigzagBytes[8][16] = {
 static int QuantizeBlockNEON(const int16_t in[64], int idx,
                              const Quantizer* const Q,
                              DCTCoeffs* const out, RunLevel* const rl) {
-#if SJPEG_USE_ZIGZAG_PERMUTE
+#if defined(SJPEG_USE_ZIGZAG_PERMUTE)
   const uint16_t* const bias = Q->bias_zz_;
   const uint16_t* const iquant = Q->iquant_zz_;
 #else
@@ -267,7 +267,7 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
   // (NEON has no movemask instruction).
   static const uint16_t kBitWeights[8] = {1, 2, 4, 8, 16, 32, 64, 128};
   const uint16x8_t weights = vld1q_u16(kBitWeights);
-#if SJPEG_USE_ZIGZAG_PERMUTE
+#if defined(SJPEG_USE_ZIGZAG_PERMUTE)
   // The whole block as two 64-byte tables, so that one vqtbl4q_u8 pair can
   // gather any eight coefficients. Out-of-range indices return zero, which is
   // what makes the two halves OR together cleanly.
@@ -282,7 +282,7 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
   for (int i = 0; i < 64; i += 8) {
     const uint16x8_t m_bias = vld1q_u16(bias + i);
     const uint16x8_t m_mult = vld1q_u16(iquant + i);
-#if SJPEG_USE_ZIGZAG_PERMUTE
+#if defined(SJPEG_USE_ZIGZAG_PERMUTE)
     const uint8x16_t shuf = vld1q_u8(kZigzagBytes[i >> 3]);
     const int16x8_t A =                                    // in[kZigzag[i]]
         vreinterpretq_s16_u8(vorrq_u8(vqtbl4q_u8(t_lo, shuf),
@@ -318,7 +318,7 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
   // Emit run/level entries, iterating the set bits with 'ctz' so we touch only
   // the (few) non-zero coefficients: the classic zig-zag scan without the
   // data-dependent per-coefficient branch. Output is bit-identical.
-#if SJPEG_USE_ZIGZAG_PERMUTE
+#if defined(SJPEG_USE_ZIGZAG_PERMUTE)
   // tmp[] and masked[] are in scan order already, so the mask is the scan
   // (bit 0 is the DC, which is coded separately).
   const uint64_t zz = nzn & ~1ull;
@@ -331,7 +331,7 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
 #endif
   for (uint64_t b = zz; b != 0; b &= b - 1) {
     const int i = static_cast<int>(TrailingZeros64(b));
-#if SJPEG_USE_ZIGZAG_PERMUTE
+#if defined(SJPEG_USE_ZIGZAG_PERMUTE)
     const int j = i;
 #else
     const int j = kZigzag[i];

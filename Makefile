@@ -233,6 +233,7 @@ DIST_FILES= \
          src/jpeg_tools.cc  \
          src/quantize.cc  \
          src/md5sum.h \
+         src/perf_toggles.h \
          src/score_7.cc  \
          src/sjpeg.h  \
          src/sjpegi.h  \
@@ -245,6 +246,7 @@ DIST_FILES= \
          examples/utils.h  \
          examples/utils.cc  \
          perf/bench.cc  \
+         perf/sweep.sh  \
          perf/verify.sh  \
          tests/test_cmd.sh  \
          tests/test_png_jpg.sh  \

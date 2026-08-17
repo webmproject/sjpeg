@@ -9,7 +9,7 @@
 # flag changes, is an ODR violation, not just a bad measurement.
 #
 #   ./perf/build.sh /tmp/bench_on
-#   ./perf/build.sh /tmp/bench_off -DSJPEG_USE_FAST_BITWRITER=0
+#   ./perf/build.sh /tmp/bench_off -DSJPEG_DISABLE_FAST_BITWRITER
 #
 # NOTE: use bash, not zsh (see verify.sh).
 
