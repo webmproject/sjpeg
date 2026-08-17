@@ -22,13 +22,18 @@ else
 endif
 
 enc_srcs := \
+        src/api.cc \
         src/bit_writer.cc \
         src/colors_rgb.$(NEON) \
-        src/enc.$(NEON) \
+        src/enc.cc \
+        src/encoders.cc \
+        src/entropy.cc \
         src/fdct.$(NEON) \
         src/headers.cc \
+        src/histogram.$(NEON) \
         src/dichotomy.cc \
         src/jpeg_tools.cc \
+        src/quantize.$(NEON) \
         src/yuv_convert.$(NEON) \
         src/score_7.cc \
 
