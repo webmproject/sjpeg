@@ -362,7 +362,6 @@ static bool SearchBestPrev(const TrellisNode* const nodes0, TrellisNode* node,
     uint32_t bits = node->nbits;
     bits += (run >> 4) * (codes[0xf0] & 0xff);
     const uint32_t disto = base_disto - disto0[cur->pos];
-#if defined(SJPEG_USE_TRELLIS_PRUNE)
     // Exact early-out. The scan walks back towards the sink, so the run only
     // grows: disto grows with it, because disto0[] is non-decreasing, and so
     // does the ZRL part of bits. Both terms of this bound are therefore
@@ -373,7 +372,6 @@ static bool SearchBestPrev(const TrellisNode* const nodes0, TrellisNode* node,
     // provably lose, so the winning node and every field copied out of it are
     // what the full O(n^2) scan produces.
     if (disto + lambda * bits >= node->score) break;
-#endif
     const uint32_t sym = ((run & 15) << 4) | node->nbits;
     assert(codes[sym] != 0);
     bits += codes[sym] & 0xff;

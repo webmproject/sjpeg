@@ -117,7 +117,7 @@ void BitWriter::Flush() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#if !defined(SJPEG_USE_FAST_BITCOUNTER)
+#if !defined(SJPEG_HAVE_64BIT)
 void BitCounter::AddBits(const uint32_t bits, size_t nbits) {
   assert(nbits > 0);
   size_ += nbits;
@@ -129,6 +129,6 @@ void BitCounter::AddBits(const uint32_t bits, size_t nbits) {
     bit_pos_ -= 8;
   }
 }
-#endif    // !defined(SJPEG_USE_FAST_BITCOUNTER)
+#endif    // !defined(SJPEG_HAVE_64BIT)
 
 }   // namespace sjpeg

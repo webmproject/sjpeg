@@ -26,8 +26,25 @@
 #include <string>
 #include <vector>
 
-#include "perf_toggles.h"
 #include "sjpeg.h"
+
+// The bit writer and the size counter each have two implementations: one that
+// accumulates into a 64bit register and flushes eight bytes at a time, and the
+// 32bit one that preceded it. The choice is the target's register width, not a
+// preference: on a 32bit target the compiler emulates the accumulator in a
+// register pair and the single 8-byte store becomes two, which is a trade
+// nobody here has measured -- every machine this was developed on is 64bit.
+// So the 32bit target keeps the implementation that was written for it.
+//
+// SJPEG_FORCE_32BIT selects that implementation on a 64bit host too. Without a
+// way to build it anywhere, it is a path no test ever compiles, and one that
+// nobody would notice going stale; with it, 'build.sh out -DSJPEG_FORCE_32BIT'
+// plus verify.sh checks the two agree byte for byte on any machine.
+#if !defined(SJPEG_FORCE_32BIT) &&                  \
+    (defined(__LP64__) || defined(_WIN64) ||        \
+     (defined(UINTPTR_MAX) && UINTPTR_MAX > 0xffffffffu))
+#define SJPEG_HAVE_64BIT
+#endif
 
 namespace sjpeg {
 
@@ -91,7 +108,7 @@ typedef Sink<std::vector<uint8_t> > VectorSink;
 #define SJPEG_INLINE inline
 #endif
 
-#if defined(SJPEG_USE_FAST_BITWRITER)
+#if defined(SJPEG_HAVE_64BIT)
 // returns true if any byte of 'x' is 0xff
 static inline bool HasFF(uint64_t x) {
   const uint64_t y = ~x;    // 0xff bytes are now zero bytes
@@ -122,7 +139,7 @@ static inline uint64_t HToBE64(uint64_t x) {
   return BSwap64(x);
 #endif
 }
-#endif    // SJPEG_USE_FAST_BITWRITER
+#endif    // SJPEG_HAVE_64BIT
 
 ///////////////////////////////////////////////////////////////////////////////
 // BitWriter
@@ -140,7 +157,6 @@ class BitWriter {
     return true;
   }
 
-#if defined(SJPEG_USE_CHUNKED_COMMIT)
   // Same as Reserve(), but a no-op while the slab we already hold has room
   // for 'size' more bytes. Committing is what costs: for the string and
   // vector sinks it is a virtual call into resize(), which also zeroes the
@@ -150,14 +166,8 @@ class BitWriter {
     if (byte_pos_ + size <= reserved_) return true;
     return Reserve(chunk);
   }
-#else
-  bool ReserveMore(size_t size, size_t chunk) {
-    (void)chunk;
-    return Reserve(size);
-  }
-#endif
 
-#if defined(SJPEG_USE_FAST_BITWRITER)
+#if defined(SJPEG_HAVE_64BIT)
   // Flush whole bytes out of the accumulator.
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
   // calling this function. Note that the fast path below stores 8 bytes
@@ -230,7 +240,7 @@ class BitWriter {
     nb_bits_+= nb;
     bits_ |= bits << (32 - nb_bits_);
   }
-#endif    // SJPEG_USE_FAST_BITWRITER
+#endif    // SJPEG_HAVE_64BIT
   // Append one byte to buffer. FlushBits() must have been called before.
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
   // calling this function.
@@ -251,7 +261,7 @@ class BitWriter {
   // Handy helper to write a packed code in one call.
   void PutPackedCode(uint32_t code) { PutBits(code >> 16, code & 0xff); }
 
-#if defined(SJPEG_USE_FAST_BITWRITER)
+#if defined(SJPEG_HAVE_64BIT)
   // Write a packed code immediately followed by its 'n'-bit suffix. Both fit
   // in one PutBits() call: 16 bits of code and 11 of suffix, worst case.
   // Forced: this is called once per non-zero coefficient, and left to its own
@@ -275,7 +285,7 @@ class BitWriter {
   ByteSink* sink_;
 
   int nb_bits_;      // number of unwritten bits
-#if defined(SJPEG_USE_FAST_BITWRITER)
+#if defined(SJPEG_HAVE_64BIT)
   uint64_t bits_;    // accumulator for unwritten bits
 #else
   uint32_t bits_;    // accumulator for unwritten bits
@@ -291,7 +301,7 @@ struct BitCounter {
 
   void AddPackedCode(const uint32_t code) { AddBits(code >> 16, code & 0xff); }
 
-#if defined(SJPEG_USE_FAST_BITCOUNTER)
+#if defined(SJPEG_HAVE_64BIT)
   // Count a packed code immediately followed by its 'n'-bit suffix.
   SJPEG_INLINE
   void AddPackedCodeAndSuffix(uint32_t code, uint32_t suffix, int n) {
@@ -343,7 +353,7 @@ struct BitCounter {
 
  private:
   uint32_t bits_;
-#endif    // SJPEG_USE_FAST_BITCOUNTER
+#endif    // SJPEG_HAVE_64BIT
   size_t bit_pos_;
   size_t size_;
 };

@@ -85,12 +85,10 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
                                                         : quantize_block_;
   if (use_trellis_) InitCodes(true);
 
-#if defined(SJPEG_USE_FUSED_STATS)
   // The run/levels are in registers here, so the frequencies come for free.
   // Whoever needs the tables afterwards only has to CompileEntropyStats().
   const bool collect_stats = optimize_size_;
   if (collect_stats) ResetEntropyStats();
-#endif
 
   ResetDCs();
   nb_run_levels_ = 0;
@@ -103,9 +101,7 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
         const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
                                       coeffs, run_levels);
         coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
-#if defined(SJPEG_USE_FUSED_STATS)
         if (collect_stats) AddEntropyStats(coeffs, run_levels);
-#endif
         nb_run_levels_ += coeffs->nb_coeffs_;
         ++coeffs;
         in += 64;
@@ -152,11 +148,7 @@ void Encoder::LoopScan() {
       StoreRunLevels(base_coeffs);
       if (!ok_) break;
       if (optimize_size_) {
-#if defined(SJPEG_USE_FUSED_STATS)
         CompileEntropyStats();   // stats were gathered by StoreRunLevels()
-#else
-        StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
-#endif
         if (use_trellis_) InitCodes(true);
       }
       result = ComputeSize(base_coeffs);
@@ -196,11 +188,7 @@ void Encoder::LoopScan() {
     if (!search_hook_->for_size || !last_is_best) {
       StoreRunLevels(base_coeffs);
       if (ok_ && optimize_size_) {
-#if defined(SJPEG_USE_FUSED_STATS)
         CompileEntropyStats();
-#else
-        StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
-#endif
       }
     }
 
@@ -278,7 +266,7 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
       const size_t nbits = suffix & 0x0f;
       const int sym = (run << 4) | nbits;
       assert(nbits > 0);   // as in CodeBlock(): zero only comes from the ZRL
-#if defined(SJPEG_USE_FAST_BITCOUNTER)
+#if defined(SJPEG_HAVE_64BIT)
       bc->AddPackedCodeAndSuffix(codes[sym], suffix >> 4,
                                  static_cast<int>(nbits));
 #else

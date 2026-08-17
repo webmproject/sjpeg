@@ -233,7 +233,6 @@ DIST_FILES= \
          src/jpeg_tools.cc  \
          src/quantize.cc  \
          src/md5sum.h \
-         src/perf_toggles.h \
          src/score_7.cc  \
          src/sjpeg.h  \
          src/sjpegi.h  \

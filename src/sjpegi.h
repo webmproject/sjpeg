@@ -21,7 +21,6 @@
 
 #include "sjpeg.h"  // IWYU pragma: export
 #include "bit_writer.h"
-#include "perf_toggles.h"
 
 #ifndef NULL
 #define NULL 0
@@ -347,9 +346,6 @@ struct Encoder {
   void AddEntropyStats(const DCTCoeffs* const coeffs,
                        const RunLevel* const run_levels);
   void CompileEntropyStats();
-#if !defined(SJPEG_USE_FUSED_STATS)
-  void StoreOptimalHuffmanTables(size_t nb_mbs, const DCTCoeffs* coeffs);
-#endif
 
   void SinglePassScan();           // finalizing scan
   void SinglePassScanOptimized();  // optimize the Huffman table + finalize scan
