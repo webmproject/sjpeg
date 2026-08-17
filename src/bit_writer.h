@@ -150,6 +150,16 @@ class BitWriter {
     return true;
   }
 
+  // Same as Reserve(), but a no-op while the slab we already hold has room for
+  // 'size' more bytes. Committing is what costs: for string and vector sinks it
+  // is a virtual call into resize(), which also zeroes the bytes it adds. Only
+  // the commit size changes, never its content.
+  bool ReserveMore(size_t size, size_t chunk) {
+    assert(size <= chunk);
+    if (byte_pos_ + size <= reserved_) return true;
+    return Reserve(chunk);
+  }
+
 #if defined(SJPEG_HAVE_64BIT)
   // Flush whole bytes out of the accumulator.
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
