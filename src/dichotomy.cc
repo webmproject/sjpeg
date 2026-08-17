@@ -16,6 +16,7 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -166,29 +167,33 @@ void Encoder::LoopScan() {
     }
     if (search_hook_->Update(result)) break;
   }
-  // transfer back the final matrices
-  SetQuantMatrices(opt_quants);
-  for (int c = 0; c < 2; ++c) FinalizeQuantMatrix(&quants_[c], q_bias_);
-
-  // return informative values to the user
-  search_hook_->q = best_q;
-  search_hook_->value = best_result;
-
-  // optimize Huffman table now, if we haven't already during the search
-  if (!search_hook_->for_size || !last_is_best) {
-    StoreRunLevels(base_coeffs);
-    if (ok_ && optimize_size_) {
-      StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
-    }
-  }
-
-  // finish bitstream
+  // If the search was interrupted by a failed allocation, opt_quants[] was
+  // never filled in: there is nothing to transfer back, and nothing to write.
   if (ok_) {
-    WriteDQT();
-    WriteSOF();
-    WriteDHT();
-    WriteSOS();
-    FinalPassScan(nb_mbs, base_coeffs);
+    // transfer back the final matrices
+    SetQuantMatrices(opt_quants);
+    for (int c = 0; c < 2; ++c) FinalizeQuantMatrix(&quants_[c], q_bias_);
+
+    // return informative values to the user
+    search_hook_->q = best_q;
+    search_hook_->value = best_result;
+
+    // optimize Huffman table now, if we haven't already during the search
+    if (!search_hook_->for_size || !last_is_best) {
+      StoreRunLevels(base_coeffs);
+      if (ok_ && optimize_size_) {
+        StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
+      }
+    }
+
+    // finish bitstream
+    if (ok_) {
+      WriteDQT();
+      WriteSOF();
+      WriteDHT();
+      WriteSOS();
+      FinalPassScan(nb_mbs, base_coeffs);
+    }
   }
   Free(base_coeffs);
 }

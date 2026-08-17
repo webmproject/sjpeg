@@ -19,6 +19,7 @@
 #include <string.h>   // for memset
 
 #include <cstdlib>
+#include <utility>   // for std::swap
 #include <vector>
 
 #include "sjpegi.h"
@@ -212,7 +213,7 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
   if (num_samples > 0.) gray_count /= num_samples;
 
   // number of pixels evaluated
-  const double frac = 100. * count / (width * height);
+  const double frac = 100. * count / ((double)width * height);
   // if less than 1% of pixels were evaluated -> below noise level.
   if (frac < 1.) total_score = 0.;
 
