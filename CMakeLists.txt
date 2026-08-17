@@ -71,12 +71,17 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/ ${SJPEG_DEP_INCLUDE_DIRS})
 add_library(sjpeg ${CMAKE_CURRENT_SOURCE_DIR}/src/bit_writer.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/bit_writer.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/colors_rgb.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/api.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/dichotomy.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/enc.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/encoders.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/entropy.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/fdct.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/headers.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/histogram.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/md5sum.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/jpeg_tools.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/score_7.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/sjpeg.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/sjpegi.h

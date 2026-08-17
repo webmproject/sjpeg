@@ -79,13 +79,18 @@ COL = /usr/bin/col
 LDFLAGS = $(EXTRA_LIBS) $(EXTRA_FLAGS) -lm
 
 SJPEG_OBJS = \
+    src/api.o \
     src/bit_writer.o \
     src/colors_rgb.o \
     src/dichotomy.o \
     src/enc.o \
+    src/encoders.o \
+    src/entropy.o \
     src/fdct.o \
     src/headers.o \
+    src/histogram.o \
     src/jpeg_tools.o \
+    src/quantize.o \
     src/score_7.o  \
     src/yuv_convert.o \
 
@@ -214,14 +219,19 @@ DIST_FILES= \
          cmake/sjpegConfig.cmake.in \
          appveyor.yml \
          src/libsjpeg.pc.in \
+         src/api.cc  \
          src/bit_writer.cc  \
          src/bit_writer.h  \
          src/colors_rgb.cc  \
          src/dichotomy.cc  \
          src/enc.cc  \
+         src/encoders.cc  \
+         src/entropy.cc  \
          src/fdct.cc  \
          src/headers.cc \
+         src/histogram.cc  \
          src/jpeg_tools.cc  \
+         src/quantize.cc  \
          src/md5sum.h \
          src/score_7.cc  \
          src/sjpeg.h  \
