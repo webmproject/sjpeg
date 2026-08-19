@@ -179,9 +179,12 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
   const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
 
   std::vector<uint16_t> row1(width), row2(width);
-  double total_score = 0.;
-  double count = 0.;
-  double gray_count = 0.;
+  // Use faster int64_t accumulation instead of double. A score is at most
+  // 3 * 255, so even a 16k x 16k image stays under 2^38. The cast to double
+  // below is safe.
+  int64_t score_sum = 0;   // scores above the noise level
+  int64_t score_num = 0;   // how many samples that was
+  int64_t gray_num = 0;    // samples with neutral chroma
   const int s = sjpeg::kRGBSize;  // shortcut
   const int kRGB3 = s * s * s;
   const int gray = (s / 2) * (1 + s) * s;   // gray level for y=0,u=128,v=128
@@ -202,13 +205,15 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
                       + sjpeg::kSharpnessScore[idx0 + kRGB3 * idx2]
                       + sjpeg::kSharpnessScore[idx1 + kRGB3 * idx2];
       if (score > kNoiseLevel) {
-        total_score += score;
-        count += 1.0;
+        score_sum += score;
+        score_num += 1;
       }
-      gray_count += (idx0 >= gray_min && idx0 < gray_min + s);
+      gray_num += (idx0 >= gray_min && idx0 < gray_min + s);
     }
   }
-  if (count > 0) total_score /= count;
+  const double count = (double)score_num;
+  double gray_count = (double)gray_num;
+  double total_score = (count > 0) ? score_sum / count : 0.;
   // the loops above visit (width - 1) x (height - 1) samples
   const double num_samples = (width - 1.) * (height - 1.);
   if (num_samples > 0.) gray_count /= num_samples;
