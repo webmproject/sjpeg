@@ -24,9 +24,6 @@
 
 #include "sjpegi.h"
 
-using namespace sjpeg;  // for the plain-C entry points below, which sit
-                         // outside the "namespace sjpeg" block further down
-
 ////////////////////////////////////////////////////////////////////////////////
 // public plain-C functions
 
@@ -37,9 +34,9 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
   if (width <= 0 || height <= 0 || std::abs(stride) < 3 * width) return 0;
   *out_data = nullptr;  // safety
 
-  MemorySink sink((size_t)width * height / 4);
-  Encoder* const enc = EncoderFactory(rgb, width, height, stride, yuv_mode,
-                                      &sink);
+  sjpeg::MemorySink sink((size_t)width * height / 4);
+  sjpeg::Encoder* const enc = sjpeg::EncoderFactory(rgb, width, height, stride,
+                                                    yuv_mode, &sink);
   if (enc == nullptr) return 0;
   enc->SetQuality(quality);
   enc->SetCompressionMethod(method);

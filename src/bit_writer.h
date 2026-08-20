@@ -26,6 +26,10 @@
 #include <string>
 #include <vector>
 
+#if defined(_MSC_VER)
+#include <intrin.h>   // for _byteswap_uint64, __popcnt64
+#endif
+
 #include "sjpeg.h"
 
 // Bit writer and counter below have a 64bit and a 32bit implementation, picked
@@ -112,6 +116,8 @@ static inline bool HasFF(uint64_t x) {
 static inline uint64_t BSwap64(uint64_t x) {
 #if defined(__GNUC__) || defined(__clang__)
   return __builtin_bswap64(x);
+#elif defined(_MSC_VER)
+  return _byteswap_uint64(x);
 #else
   x = ((x & 0x00ff00ff00ff00ffull) << 8) | ((x >> 8) & 0x00ff00ff00ff00ffull);
   x = ((x & 0x0000ffff0000ffffull) << 16) | ((x >> 16) & 0x0000ffff0000ffffull);
@@ -307,18 +313,31 @@ struct BitCounter {
   size_t Size() { Flush(); return size_; }
 
  private:
+  // ~20% faster LUT-variant (isolated), but only ~0.2% end-to-end
+#define SJPEG_USE_COUNTFF_LUT
+
   // Number of bytes equal to 0xff among the 'nb' most significant ones.
   static int CountFF(uint64_t v, int nb) {
-    // Usual haszero() trick is not usable as-is here: it only answers "is there
-    // one", because a zero byte borrows into its neighbour and marks it too.
-    // Masking to 0x7f before the add keeps carries local, which makes the
-    // result countable.
-    const uint64_t x = ~v;   // 0xff bytes are now zero bytes
-    uint64_t z = ((x & 0x7f7f7f7f7f7f7f7full) + 0x7f7f7f7f7f7f7f7full) | x;
-    z = ~z & 0x8080808080808080ull;    // one 0x80 per zero byte
+    // Masking to 0x7f before the add keeps carries local: a byte's low 7 bits
+    // are all-ones (0x7f or 0xff) iff adding 1 sets bit 7. ANDing that back
+    // against the byte's own original bit 7 keeps only the 0xff case, since
+    // 0x7f has its top bit clear.
+    const uint64_t y = (v & 0x7f7f7f7f7f7f7f7full) + 0x0101010101010101ull;
+#if defined(SJPEG_USE_COUNTFF_LUT)
+    static constexpr uint64_t kTopByteMasks[9] = {
+        0x0000000000000000ull, 0x8000000000000000ull, 0x8080000000000000ull,
+        0x8080800000000000ull, 0x8080808000000000ull, 0x8080808080000000ull,
+        0x8080808080800000ull, 0x8080808080808000ull, 0x8080808080808080ull,
+    };
+    const uint64_t z = y & v & kTopByteMasks[nb];
+#else
+    uint64_t z = (y & v & 0x8080808080808080ull);
     z >>= 64 - 8 * nb;                 // keep the top 'nb' bytes
+#endif
 #if defined(__GNUC__) || defined(__clang__)
     return __builtin_popcountll(z);
+#elif defined(_MSC_VER)
+    return static_cast<int>(__popcnt64(z));
 #else
     int n = 0;
     while (z != 0) { z &= z - 1; ++n; }
