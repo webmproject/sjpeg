@@ -167,8 +167,8 @@ class Encoder420 final : public Encoder {
       get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
     }
   }
-  virtual ~Encoder420() {}
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+  ~Encoder420() override {}
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
     const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 16;
     int step = step_;
     if (clipped) {
@@ -202,9 +202,9 @@ class Encoder444 final : public Encoder {
       get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
     }
   }
-  virtual ~Encoder444() {}
+  ~Encoder444() override {}
 
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
     const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 8;
     int step = step_;
     if (clipped) {
@@ -235,9 +235,9 @@ class Encoder400 final : public Encoder {
       get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
     }
   }
-  virtual ~Encoder400() {}
+  ~Encoder400() override {}
 
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
     const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 8;
     int step = step_;
     if (clipped) {
@@ -260,9 +260,9 @@ class Encoder400G final : public Encoder {
               ByteSink* const sink, MemoryManager* const memory = nullptr)
       : Encoder(SJPEG_YUV_400, W, H, sink, memory),
         gray_(gray), step_(step) {}
-  virtual ~Encoder400G() {}
+  ~Encoder400G() override {}
 
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
     const uint8_t* data = gray_ + (mb_x + mb_y * step_) * 8;
     if (clipped) {
       Convert8To16bClipped(data, step_, out, W_ - mb_x * 8, H_ - mb_y * 8);
@@ -289,7 +289,7 @@ class EncoderNV12 final : public Encoder {
     assert(sink != nullptr);
   }
 
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
     GetYSamples(mb_x, mb_y, clipped, out);
     GetUVSamples(mb_x, mb_y, clipped, out + 4 * 64, out + 5 * 64);
   }
@@ -393,9 +393,9 @@ class EncoderYUV444 final : public Encoder {
         y_(y), u_(u), v_(v), y_step_(y_step), u_step_(u_step), v_step_(v_step) {
     ok_ = (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
   }
-  virtual ~EncoderYUV444() {}
+  ~EncoderYUV444() override {}
 
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
     const uint8_t* const y = y_ + (mb_x + mb_y * y_step_) * 8;
     const uint8_t* const u = u_ + (mb_x + mb_y * u_step_) * 8;
     const uint8_t* const v = v_ + (mb_x + mb_y * v_step_) * 8;
@@ -451,9 +451,9 @@ class EncoderYUV420 : public Encoder {
         y_(y), u_(u), v_(v), y_step_(y_step), u_step_(u_step), v_step_(v_step) {
     ok_ = (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
   }
-  virtual ~EncoderYUV420() {}
+  ~EncoderYUV420() override {}
 
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
     // Luma
     const uint8_t* Y1 = y_ + (mb_x + mb_y * y_step_) * 16;
     int y_step = y_step_;
@@ -535,7 +535,7 @@ class EncoderSharp420 final : public EncoderYUV420 {
                               const_cast<uint8_t*>(v_));
     }
   }
-  virtual ~EncoderSharp420() { Free(yuv_memory_); }
+  ~EncoderSharp420() override { Free(yuv_memory_); }
 
  protected:
   uint8_t* yuv_memory_;
