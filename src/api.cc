@@ -24,7 +24,8 @@
 
 #include "sjpegi.h"
 
-using namespace sjpeg;
+using namespace sjpeg;  // for the plain-C entry points below, which sit
+                         // outside the "namespace sjpeg" block further down
 
 ////////////////////////////////////////////////////////////////////////////////
 // public plain-C functions
