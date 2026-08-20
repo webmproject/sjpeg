@@ -346,6 +346,7 @@ struct Encoder {
   void AddEntropyStats(const DCTCoeffs* const coeffs,
                        const RunLevel* const run_levels);
   void CompileEntropyStats();
+  size_t EntropySize() const;  // size, in bits, derived from freq_ac_/freq_dc_
 
   void SinglePassScan();           // finalizing scan
   void SinglePassScanOptimized();  // optimize the Huffman table + finalize scan

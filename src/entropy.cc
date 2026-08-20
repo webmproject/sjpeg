@@ -226,6 +226,24 @@ void Encoder::AddEntropyStats(const DCTCoeffs* const coeffs,
   ++freq_dc_[q_idx][coeffs->dc_code_ & 0x0f];
 }
 
+// Same total as BlocksSize(), minus uncounted 0xff byte-stuffing
+size_t Encoder::EntropySize() const {
+  size_t size = 0;
+  const int nb_tables = (nb_comps_ == 1) ? 1 : 2;
+  for (int q = 0; q < nb_tables; ++q) {
+    for (int len = 0; len < 12; ++len) {
+      const uint32_t freq = freq_dc_[q][len];
+      if (freq > 0) size += freq * ((dc_codes_[q][len] & 0xff) + len);
+    }
+    const uint32_t* const codes = ac_codes_[q];
+    for (int sym = 0; sym < 256; ++sym) {
+      const uint32_t freq = freq_ac_[q][sym];
+      if (freq > 0) size += freq * ((codes[sym] & 0xff) + (sym & 0x0f));
+    }
+  }
+  return size;
+}
+
 static int cmp(const void *pa, const void *pb) {
   const uint64_t a = *reinterpret_cast<const uint64_t*>(pa);
   const uint64_t b = *reinterpret_cast<const uint64_t*>(pb);
