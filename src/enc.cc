@@ -53,9 +53,9 @@ const int kDefaultDeltaMaxChroma = 1;
 
 static struct DefaultMemory : public MemoryManager {
  public:
-  virtual ~DefaultMemory() {}
-  virtual void* Alloc(size_t size) { return malloc(size); }
-  virtual void Free(void* const ptr) { free(ptr); }
+  ~DefaultMemory() override {}
+  void* Alloc(size_t size) override { return malloc(size); }
+  void Free(void* const ptr) override { free(ptr); }
 } kDefaultMemory;
 
 MemoryManager* GetDefaultMemoryManager() { return &kDefaultMemory; }

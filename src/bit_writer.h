@@ -51,10 +51,10 @@ namespace sjpeg {
 class MemorySink : public ByteSink {
  public:
   explicit MemorySink(size_t expected_size);
-  virtual ~MemorySink();
-  virtual bool Commit(size_t used_size, size_t extra_size, uint8_t** data);
-  virtual bool Finalize() { /* nothing to do */ return true; }
-  virtual void Reset();
+  ~MemorySink() override;
+  bool Commit(size_t used_size, size_t extra_size, uint8_t** data) override;
+  bool Finalize() override { /* nothing to do */ return true; }
+  void Reset() override;
   void Release(uint8_t** buf_ptr, size_t* size_ptr);
 
  private:
@@ -69,8 +69,8 @@ class MemorySink : public ByteSink {
 template<class T> class Sink : public ByteSink {
  public:
   explicit Sink(T* const output) : ptr_(output), pos_(0) {}
-  virtual ~Sink() {}
-  virtual bool Commit(size_t used_size, size_t extra_size, uint8_t** data) {
+  ~Sink() override {}
+  bool Commit(size_t used_size, size_t extra_size, uint8_t** data) override {
     pos_ += used_size;
     assert(pos_ <= ptr_->size());
     ptr_->resize(pos_ + extra_size);
@@ -78,8 +78,8 @@ template<class T> class Sink : public ByteSink {
     *data = extra_size ? reinterpret_cast<uint8_t*>(&(*ptr_)[pos_]) : nullptr;
     return true;
   }
-  virtual bool Finalize() { ptr_->resize(pos_); return true; }
-  virtual void Reset() {
+  bool Finalize() override { ptr_->resize(pos_); return true; }
+  void Reset() override {
     ptr_->clear();
     pos_ = 0;
   }
