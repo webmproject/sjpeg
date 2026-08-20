@@ -16,6 +16,7 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <stdint.h>
 #include <string.h>   // for memset
 
 #include <cstdlib>
