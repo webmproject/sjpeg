@@ -249,7 +249,7 @@ class Encoder400 final : public Encoder {
   }
 
  protected:
-  const uint8_t* rgb_;
+  const uint8_t* const rgb_;   // input samples
   int step_;
 };
 
@@ -272,7 +272,7 @@ class Encoder400G final : public Encoder {
   }
 
  protected:
-  const uint8_t* gray_;
+  const uint8_t* const gray_;   // input samples
   int step_;
 };
 
