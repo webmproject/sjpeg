@@ -282,9 +282,18 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
 float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
   InitCodes(false);
   size_t size = HeaderSize();
-  BitCounter bc;
-  BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, all_run_levels_, &bc);
-  size += bc.Size();
+  if (optimize_size_) {
+    // not counting the 0xff byte-stuffing that BlocksSize() tracks exactly
+    // these depends on the bit sequence, not on symbol counts.
+    // it's a little approximation we can live with.
+    // Under-estimated ~1/256 = 0.39%: uniform bytes, 0xff produces 2 bytes.
+    // Not worth correcting: below the search's own convergence precision.
+    size += EntropySize();
+  } else {
+    BitCounter bc;
+    BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, all_run_levels_, &bc);
+    size += bc.Size();
+  }
   return size / 8.f;
 }
 
