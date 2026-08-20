@@ -34,9 +34,8 @@
 // SJPEG_FORCE_32BIT picks the 32bit one on a 64bit host, so it can be built
 // and compared anywhere.
 
-#if !defined(SJPEG_FORCE_32BIT) &&                  \
-    (defined(__LP64__) || defined(_WIN64) ||        \
-     (defined(UINTPTR_MAX) && UINTPTR_MAX > 0xffffffffu))
+#if !defined(SJPEG_FORCE_32BIT) && \
+    defined(UINTPTR_MAX) && UINTPTR_MAX > 0xffffffffu
 #define SJPEG_HAVE_64BIT
 #endif
 
@@ -124,9 +123,7 @@ static inline uint64_t BSwap64(uint64_t x) {
 // means storing it big-endian: a swap on a little-endian host, nothing on a
 // big-endian one. Getting it wrong reverses every group of eight silently.
 static inline uint64_t HToBE64(uint64_t x) {
-#if (defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && \
-     __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__) ||                  \
-    defined(__BIG_ENDIAN__)
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
   return x;
 #else
   return BSwap64(x);
