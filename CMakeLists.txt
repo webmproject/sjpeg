@@ -96,82 +96,82 @@ set_target_properties(sjpeg PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(sjpeg PROPERTIES VERSION ${PROJECT_VERSION}
                       SOVERSION ${PROJECT_VERSION})
 
-# Find the standard image libraries.
-set(SJPEG_DEP_IMG_LIBRARIES)
-set(SJPEG_DEP_IMG_INCLUDE_DIRS)
-foreach(I_LIB PNG JPEG)
-  find_package(${I_LIB})
-  set(SJPEG_HAVE_${I_LIB} ${${I_LIB}_FOUND})
-  if(${I_LIB}_FOUND)
-    set(SJPEG_DEP_IMG_LIBRARIES ${SJPEG_DEP_IMG_LIBRARIES}
-        ${${I_LIB}_LIBRARIES})
-    set(SJPEG_DEP_IMG_INCLUDE_DIRS ${SJPEG_DEP_IMG_INCLUDE_DIRS}
-        ${${I_LIB}_INCLUDE_DIRS})
-  endif()
-endforeach()
-
-# Find the OpenGL/GLUT libraries.
-set(SJPEG_DEP_GL_LIBRARIES)
-set(SJPEG_DEP_GL_INCLUDE_DIRS)
-find_package(OpenGL)
-if(OPENGL_gl_LIBRARY)
-  set(SJPEG_DEP_GL_LIBRARIES
-      ${SJPEG_DEP_GL_LIBRARIES} ${OPENGL_gl_LIBRARY})
-  set(SJPEG_DEP_GL_INCLUDE_DIRS
-      ${SJPEG_DEP_GL_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIR})
-  set(SJPEG_HAVE_OPENGL TRUE)
-endif()
-find_package(GLUT)
-if(GLUT_FOUND)
-  set(SJPEG_DEP_GL_LIBRARIES
-      ${SJPEG_DEP_GL_LIBRARIES} ${GLUT_glut_LIBRARY})
-  set(SJPEG_DEP_GL_INCLUDE_DIRS
-      ${SJPEG_DEP_GL_INCLUDE_DIRS} ${GLUT_INCLUDE_DIR})
-  set(SJPEG_HAVE_GLUT TRUE)
-endif()
-
-# build the utils library
-include_directories(${SJPEG_DEP_IMG_INCLUDE_DIRS})
-add_library(sjpeg-utils
-            ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.cc
-            ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.h
-)
-target_link_libraries(sjpeg-utils sjpeg)
-
-if(WIN32)
-  # quiet warnings related to fopen, sscanf
-  target_compile_definitions(sjpeg-utils PRIVATE _CRT_SECURE_NO_WARNINGS)
-endif()
-if(SJPEG_HAVE_OPENGL)
-  # check pthread for GL libraries
-  set(THREADS_PREFER_PTHREAD_FLAG ON)
-  find_package(Threads)
-  if(Threads_FOUND)
-    if(CMAKE_USE_PTHREADS_INIT)
-      list(APPEND SJPEG_DEP_GL_LIBRARIES ${CMAKE_THREAD_LIBS_INIT})
-    endif()
-  endif()
-  target_compile_definitions(sjpeg-utils PUBLIC SJPEG_HAVE_OPENGL)
-  add_definitions(${OPENGL_DEFINITIONS})
-endif()
-if(SJPEG_HAVE_GLUT)
-  add_definitions(${GLUT_DEFINITIONS})
-endif()
-if(SJPEG_HAVE_JPEG)
-  target_compile_definitions(sjpeg-utils PUBLIC SJPEG_HAVE_JPEG)
-endif()
-if(SJPEG_HAVE_PNG)
-  target_compile_definitions(sjpeg-utils PUBLIC SJPEG_HAVE_PNG)
-endif()
-if(SJPEG_DEP_IMG_LIBRARIES)
-  # check pthread for GL libraries
-  target_link_libraries(sjpeg-utils ${SJPEG_DEP_IMG_LIBRARIES}
-                        ${SJPEG_DEP_GL_LIBRARIES})
-endif()
-# set_target_properties(sjpeg-utils PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
 # Build the executables if asked for.
 if(SJPEG_BUILD_EXAMPLES)
+  # Find the standard image libraries.
+  set(SJPEG_DEP_IMG_LIBRARIES)
+  set(SJPEG_DEP_IMG_INCLUDE_DIRS)
+  foreach(I_LIB PNG JPEG)
+    find_package(${I_LIB})
+    set(SJPEG_HAVE_${I_LIB} ${${I_LIB}_FOUND})
+    if(${I_LIB}_FOUND)
+      set(SJPEG_DEP_IMG_LIBRARIES ${SJPEG_DEP_IMG_LIBRARIES}
+          ${${I_LIB}_LIBRARIES})
+      set(SJPEG_DEP_IMG_INCLUDE_DIRS ${SJPEG_DEP_IMG_INCLUDE_DIRS}
+          ${${I_LIB}_INCLUDE_DIRS})
+    endif()
+  endforeach()
+
+  # Find the OpenGL/GLUT libraries.
+  set(SJPEG_DEP_GL_LIBRARIES)
+  set(SJPEG_DEP_GL_INCLUDE_DIRS)
+  find_package(OpenGL)
+  if(OPENGL_gl_LIBRARY)
+    set(SJPEG_DEP_GL_LIBRARIES
+        ${SJPEG_DEP_GL_LIBRARIES} ${OPENGL_gl_LIBRARY})
+    set(SJPEG_DEP_GL_INCLUDE_DIRS
+        ${SJPEG_DEP_GL_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIR})
+    set(SJPEG_HAVE_OPENGL TRUE)
+  endif()
+  find_package(GLUT)
+  if(GLUT_FOUND)
+    set(SJPEG_DEP_GL_LIBRARIES
+        ${SJPEG_DEP_GL_LIBRARIES} ${GLUT_glut_LIBRARY})
+    set(SJPEG_DEP_GL_INCLUDE_DIRS
+        ${SJPEG_DEP_GL_INCLUDE_DIRS} ${GLUT_INCLUDE_DIR})
+    set(SJPEG_HAVE_GLUT TRUE)
+  endif()
+
+  # build the utils library
+  include_directories(${SJPEG_DEP_IMG_INCLUDE_DIRS})
+  add_library(sjpeg-utils
+              ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.cc
+              ${CMAKE_CURRENT_SOURCE_DIR}/examples/utils.h
+  )
+  target_link_libraries(sjpeg-utils sjpeg)
+
+  if(WIN32)
+    # quiet warnings related to fopen, sscanf
+    target_compile_definitions(sjpeg-utils PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endif()
+  if(SJPEG_HAVE_OPENGL)
+    # check pthread for GL libraries
+    set(THREADS_PREFER_PTHREAD_FLAG ON)
+    find_package(Threads)
+    if(Threads_FOUND)
+      if(CMAKE_USE_PTHREADS_INIT)
+        list(APPEND SJPEG_DEP_GL_LIBRARIES ${CMAKE_THREAD_LIBS_INIT})
+      endif()
+    endif()
+    target_compile_definitions(sjpeg-utils PUBLIC SJPEG_HAVE_OPENGL)
+    add_definitions(${OPENGL_DEFINITIONS})
+  endif()
+  if(SJPEG_HAVE_GLUT)
+    add_definitions(${GLUT_DEFINITIONS})
+  endif()
+  if(SJPEG_HAVE_JPEG)
+    target_compile_definitions(sjpeg-utils PUBLIC SJPEG_HAVE_JPEG)
+  endif()
+  if(SJPEG_HAVE_PNG)
+    target_compile_definitions(sjpeg-utils PUBLIC SJPEG_HAVE_PNG)
+  endif()
+  if(SJPEG_DEP_IMG_LIBRARIES)
+    # check pthread for GL libraries
+    target_link_libraries(sjpeg-utils ${SJPEG_DEP_IMG_LIBRARIES}
+                          ${SJPEG_DEP_GL_LIBRARIES})
+  endif()
+  # set_target_properties(sjpeg-utils PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
   # sjpeg
   add_executable(sjpeg-bin ${CMAKE_CURRENT_SOURCE_DIR}/examples/sjpeg.cc)
   target_link_libraries(sjpeg-bin sjpeg sjpeg-utils)
@@ -231,7 +231,6 @@ write_basic_package_version_file(
 )
 
 # Create the Config file.
-include(CMakePackageConfigHelpers)
 set(ConfigPackageLocation ${CMAKE_INSTALL_DATADIR}/sjpeg/cmake/)
 configure_package_config_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/sjpegConfig.cmake.in
