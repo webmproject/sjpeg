@@ -647,6 +647,7 @@ static void Help() {
                                 "auto/yuv420/sharp-yuv420/yuv444/yuv400\n"
          "  'o' ............... toggle Huffman optimization\n"
          "  'a' ............... toggle adaptive quantization\n"
+         "  'b' ............... toggle adaptive bias\n"
          "  'l' ............... toggle quantization limitation\n"
          "  't' ............... toggle trellis-based quantization\n"
          "  'e' ............... show error map\n"

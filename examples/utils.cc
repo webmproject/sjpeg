@@ -893,7 +893,9 @@ vector<uint8_t> ReadPPM(const std::string& input,
       max_value > 255) {
     return rgb;
   }
-  const size_t rgb_size = W * H * 3;
+  if (W <= 0 || H <= 0) return rgb;
+  // avoid int overflow
+  const size_t rgb_size = (size_t)W * H * 3;
   if (input.size() - offset < rgb_size) return rgb;
   rgb.resize(rgb_size);
   if (rgb_size) memcpy(&rgb[0], &input[offset], rgb_size);

@@ -11,7 +11,13 @@
 VERSION=1.0
 ARCHIVE_FILE=sjpeg-$(VERSION).tar.gz
 
+# Set to 0 to build without progressive JPEG encoding support.
+SJPEG_HAVE_PROGRESSIVE ?= 1
+
 EXTRA_FLAGS= -DSJPEG_HAVE_PNG -DSJPEG_HAVE_JPEG
+ifeq ($(SJPEG_HAVE_PROGRESSIVE), 0)
+  EXTRA_FLAGS += -DSJPEG_NO_PROGRESSIVE
+endif
 UTILS_LIBS= -lpng -ljpeg
 
 # we use C++-11
@@ -93,6 +99,10 @@ SJPEG_OBJS = \
     src/quantize.o \
     src/score_7.o  \
     src/yuv_convert.o \
+
+ifeq ($(SJPEG_HAVE_PROGRESSIVE), 1)
+  SJPEG_OBJS += src/prog.o
+endif
 
 UTILS_OBJS = \
     examples/utils.o \
@@ -214,6 +224,7 @@ DIST_FILES= \
          src/headers.cc \
          src/histogram.cc  \
          src/jpeg_tools.cc  \
+         src/prog.cc  \
          src/quantize.cc  \
          src/md5sum.h \
          src/score_7.cc  \

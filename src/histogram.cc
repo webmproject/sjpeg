@@ -317,17 +317,13 @@ void Encoder::AnalyseHisto() {
 void Encoder::CollectHistograms() {
   ResetHisto();
   int16_t* in = in_blocks_;
-  const int mb_x_max = W_ / block_w_;
-  const int mb_y_max = H_ / block_h_;
   const bool use_extra_memory = use_extra_memory_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
-    const bool yclip = (mb_y == mb_y_max);
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
       if (!use_extra_memory) {
         in = in_blocks_;
       }
-      GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
-      fDCT_(in, mcu_blocks_);
+      TransformMCU(mb_x, mb_y, in);
       for (int c = 0; c < nb_comps_; ++c) {
         const int num_blocks = nb_blocks_[c];
         store_histo_(in, &histos_[quant_idx_[c]], num_blocks);
