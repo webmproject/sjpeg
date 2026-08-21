@@ -41,7 +41,7 @@ const uint8_t* GetSOFData(const uint8_t* src, size_t size) {
   while (pos < end && src[pos] != 0xff) { ++pos; }  // search first 0xff marker
   while (pos < end) {
     const uint32_t marker =
-        static_cast<uint32_t>((src[pos] << 8) | src[pos + 1]);
+        (uint32_t)((src[pos] << 8) | src[pos + 1]);
     if (marker == M_SOF0 || marker == M_SOF1) return src + pos;
     pos += 2 + ((src[pos + 2] << 8) | src[pos + 3]);
   }
@@ -53,7 +53,7 @@ bool SjpegDimensions(const uint8_t* src0, size_t size,
                      int* width, int* height, int* is_yuv420) {
   const uint8_t* const src = GetSOFData(src0, size);
   if (src == nullptr) return false;
-  const size_t left_over = size - static_cast<size_t>(src - src0);
+  const size_t left_over = size - (size_t)(src - src0);
   if (left_over < 8 + 3 * 1) return false;
   if (height != nullptr) *height = (src[5] << 8) | src[6];
   if (width != nullptr) *width = (src[7] << 8) | src[8];
@@ -85,7 +85,7 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size,
   for (; src < end && *src != 0xff; ++src) { /* search first 0xff marker */ }
   int nb_comp = 0;
   while (src < end) {
-    const uint32_t marker = static_cast<uint32_t>((src[0] << 8) | src[1]);
+    const uint32_t marker = (uint32_t)((src[0] << 8) | src[1]);
     const int chunk_size = 2 + ((src[2] << 8) | src[3]);
     if (src + chunk_size > end) {
       break;
@@ -135,7 +135,7 @@ void SjpegQuantMatrix(float quality, bool for_chroma, uint8_t matrix[64]) {
   const float q_factor = sjpeg::GetQFactor(quality) / 100.f;
   const uint8_t* const matrix0 = sjpeg::kDefaultMatrices[for_chroma];
   for (int i = 0; i < 64; ++i) {
-    const int v = static_cast<int>(matrix0[i] * q_factor + .5f);
+    const int v = (int)(matrix0[i] * q_factor + .5f);
     matrix[i] = (v < 1) ? 1u : (v > 255) ? 255u : v;
   }
 }
@@ -149,7 +149,7 @@ float SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
   float best_score = 256 * 256 * 64 + 1;
   for (int quality = 0; quality <= 100; ++quality) {
     uint8_t m[64];
-    SjpegQuantMatrix(quality, for_chroma, m);
+    SjpegQuantMatrix((float)quality, for_chroma, m);
     float score = 0;
     for (size_t i = 0; i < 64; ++i) {
       const float diff = m[i] - matrix[i];
@@ -163,7 +163,7 @@ float SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
       best_quality = quality;
     }
   }
-  return best_quality;
+  return (float)best_quality;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -255,8 +255,8 @@ double DCTRiskinessScore(const int16_t yuv[3 * 64], int16_t scores[8 * 8]) {
   const int kRGB3 = sjpeg::kRGBSize * sjpeg::kRGBSize * sjpeg::kRGBSize;
   double total_score = 0;
   double count = 0;
-  for (size_t J = 0; J <= 7; ++J) {
-    for (size_t I = 0; I <= 7; ++I) {
+  for (int J = 0; J <= 7; ++J) {
+    for (int I = 0; I <= 7; ++I) {
       const int k = I + J * 8;
       const int idx0 = idx[k + 0];
       const int idx1 = idx[k + (I < 7 ? 1 : -1)];
@@ -270,7 +270,7 @@ double DCTRiskinessScore(const int16_t yuv[3 * 64], int16_t scores[8 * 8]) {
         total_score += score;
         count += 1.0;
       }
-      scores[I + J * 8] = static_cast<int16_t>(score);
+      scores[I + J * 8] = (int16_t)score;
     }
   }
   if (count > 0) total_score /= count;

@@ -790,19 +790,19 @@ static inline int16_t ToY(const uint8_t* const rgb_in, int* const rgb_sum) {
   rgb_sum[1] += g;
   rgb_sum[2] += b;
   const int y = 19595 * r + 38469 * g + 7471 * b + ROUND_Y;
-  return static_cast<int16_t>(y >> FRAC);
+  return (int16_t)(y >> FRAC);
 }
 
 // convert sum of four rgb triplets to U
 static inline int16_t ToU(const int* const rgb) {
   const int u = -11059 * rgb[0] - 21709 * rgb[1] + 32768 * rgb[2] + ROUND_UV;
-  return static_cast<int16_t>(u >> (FRAC + 2));
+  return (int16_t)(u >> (FRAC + 2));
 }
 
 // convert sum of four rgb triplets to V
 static inline int16_t ToV(const int* const rgb) {
   const int v = 32768 * rgb[0] - 27439 * rgb[1] -  5329 * rgb[2] + ROUND_UV;
-  return static_cast<int16_t>(v >> (FRAC + 2));
+  return (int16_t)(v >> (FRAC + 2));
 }
 
 // for 4:4:4 conversion: convert rgb[3] to yuv
@@ -813,9 +813,9 @@ static inline void ToYUV(const uint8_t* const rgb, int16_t* const out) {
   const int y =  19595 * r + 38469 * g +  7471 * b + ROUND_Y;
   const int u = -11059 * r - 21709 * g + 32768 * b + HALF;
   const int v =  32768 * r - 27439 * g -  5329 * b + HALF;
-  out[0 * 64] = static_cast<int16_t>(y >> FRAC);
-  out[1 * 64] = static_cast<int16_t>(u >> FRAC);
-  out[2 * 64] = static_cast<int16_t>(v >> FRAC);
+  out[0 * 64] = (int16_t)(y >> FRAC);
+  out[1 * 64] = (int16_t)(u >> FRAC);
+  out[2 * 64] = (int16_t)(v >> FRAC);
 }
 
 // for 4:0:0 conversion: convert rgb[3] to y
@@ -824,7 +824,7 @@ static inline int16_t ToY(const uint8_t* const rgb) {
   const int g = rgb[1];
   const int b = rgb[2];
   const int y =  19595 * r + 38469 * g +  7471 * b + ROUND_Y;
-  return static_cast<int16_t>(y >> FRAC);
+  return (int16_t)(y >> FRAC);
 }
 
 static void Get8x8Block_C(const uint8_t* data, int step, int16_t* out) {
@@ -1238,7 +1238,7 @@ void Convert8To16bClipped(const uint8_t* src, int src_step, int16_t* dst,
   if (sub_h > 8) sub_h = 8;
   for (int y = 0; y < sub_h; ++y) {
     for (int x = 0; x < sub_w; ++x) {
-      dst[x] = static_cast<int16_t>(src[x]) - 128;
+      dst[x] = (int16_t)src[x] - 128;
     }
     const int16_t ref = dst[sub_w - 1];
     for (int x = sub_w; x < 8; ++x) dst[x] = ref;
@@ -1254,7 +1254,7 @@ void Convert8To16bClipped(const uint8_t* src, int src_step, int16_t* dst,
 
 void Convert8To16b(const uint8_t* src, int src_step, int16_t* dst) {
   for (int y = 0; y < 8; ++y) {
-    for (int x = 0; x < 8; ++x) *dst++ = static_cast<int16_t>(src[x]) - 128;
+    for (int x = 0; x < 8; ++x) *dst++ = (int16_t)src[x] - 128;
     src += src_step;
   }
 }

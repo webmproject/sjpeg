@@ -129,7 +129,7 @@ void SetQuantMatrix(const uint8_t in[64], float q_factor, uint8_t out[64]) {
   if (in == nullptr || out == nullptr) return;
   q_factor /= 100.f;
   for (size_t i = 0; i < 64; ++i) {
-    const int v = static_cast<int>(in[i] * q_factor + .5f);
+    const int v = (int)(in[i] * q_factor + .5f);
     // clamp to prevent illegal quantizer values
     out[i] = (v < 1) ? 1 : (v > 255) ? 255u : v;
   }
@@ -138,7 +138,7 @@ void SetQuantMatrix(const uint8_t in[64], float q_factor, uint8_t out[64]) {
 void SetMinQuantMatrix(const uint8_t m[64], uint8_t out[64], int tolerance) {
   assert(out != nullptr && m != nullptr);
   for (size_t i = 0; i < 64; ++i) {
-    const int v = static_cast<int>(m[i] * (256 - tolerance) >> 8);
+    const int v = (int)(m[i] * (256 - tolerance) >> 8);
     out[i] = (v < 1) ? 1u : (v > 255) ? 255u : v;
   }
 }
@@ -581,7 +581,7 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
     // 8-bit chunk placed at bit offset i.
     const __m128i cmp = _mm_cmpgt_epi16(F, zero);
     const int m8 = _mm_movemask_epi8(_mm_packs_epi16(cmp, cmp)) & 0xff;
-    nzn |= static_cast<uint64_t>(m8) << i;
+    nzn |= (uint64_t)m8 << i;
   }
   // Emit run/level entries. Remap the non-zero AC set (drop DC = bit 0) from
   // natural to zig-zag order, then iterate set bits with 'ctz' so we touch only
@@ -592,7 +592,7 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
     zz |= 1ull << kInvZigzag[TrailingZeros64(b)];
   }
   for (uint64_t b = zz; b != 0; b &= b - 1) {
-    const int i = static_cast<int>(TrailingZeros64(b));
+    const int i = (int)TrailingZeros64(b);
     const int j = kZigzag[i];
     const int n = CalcLog2(tmp[j]);
     const uint16_t code = masked[j] & ((1 << n) - 1);
@@ -651,7 +651,7 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
     s = vpadd_u16(s, s);
     const int m8 = vget_lane_u16(s, 0);
 #endif
-    nzn |= static_cast<uint64_t>(m8) << i;
+    nzn |= (uint64_t)m8 << i;
   }
   // Emit run/level entries. Remap the non-zero AC set (drop DC = bit 0) from
   // natural to zig-zag order, then iterate set bits with 'ctz' so we touch only
@@ -662,7 +662,7 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
     zz |= 1ull << kInvZigzag[TrailingZeros64(b)];
   }
   for (uint64_t b = zz; b != 0; b &= b - 1) {
-    const int i = static_cast<int>(TrailingZeros64(b));
+    const int i = (int)TrailingZeros64(b);
     const int j = kZigzag[i];
     const int n = CalcLog2(tmp[j]);
     const uint16_t code = masked[j] & ((1 << n) - 1);
@@ -1196,11 +1196,11 @@ void Encoder::AnalyseHisto() {
               }
             }
           }   // end of 'i' loop
-          distortions[pos][delta] = static_cast<float>(dsum);
-          sizes[pos][delta] = static_cast<float>(bsum);
+          distortions[pos][delta] = (float)dsum;
+          sizes[pos][delta] = (float)bsum;
           const double w = kHistoWeight[delta];   // Gaussian weight
           if (w > 0.) {
-            const double x = static_cast<double>(delta + QDELTA_MIN);
+            const double x = (double)(delta + QDELTA_MIN);
             sw   += w;
             sx   += w * x;
             sxx  += w * x * x;
@@ -1249,8 +1249,8 @@ void Encoder::AnalyseHisto() {
       int best_dq = 0;
       for (int delta = 0; delta <= delta_max; ++delta) {
         if (distortions[pos][delta] < FLT_MAX) {
-          const float score = distortions[pos][delta]
-                            + lambda * sizes[pos][delta];
+          const float score = (float)(distortions[pos][delta]
+                            + lambda * sizes[pos][delta]);
           if (score < best_score) {
             best_score = score;
             best_dq = delta + QDELTA_MIN;
@@ -2030,8 +2030,8 @@ class EncoderNV12 final : public Encoder {
     const uint8_t* v = &UV[is_nv12_ ? 1 : 0];
     for (int y = 0; y < 8; ++y) {
       for (int x = 0; x < 8; ++x) {
-        U[x + y * 8] = static_cast<int16_t>(u[2 * x]) - 128;
-        V[x + y * 8] = static_cast<int16_t>(v[2 * x]) - 128;
+        U[x + y * 8] = (int16_t)u[2 * x] - 128;
+        V[x + y * 8] = (int16_t)v[2 * x] - 128;
       }
       u += uv_step;
       v += uv_step;
@@ -2359,7 +2359,7 @@ void EncoderParam::SetQuantization(const uint8_t m[2][64],
   if (m == nullptr) return;
   for (int c = 0; c < 2; ++c) {
     for (size_t i = 0; i < 64; ++i) {
-      const int v = static_cast<int>(m[c][i] * 100. / reduction + .5);
+      const int v = (int)(m[c][i] * 100. / reduction + .5);
       quant_[c][i] = (v > 255) ? 255u : (v < 1) ? 1u : v;
     }
   }

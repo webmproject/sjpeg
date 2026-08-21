@@ -131,7 +131,7 @@ static void InitGammaTablesF() {
         const double a_rec = 1. / (1. + a);
         value = pow(a_rec * (g + a), gamma);
       }
-      kGammaToLinearTab[v] = static_cast<uint32_t>(value * final_scale + .5);
+      kGammaToLinearTab[v] = (uint32_t)(value * final_scale + .5);
     }
     for (v = 0; v <= GAMMA_TABLE_SIZE; ++v) {
       const double g = scale * v;
@@ -143,7 +143,7 @@ static void InitGammaTablesF() {
       }
       // we already incorporate the 1/2 rounding constant here
       kLinearToGammaTab[v] =
-          static_cast<uint32_t>(MAX_Y_T * value)
+          (uint32_t)(MAX_Y_T * value)
             + (1 << GAMMA_TO_LINEAR_BITS >> 1);
     }
     // to prevent small rounding errors to cause read-overflow:
@@ -177,7 +177,7 @@ static uint64_t SharpUpdateY_C(const uint16_t* ref, const uint16_t* src,
   uint64_t diff = 0;
   for (int i = 0; i < len; ++i) {
     const int diff_y = ref[i] - src[i];
-    const int new_y = static_cast<int>(dst[i]) + diff_y;
+    const int new_y = (int)dst[i] + diff_y;
     dst[i] = clip_y(new_y);
     diff += (uint64_t)abs(diff_y);
   }
@@ -234,7 +234,7 @@ static uint64_t SharpUpdateY_SSE2(const uint16_t* ref, const uint16_t* src,
   diff = tmp[3] + tmp[2] + tmp[1] + tmp[0];
   for (; i < len; ++i) {
     const int diff_y = ref[i] - src[i];
-    const int new_y = static_cast<int>(dst[i]) + diff_y;
+    const int new_y = (int)dst[i] + diff_y;
     dst[i] = clip_y(new_y);
     diff += (uint64_t)abs(diff_y);
   }
@@ -332,9 +332,9 @@ static uint64_t SharpUpdateY_NEON(const uint16_t* ref, const uint16_t* src,
   uint64_t diff = vgetq_lane_u64(sum, 0) + vgetq_lane_u64(sum, 1);
   for (; i < len; ++i) {
     const int diff_y = ref[i] - src[i];
-    const int new_y = static_cast<int>(dst[i]) + diff_y;
+    const int new_y = (int)dst[i] + diff_y;
     dst[i] = clip_y(new_y);
-    diff += static_cast<uint64_t>(abs(diff_y));
+    diff += (uint64_t)abs(diff_y);
   }
   return diff;
 }
@@ -599,7 +599,7 @@ static void PreprocessARGB(const uint8_t* const rgb,
   vector<fixed_t> best_uv(uv_w * 3 * uv_h);
   vector<fixed_t> target_uv(uv_w * 3 * uv_h);
   vector<fixed_t> best_rgb_uv(uv_w * 3 * 1);
-  const uint64_t diff_y_threshold = static_cast<uint64_t>(3.0 * w * h);
+  const uint64_t diff_y_threshold = (uint64_t)(3.0 * w * h);
 
   assert(width >= kMinDimensionIterativeConversion);
   assert(height >= kMinDimensionIterativeConversion);
@@ -609,7 +609,7 @@ static void PreprocessARGB(const uint8_t* const rgb,
     const int is_last_row = (j == height - 1);
     fixed_y_t* const src1 = &tmp_buffer[0 * w];
     fixed_y_t* const src2 = &tmp_buffer[3 * w];
-    const int rgb_off = j * stride;
+    const int rgb_off = (int)(j * stride);
     const int y_off = j * w;
     const int uv_off = (j >> 1) * 3 * uv_w;
 

@@ -78,7 +78,7 @@ bool Encoder::WriteEXIF(const std::string& data) {
   ok_ = ok_ && bw_.Reserve(data_size + 2);
   if (!ok_) return false;
   Put16b(0xffe1);
-  Put16b(data_size);
+  Put16b((uint32_t)data_size);
   bw_.PutBytes(kEXIF, kEXIF_len);
   bw_.PutBytes(reinterpret_cast<const uint8_t*>(data.data()), data.size());
   return true;
@@ -100,7 +100,7 @@ bool Encoder::WriteICCP(const std::string& data) {
     ok_ = ok_ && bw_.Reserve(total_size + 2);
     if (!ok_) return false;
     Put16b(0xffe2);
-    Put16b(total_size);
+    Put16b((uint32_t)total_size);
     bw_.PutBytes(kICCP, kICCP_len);
     bw_.PutByte(seq & 0xff);
     bw_.PutByte(max_chunk & 0xff);
@@ -146,13 +146,14 @@ bool Encoder::WriteXMPExtended(const std::string& data) {
   if (!ok_) return false;
   size_t read_pos = 0, write_pos = 0;
   for (uint32_t chunk = 0; chunk < num_chunks; ++chunk) {
-    const uint32_t write_size = std::min(kBufSize, ext_data.size() - read_pos);
+    const uint32_t write_size =
+        (uint32_t)std::min(kBufSize, ext_data.size() - read_pos);
     Put16b(0xffe1);  // APP1
     Put16b(2 + kHeaderSize + write_size);
     bw_.PutBytes(kXMPExt, kXMPExt_size);
     bw_.PutBytes(guid, 32u);
-    Put32b(ext_data.size());  // total size, not chunk size!
-    Put32b(read_pos);
+    Put32b((uint32_t)ext_data.size());  // total size, not chunk size!
+    Put32b((uint32_t)read_pos);
     bw_.PutBytes(reinterpret_cast<const uint8_t*>(&ext_data[read_pos]),
                  write_size);
     read_pos += write_size;
@@ -170,7 +171,7 @@ bool Encoder::WriteXMP(const std::string& data) {
     ok_ = ok_ && bw_.Reserve(data_size + 2);
     if (!ok_) return false;
     Put16b(0xffe1);
-    Put16b(data_size);
+    Put16b((uint32_t)data_size);
     bw_.PutBytes(kXMP, kXMP_size);
     bw_.PutBytes(reinterpret_cast<const uint8_t*>(data.data()), data.size());
     return true;
@@ -229,7 +230,7 @@ void Encoder::WriteDHT() {
       ok_ = ok_ && bw_.Reserve(data_size + 2);
       if (!ok_) return;
       Put16b(0xffc4);
-      Put16b(data_size);
+      Put16b((uint32_t)data_size);
       bw_.PutByte((type << 4) | c);
       bw_.PutBytes(h->bits_, 16);
       bw_.PutBytes(h->syms_, h->nb_syms_);

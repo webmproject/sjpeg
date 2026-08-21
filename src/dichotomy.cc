@@ -32,7 +32,7 @@ using namespace sjpeg;
 #define DBG_PRINT 0
 
 // convergence is considered reached if |dq| < kdQLimit.
-static const float kdQLimit = 0.15;
+static const float kdQLimit = 0.15f;
 
 static float Clamp(float v, float min, float max) {
   return (v < min) ? min : (v > max) ? max : v;
@@ -41,7 +41,7 @@ static float Clamp(float v, float min, float max) {
 bool SearchHook::Setup(const EncoderParam& param) {
   for_size = (param.target_mode == EncoderParam::TARGET_SIZE);
   target = param.target_value;
-  tolerance = param.tolerance / 100.;
+  tolerance = param.tolerance / 100.f;
   qmin = (param.qmin < 0) ? 0 : param.qmin;
   qmax = (param.qmax > 100) ? 100 :
          (param.qmax < param.qmin) ? param.qmin : param.qmax;
@@ -62,7 +62,7 @@ bool SearchHook::Update(float result) {
     qmin = q;
   }
   const float last_q = q;
-  q = (qmin + qmax) / 2.;
+  q = (qmin + qmax) / 2.f;
   done = (fabs(q - last_q) < kdQLimit);
   if (DBG_PRINT) {
     printf(" -> next-q=%.2f\n", last_q);
@@ -258,7 +258,7 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
       }
       const uint32_t suffix = rl[i].level_;
       const size_t nbits = suffix & 0x0f;
-      const int sym = (run << 4) | nbits;
+      const int sym = (int)((run << 4) | nbits);
       bc->AddPackedCode(codes[sym]);
       bc->AddBits(suffix >> 4, nbits);
     }
@@ -273,7 +273,7 @@ float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
   BitCounter bc;
   BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, all_run_levels_, &bc);
   size += bc.Size();
-  return size / 8.f;
+  return (float)size / 8.f;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -281,8 +281,9 @@ float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
 static float GetPSNR(uint64_t err, uint64_t size) {
   // This expression is written such that it gives the same result on ARM
   // and x86 (for large values of err/size in particular). Don't change it!
-  return (err > 0 && size > 0) ? 4.3429448f * log(size / (err / 255. / 255.))
-                               : 99.f;
+  return (err > 0 && size > 0)
+             ? (float)(4.3429448f * log((double)size / ((double)err / 255. / 255.)))
+             : 99.f;
 }
 
 float Encoder::ComputePSNR() const {
