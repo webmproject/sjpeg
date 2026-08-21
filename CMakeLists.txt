@@ -245,6 +245,16 @@ install(
   DESTINATION ${ConfigPackageLocation}
 )
 
+# Generate and install the pkg-config file. libsjpeg itself has no external
+# library dependencies, so this only ever needs -lsjpeg: libjpeg/libpng are
+# examples-only (see SJPEG_BUILD_EXAMPLES above).
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/sjpeg.pc.in
+  ${CMAKE_CURRENT_BINARY_DIR}/sjpeg.pc
+  @ONLY
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/sjpeg.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
 ################################################################################
 # Man page.
