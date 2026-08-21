@@ -532,17 +532,17 @@ struct Encoder {
 // Returns the Encoder sub-class matching 'yuv_mode' (resolving SJPEG_YUV_AUTO
 // along the way), or null if it could not be constructed.
 extern Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
-                               SjpegYUVMode yuv_mode, ByteSink* const sink,
+                               SjpegYUVMode yuv_mode, ByteSink* sink,
                                PixelFormat fmt = kRGBInput,
-                               MemoryManager* const memory = nullptr);
+                               MemoryManager* memory = nullptr);
 
 // Same, for a single-channel (4:0:0) input.
 extern Encoder* GrayEncoderFactory(const uint8_t* gray, int W, int H,
-                                   int stride, ByteSink* const sink,
-                                   MemoryManager* const memory = nullptr);
+                                   int stride, ByteSink* sink,
+                                   MemoryManager* memory = nullptr);
 
 // Encodes with 'enc' and destroys it, tolerating a null 'enc'.
-extern bool FinishEncoding(Encoder* const enc, const EncoderParam& param);
+extern bool FinishEncoding(Encoder* enc, const EncoderParam& param);
 
 ////////////////////////////////////////////////////////////////////////////////
 
