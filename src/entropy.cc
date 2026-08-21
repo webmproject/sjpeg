@@ -158,6 +158,33 @@ void Encoder::ResetDCs() {
   }
 }
 
+// Codes one block's AC run-level list (windowed[Ss,Se] for progressive, or
+// the full block for baseline). Shared by CodeBlock()/CodeBlockACWindowed().
+static inline void CodeACRunLevels(const RunLevel* const rl, int n,
+                                   const uint32_t* const codes,
+                                   BitWriter* const bw) {
+  for (int i = 0; i < n; ++i) {
+    int run = rl[i].run_;
+    while (run & ~15) {        // escapes
+      bw->PutPackedCode(codes[0xf0]);
+      run -= 16;
+    }
+    const uint32_t suffix = rl[i].level_;
+    const int nbits = suffix & 0x0f;
+    const int sym = (run << 4) | nbits;
+    // nbits is the magnitude category of a non-zero coefficient, so it is
+    // >= 1 here. The zero case is only reachable through the ZRL escape
+    // above.
+    assert(nbits > 0);
+#if defined(SJPEG_HAVE_64BIT)
+    bw->PutPackedCodeAndSuffix(codes[sym], suffix >> 4, nbits);
+#else
+    bw->PutPackedCode(codes[sym]);
+    bw->PutBits(suffix >> 4, nbits);
+#endif
+  }
+}
+
 void Encoder::CodeBlock(const DCTCoeffs* const coeffs,
                         const RunLevel* const rl) {
   const int idx = coeffs->idx_;
@@ -173,25 +200,7 @@ void Encoder::CodeBlock(const DCTCoeffs* const coeffs,
 
   // AC coeffs
   const uint32_t* const codes = ac_codes_[q_idx];
-  for (int i = 0; i < coeffs->nb_coeffs_; ++i) {
-    int run = rl[i].run_;
-    while (run & ~15) {        // escapes
-      bw_.PutPackedCode(codes[0xf0]);
-      run -= 16;
-    }
-    const uint32_t suffix = rl[i].level_;
-    const int n = suffix & 0x0f;
-    const int sym = (run << 4) | n;
-    // n is the magnitude category of a non-zero coefficient, so it is >= 1
-    // here. The zero case is only reachable through the ZRL escape above.
-    assert(n > 0);
-#if defined(SJPEG_HAVE_64BIT)
-    bw_.PutPackedCodeAndSuffix(codes[sym], suffix >> 4, n);
-#else
-    bw_.PutPackedCode(codes[sym]);
-    bw_.PutBits(suffix >> 4, n);
-#endif
-  }
+  CodeACRunLevels(rl, coeffs->nb_coeffs_, codes, &bw_);
   if (coeffs->last_ < 63) {     // EOB
     bw_.PutPackedCode(codes[0x00]);
   }
@@ -205,6 +214,20 @@ void Encoder::ResetEntropyStats() {
   memset(freq_dc_, 0, sizeof(freq_dc_));
 }
 
+// Tallies one block's AC run-level list into freq[]. Shared by
+// AddEntropyStats()/AddEntropyStatsACWindowed().
+static inline void AddACRunLevelStats(const RunLevel* const rl, int n,
+                                      uint32_t* const freq) {
+  for (int i = 0; i < n; ++i) {
+    const int run = rl[i].run_;
+    const int tmp = (run >> 4);
+    if (tmp) freq[0xf0] += tmp;  // count escapes (all at once)
+    const int suffix = rl[i].level_;
+    const int sym = ((run & 0x0f) << 4) | (suffix & 0x0f);
+    ++freq[sym];
+  }
+}
+
 void Encoder::AddEntropyStats(const DCTCoeffs* const coeffs,
                               const RunLevel* const run_levels) {
   // freq_ac_[] and freq_dc_[] cannot overflow 32bits, since the maximum
@@ -212,14 +235,7 @@ void Encoder::AddEntropyStats(const DCTCoeffs* const coeffs,
   // be greater than 32bits, either.
   const int idx = coeffs->idx_;
   const int q_idx = quant_idx_[idx];
-  for (int i = 0; i < coeffs->nb_coeffs_; ++i) {
-    const int run = run_levels[i].run_;
-    const int tmp = (run >> 4);
-    if (tmp) freq_ac_[q_idx][0xf0] += tmp;  // count escapes (all at once)
-    const int suffix = run_levels[i].level_;
-    const int sym = ((run & 0x0f) << 4) | (suffix & 0x0f);
-    ++freq_ac_[q_idx][sym];
-  }
+  AddACRunLevelStats(run_levels, coeffs->nb_coeffs_, freq_ac_[q_idx]);
   if (coeffs->last_ < 63) {     // EOB
     ++freq_ac_[q_idx][0x00];
   }
@@ -442,5 +458,117 @@ void Encoder::CompileEntropyStats() {
     BuildOptimalTable(&opt_tables_ac_[q_idx], freq_ac_[q_idx], 256);
   }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// progressive (spectral-split-only) mode
+//
+// DC coding matches baseline exactly, so it reuses freq_dc_/dc_codes_. AC
+// needs its own per-scan tables (prog_planes_->freq_ac etc.): each spectral
+// window has a different symbol alphabet.
+#if !defined(SJPEG_NO_PROGRESSIVE)
+
+void Encoder::AddEntropyStatsDC(const DCTCoeffs* const coeffs) {
+  const int q_idx = quant_idx_[coeffs->idx_];
+  ++freq_dc_[q_idx][coeffs->dc_code_ & 0x0f];
+}
+
+void Encoder::CodeBlockDC(const DCTCoeffs* const coeffs) {
+  const int q_idx = quant_idx_[coeffs->idx_];
+  const int dc_len = coeffs->dc_code_ & 0x0f;
+  const uint32_t code = dc_codes_[q_idx][dc_len];
+  bw_.PutPackedCode(code);
+  if (dc_len > 0) {
+    bw_.PutBits(coeffs->dc_code_ >> 4, dc_len);
+  }
+}
+
+// Builds an optimal table from freq[] and its codes[], in one go. Shared by
+// CompileEntropyStatsDC()/CompileEntropyStatsAC().
+static inline void CompileTable(HuffmanTable* const t, const uint8_t* syms,
+                                int size, const uint32_t* const freq,
+                                uint32_t* const codes) {
+  t->syms_ = syms;
+  BuildOptimalTable(t, freq, size);
+  BuildHuffmanTable(t->bits_, t->syms_, codes);
+}
+
+void Encoder::CompileEntropyStatsDC() {
+  for (int c = 0; c < (nb_comps_ == 1 ? 1 : 2); ++c) {
+    CompileTable(&opt_tables_dc_[c], opt_syms_dc_[c], 12, freq_dc_[c],
+                dc_codes_[c]);
+  }
+}
+
+// Re-derives (run,level) for window [Ss,Se] from the block's full RunLevel
+// list. Only the first retained run_ is re-based (a window boundary can
+// only split a run, not change gaps); level_ is untouched since Al is
+// always 0 in this mode.
+int Encoder::WindowRunLevels(const DCTCoeffs* const coeffs,
+                             const RunLevel* const rl, int Ss, int Se,
+                             RunLevel* const out, bool* const out_has_eob) {
+  int pos = 0;
+  int nb_out = 0;
+  bool first_in_window = true;
+  int last_in_window = Ss - 1;   // nothing seen yet within [Ss, Se]
+  for (int i = 0; i < coeffs->nb_coeffs_; ++i) {
+    pos += rl[i].run_ + 1;
+    if (pos > Se) break;         // past the window: nothing more to see
+    if (pos >= Ss) {
+      out[nb_out].run_ = first_in_window ? (pos - Ss) : rl[i].run_;
+      out[nb_out].level_ = rl[i].level_;
+      ++nb_out;
+      first_in_window = false;
+      last_in_window = pos;
+    }
+  }
+  *out_has_eob = (last_in_window < Se);
+  return nb_out;
+}
+
+void Encoder::ResetEntropyStatsAC() {
+  memset(prog_planes_->freq_ac, 0, sizeof(prog_planes_->freq_ac));
+}
+
+void Encoder::AddEntropyStatsACWindowed(const RunLevel* const windowed,
+                                        int nb_windowed) {
+  AddACRunLevelStats(windowed, nb_windowed, prog_planes_->freq_ac);
+}
+
+void Encoder::CodeBlockACWindowed(const RunLevel* const windowed,
+                                  int nb_windowed) {
+  CodeACRunLevels(windowed, nb_windowed, prog_planes_->ac_codes, &bw_);
+}
+
+// EOBn: end-of-band run coding across empty blocks (spec Annex G.1.2.2).
+// S=0,R=0..14 means "EOB run of class R" (R=15 is ZRL); class R covers
+// [2^R, 2^(R+1)-1], capped at 32767 (kMaxEOBRun), so one scan can need more
+// than one flush.
+
+static int EOBRunClass(int run) {
+#if defined(SJPEG_HAVE_CLZ)
+  return 31 - __builtin_clz(run);  // don't use CalcLog2(): 'run' can be >= 4096
+#else
+  int r = 0;
+  while ((2 << r) <= run) ++r;
+  return r;
+#endif
+}
+
+void Encoder::AddEntropyStatsEOBRun(int run) {
+  ++prog_planes_->freq_ac[EOBRunClass(run) << 4];
+}
+
+void Encoder::CodeEOBRun(int run) {
+  const int r = EOBRunClass(run);
+  bw_.PutPackedCode(prog_planes_->ac_codes[r << 4]);
+  if (r > 0) bw_.PutBits(run - (1 << r), r);
+}
+
+void Encoder::CompileEntropyStatsAC() {
+  CompileTable(&prog_planes_->opt_table_ac, prog_planes_->opt_syms_ac, 256,
+              prog_planes_->freq_ac, prog_planes_->ac_codes);
+}
+
+#endif  // !SJPEG_NO_PROGRESSIVE
 
 }    // namespace sjpeg
