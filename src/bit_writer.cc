@@ -91,14 +91,16 @@ std::shared_ptr<ByteSink> MakeByteSink(std::vector<uint8_t>* const output) {
 
 BitWriter::BitWriter(ByteSink* const sink) : sink_(sink), buf_(nullptr) {
   nb_bits_ = 0;
-  bits_ = 0x00000000U;
+  bits_ = 0;
   byte_pos_ = 0;
+  reserved_ = 0;
 }
 
 bool BitWriter::CommitFailed() {
   sink_->Reset();   // this can free the memory buf_ points to
   buf_ = nullptr;
   byte_pos_ = 0;
+  reserved_ = 0;
   return false;
 }
 
@@ -115,6 +117,7 @@ void BitWriter::Flush() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+#if !defined(SJPEG_HAVE_64BIT)
 void BitCounter::AddBits(const uint32_t bits, size_t nbits) {
   assert(nbits > 0);
   size_ += nbits;
@@ -126,5 +129,6 @@ void BitCounter::AddBits(const uint32_t bits, size_t nbits) {
     bit_pos_ -= 8;
   }
 }
+#endif    // !defined(SJPEG_HAVE_64BIT)
 
 }   // namespace sjpeg

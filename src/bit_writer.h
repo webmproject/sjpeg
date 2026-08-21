@@ -26,7 +26,22 @@
 #include <string>
 #include <vector>
 
+#if defined(_MSC_VER)
+#include <intrin.h>   // for _byteswap_uint64, __popcnt64
+#endif
+
 #include "sjpeg.h"
+
+// Bit writer and counter below have a 64bit and a 32bit implementation, picked
+// by target register width: a 32bit target would emulate the accumulator in a
+// register pair, which is untested here. Both emit the same bytes.
+// SJPEG_FORCE_32BIT picks the 32bit one on a 64bit host, so it can be built
+// and compared anywhere.
+
+#if !defined(SJPEG_FORCE_32BIT) && \
+    defined(UINTPTR_MAX) && UINTPTR_MAX > 0xffffffffu
+#define SJPEG_HAVE_64BIT
+#endif
 
 namespace sjpeg {
 
@@ -36,10 +51,10 @@ namespace sjpeg {
 class MemorySink : public ByteSink {
  public:
   explicit MemorySink(size_t expected_size);
-  virtual ~MemorySink();
-  virtual bool Commit(size_t used_size, size_t extra_size, uint8_t** data);
-  virtual bool Finalize() { /* nothing to do */ return true; }
-  virtual void Reset();
+  ~MemorySink() override;
+  bool Commit(size_t used_size, size_t extra_size, uint8_t** data) override;
+  bool Finalize() override { /* nothing to do */ return true; }
+  void Reset() override;
   void Release(uint8_t** buf_ptr, size_t* size_ptr);
 
  private:
@@ -54,8 +69,8 @@ class MemorySink : public ByteSink {
 template<class T> class Sink : public ByteSink {
  public:
   explicit Sink(T* const output) : ptr_(output), pos_(0) {}
-  virtual ~Sink() {}
-  virtual bool Commit(size_t used_size, size_t extra_size, uint8_t** data) {
+  ~Sink() override {}
+  bool Commit(size_t used_size, size_t extra_size, uint8_t** data) override {
     pos_ += used_size;
     assert(pos_ <= ptr_->size());
     ptr_->resize(pos_ + extra_size);
@@ -63,8 +78,8 @@ template<class T> class Sink : public ByteSink {
     *data = extra_size ? reinterpret_cast<uint8_t*>(&(*ptr_)[pos_]) : nullptr;
     return true;
   }
-  virtual bool Finalize() { ptr_->resize(pos_); return true; }
-  virtual void Reset() {
+  bool Finalize() override { ptr_->resize(pos_); return true; }
+  void Reset() override {
     ptr_->clear();
     pos_ = 0;
   }
@@ -78,6 +93,51 @@ typedef Sink<std::string> StringSink;
 typedef Sink<std::vector<uint8_t> > VectorSink;
 
 ///////////////////////////////////////////////////////////////////////////////
+
+#if defined(SJPEG_HAVE_64BIT)
+
+// Hottest members below are called once per coefficient. Left to its own cost
+// model, the compiler keeps some of them out of line, which is expensive at
+// that frequency, so we insist. Undefined at end of this header.
+#if defined(__GNUC__) || defined(__clang__)
+#define SJPEG_INLINE inline __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define SJPEG_INLINE __forceinline
+#else
+#define SJPEG_INLINE inline
+#endif
+
+// returns true if any byte of 'x' is 0xff
+static inline bool HasFF(uint64_t x) {
+  const uint64_t y = ~x;    // 0xff bytes are now zero bytes
+  return ((y - 0x0101010101010101ull) & ~y & 0x8080808080808080ull) != 0;
+}
+
+static inline uint64_t BSwap64(uint64_t x) {
+#if defined(__GNUC__) || defined(__clang__)
+  return __builtin_bswap64(x);
+#elif defined(_MSC_VER)
+  return _byteswap_uint64(x);
+#else
+  x = ((x & 0x00ff00ff00ff00ffull) << 8) | ((x >> 8) & 0x00ff00ff00ff00ffull);
+  x = ((x & 0x0000ffff0000ffffull) << 16) | ((x >> 16) & 0x0000ffff0000ffffull);
+  return (x << 32) | (x >> 32);
+#endif
+}
+
+// Accumulator holds the bytes to emit in its top bytes, so storing it whole
+// means storing it big-endian: a swap on a little-endian host, nothing on a
+// big-endian one. Getting it wrong reverses every group of eight silently.
+static inline uint64_t HToBE64(uint64_t x) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  return x;
+#else
+  return BSwap64(x);
+#endif
+}
+#endif    // SJPEG_HAVE_64BIT
+
+///////////////////////////////////////////////////////////////////////////////
 // BitWriter
 
 class BitWriter {
@@ -89,9 +149,65 @@ class BitWriter {
   bool Reserve(size_t size) {
     if (!sink_->Commit(byte_pos_, size, &buf_)) return CommitFailed();
     byte_pos_ = 0;
+    reserved_ = size;
     return true;
   }
 
+  // Same as Reserve(), but a no-op while the slab we already hold has room for
+  // 'size' more bytes. Committing is what costs: for string and vector sinks it
+  // is a virtual call into resize(), which also zeroes the bytes it adds. Only
+  // the commit size changes, never its content.
+  bool ReserveMore(size_t size, size_t chunk) {
+    assert(size <= chunk);
+    if (byte_pos_ + size <= reserved_) return true;
+    return Reserve(chunk);
+  }
+
+#if defined(SJPEG_HAVE_64BIT)
+  // Flush whole bytes out of the accumulator.
+  // WARNING! There's no check for buffer overwrite. Use Reserve() before
+  // calling this function. Fast path stores 8 bytes whatever the number pending,
+  // so up to 7 past byte_pos_ get clobbered; next flush rewrites them, and the
+  // asserts check the room.
+  void FlushBits() {
+    const int nb_bytes = nb_bits_ >> 3;
+    if (nb_bytes == 0) return;
+    // Tested on accumulator, not on stored bytes: pending bytes are the top ones
+    // of bits_ whatever the host's byte order.
+    const uint64_t mask = (~0ull) << (64 - 8 * nb_bytes);
+    if (!HasFF(bits_ & mask)) {            // common case: nothing to escape
+      // Stores 8 bytes whatever the number pending, so it needs 8 in hand.
+      assert(byte_pos_ + sizeof(uint64_t) <= reserved_);
+      const uint64_t out = HToBE64(bits_);
+      memcpy(buf_ + byte_pos_, &out, sizeof(out));
+      byte_pos_ += nb_bytes;
+    } else {
+      // Two bytes per pending byte, worst case: every one of them is 0xff.
+      assert(byte_pos_ + 2 * nb_bytes <= reserved_);
+      uint64_t v = bits_;
+      for (int i = 0; i < nb_bytes; ++i, v <<= 8) {
+        const uint8_t tmp = (uint8_t)(v >> 56);
+        buf_[byte_pos_++] = tmp;
+        if (tmp == 0xff) buf_[byte_pos_++] = 0x00;   // escaping
+      }
+    }
+    bits_ <<= 8 * nb_bytes;
+    nb_bits_ -= 8 * nb_bytes;
+  }
+  // Writes the sequence 'bits' of length 'nb' (less or equal to 32).
+  // WARNING! There's no check for buffer overwrite. Use Reserve() before
+  // calling this function.
+  SJPEG_INLINE
+  void PutBits(uint32_t bits, int nb) {
+    assert(nb <= 32 && nb > 0);
+    assert((bits & ~(~0u >> (32 - nb))) == 0);
+    // Only flush when accumulator would not fit the new symbol. With 56 usable
+    // bits, about five symbols pile up per flush instead of one.
+    if (nb_bits_ + nb > 56) FlushBits();
+    nb_bits_ += nb;
+    bits_ |= (uint64_t)bits << (64 - nb_bits_);
+  }
+#else
   // Make sure we can write 24 bits by flushing the past ones.
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
   // calling this function.
@@ -117,6 +233,7 @@ class BitWriter {
     nb_bits_+= nb;
     bits_ |= bits << (32 - nb_bits_);
   }
+#endif    // SJPEG_HAVE_64BIT
   // Append one byte to buffer. FlushBits() must have been called before.
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
   // calling this function.
@@ -137,6 +254,18 @@ class BitWriter {
   // Handy helper to write a packed code in one call.
   void PutPackedCode(uint32_t code) { PutBits(code >> 16, code & 0xff); }
 
+#if defined(SJPEG_HAVE_64BIT)
+  // Write a packed code immediately followed by its 'n'-bit suffix. Both fit
+  // in one PutBits() call: 16 bits of code and 11 of suffix, worst case.
+  // Forced: this is called once per non-zero coefficient, and left to its own
+  // devices the compiler emits a call, costing ~7% of a whole encode.
+  SJPEG_INLINE
+  void PutPackedCodeAndSuffix(uint32_t code, uint32_t suffix, int n) {
+    const int len = code & 0xff;
+    PutBits(((code >> 16) << n) | suffix, len + n);
+  }
+#endif
+
   // Write pending bits, and align bitstream with extra '1' bits.
   void Flush();
 
@@ -149,8 +278,13 @@ class BitWriter {
   ByteSink* sink_;
 
   int nb_bits_;      // number of unwritten bits
+#if defined(SJPEG_HAVE_64BIT)
+  uint64_t bits_;    // accumulator for unwritten bits
+#else
   uint32_t bits_;    // accumulator for unwritten bits
+#endif
   size_t byte_pos_;  // write position, in bytes
+  size_t reserved_;  // bytes available in the slab starting at buf_
   uint8_t* buf_;     // destination buffer (don't access directly!)
 };
 
@@ -159,15 +293,79 @@ struct BitCounter {
   BitCounter() : bits_(0), bit_pos_(0), size_(0) {}
 
   void AddPackedCode(const uint32_t code) { AddBits(code >> 16, code & 0xff); }
+
+#if defined(SJPEG_HAVE_64BIT)
+  // Count a packed code immediately followed by its 'n'-bit suffix.
+  SJPEG_INLINE
+  void AddPackedCodeAndSuffix(uint32_t code, uint32_t suffix, int n) {
+    const int len = code & 0xff;
+    AddBits(((code >> 16) << n) | suffix, len + n);
+  }
+  SJPEG_INLINE
+  void AddBits(const uint32_t bits, size_t nbits) {
+    assert(nbits > 0);
+    if (bit_pos_ + nbits > 56) Flush();
+    size_ += nbits;
+    bit_pos_ += nbits;
+    bits_ |= (uint64_t)bits << (64 - bit_pos_);
+  }
+  // Not const: pending bytes still owe us their escapes.
+  size_t Size() { Flush(); return size_; }
+
+ private:
+  // ~20% faster LUT-variant (isolated), but only ~0.2% end-to-end
+#define SJPEG_USE_COUNTFF_LUT
+
+  // Number of bytes equal to 0xff among the 'nb' most significant ones.
+  static int CountFF(uint64_t v, int nb) {
+    // Masking to 0x7f before the add keeps carries local: a byte's low 7 bits
+    // are all-ones (0x7f or 0xff) iff adding 1 sets bit 7. ANDing that back
+    // against the byte's own original bit 7 keeps only the 0xff case, since
+    // 0x7f has its top bit clear.
+    const uint64_t y = (v & 0x7f7f7f7f7f7f7f7full) + 0x0101010101010101ull;
+#if defined(SJPEG_USE_COUNTFF_LUT)
+    static constexpr uint64_t kTopByteMasks[9] = {
+        0x0000000000000000ull, 0x8000000000000000ull, 0x8080000000000000ull,
+        0x8080800000000000ull, 0x8080808000000000ull, 0x8080808080000000ull,
+        0x8080808080800000ull, 0x8080808080808000ull, 0x8080808080808080ull,
+    };
+    const uint64_t z = y & v & kTopByteMasks[nb];
+#else
+    uint64_t z = (y & v & 0x8080808080808080ull);
+    z >>= 64 - 8 * nb;                 // keep the top 'nb' bytes
+#endif
+#if defined(__GNUC__) || defined(__clang__)
+    return __builtin_popcountll(z);
+#elif defined(_MSC_VER)
+    return (int)__popcnt64(z);
+#else
+    int n = 0;
+    while (z != 0) { z &= z - 1; ++n; }
+    return n;
+#endif
+  }
+  void Flush() {
+    const int nb = (int)(bit_pos_ >> 3);
+    if (nb == 0) return;
+    size_ += 8 * CountFF(bits_, nb);
+    bits_ <<= 8 * nb;
+    bit_pos_ -= 8 * nb;
+  }
+
+  uint64_t bits_;
+#else
   void AddBits(const uint32_t bits, size_t nbits);
   size_t Size() const { return size_; }
 
  private:
   uint32_t bits_;
+#endif    // SJPEG_HAVE_64BIT
   size_t bit_pos_;
   size_t size_;
 };
 
 }   // namespace sjpeg
+
+#undef SJPEG_INLINE
 
 #endif    // SJPEG_BIT_WRITER_H_

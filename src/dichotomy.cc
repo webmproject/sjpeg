@@ -85,6 +85,11 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
                                                         : quantize_block_;
   if (use_trellis_) InitCodes(true);
 
+  // run/levels are in registers here, so frequencies come for free. Whoever
+  // needs the tables afterwards only has to CompileEntropyStats().
+  const bool collect_stats = optimize_size_;
+  if (collect_stats) ResetEntropyStats();
+
   ResetDCs();
   nb_run_levels_ = 0;
   int16_t* in = in_blocks_;
@@ -96,6 +101,7 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
         const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
                                       coeffs, run_levels);
         coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
+        if (collect_stats) AddEntropyStats(coeffs, run_levels);
         nb_run_levels_ += coeffs->nb_coeffs_;
         ++coeffs;
         in += 64;
@@ -142,7 +148,7 @@ void Encoder::LoopScan() {
       StoreRunLevels(base_coeffs);
       if (!ok_) break;
       if (optimize_size_) {
-        StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
+        CompileEntropyStats();   // stats were gathered by StoreRunLevels()
         if (use_trellis_) InitCodes(true);
       }
       result = ComputeSize(base_coeffs);
@@ -182,7 +188,7 @@ void Encoder::LoopScan() {
     if (!search_hook_->for_size || !last_is_best) {
       StoreRunLevels(base_coeffs);
       if (ok_ && optimize_size_) {
-        StoreOptimalHuffmanTables(nb_mbs, base_coeffs);
+        CompileEntropyStats();
       }
     }
 
@@ -259,8 +265,13 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
       const uint32_t suffix = rl[i].level_;
       const size_t nbits = suffix & 0x0f;
       const int sym = (int)((run << 4) | nbits);
+      assert(nbits > 0);   // as in CodeBlock(): zero only comes from the ZRL
+#if defined(SJPEG_HAVE_64BIT)
+      bc->AddPackedCodeAndSuffix(codes[sym], suffix >> 4, (int)nbits);
+#else
       bc->AddPackedCode(codes[sym]);
       bc->AddBits(suffix >> 4, nbits);
+#endif
     }
     if (c.last_ < 63) bc->AddPackedCode(codes[0x00]);  // EOB
     rl += c.nb_coeffs_;
@@ -270,9 +281,18 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
 float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
   InitCodes(false);
   size_t size = HeaderSize();
-  BitCounter bc;
-  BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, all_run_levels_, &bc);
-  size += bc.Size();
+  if (optimize_size_) {
+    // not counting the 0xff byte-stuffing that BlocksSize() tracks exactly
+    // these depends on the bit sequence, not on symbol counts.
+    // it's a little approximation we can live with.
+    // Under-estimated ~1/256 = 0.39%: uniform bytes, 0xff produces 2 bytes.
+    // Not worth correcting: below the search's own convergence precision.
+    size += EntropySize();
+  } else {
+    BitCounter bc;
+    BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, all_run_levels_, &bc);
+    size += bc.Size();
+  }
   return (float)size / 8.f;
 }
 
