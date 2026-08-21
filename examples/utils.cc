@@ -86,7 +86,7 @@ double GetStopwatchTime() {
     return 0.0;
   if (freq.QuadPart == 0)
     return 0.0;
-  return watch.QuadPart / static_cast<double>(freq.QuadPart);
+  return watch.QuadPart / (double)freq.QuadPart;
 }
 
 #else    /* !_WIN32 */
@@ -96,8 +96,8 @@ double GetStopwatchTime() {
 double GetStopwatchTime() {
   struct timeval watch;
   gettimeofday(&watch, nullptr);
-  const double sec = static_cast<double>(watch.tv_sec);
-  const double usec = static_cast<double>(watch.tv_usec);
+  const double sec = (double)watch.tv_sec;
+  const double usec = (double)watch.tv_usec;
   return sec + usec / 1000000.0;
 }
 
@@ -110,7 +110,7 @@ uint32_t GetCRC32(const std::string& data, uint32_t crc) {
   const uint32_t kPolynomial = 0xedb88320u;
   crc = ~crc;
   for (size_t n = 0; n < data.size(); ++n) {
-    crc ^= static_cast<uint8_t>(data[n]);
+    crc ^= (uint8_t)data[n];
     for (size_t j = 0; j < 8; ++j) {
       crc = (crc >> 1) ^ ((crc & 1) ? kPolynomial : 0u);
     }
@@ -155,8 +155,8 @@ static void SaveMetadataMarkers(j_decompress_ptr dinfo) {
 }
 
 static int CompareICCPSegments(const void* a, const void* b) {
-  const ICCPSegment* const s1 = static_cast<const ICCPSegment*>(a);
-  const ICCPSegment* const s2 = static_cast<const ICCPSegment*>(b);
+  const ICCPSegment* const s1 = (const ICCPSegment*)a;
+  const ICCPSegment* const s2 = (const ICCPSegment*)b;
   return s1->seq - s2->seq;
 }
 
@@ -189,7 +189,7 @@ static int StoreICCP(j_decompress_ptr dinfo, std::string* const iccp) {
       if (segment_size == 0 || count == 0 || seq == 0) {
         fprintf(stderr, "[ICCP] size (%d) / count (%d) / sequence number (%d)"
                         " cannot be 0!\n",
-                static_cast<int>(segment_size), seq, count);
+                (int)segment_size, seq, count);
         return 0;
       }
 
@@ -246,7 +246,7 @@ static int StoreICCP(j_decompress_ptr dinfo, std::string* const iccp) {
 typedef bool (*Handler)(const uint8_t* src, size_t len, void* obj);
 
 static bool DataCopy(const uint8_t* src, size_t len, void* obj) {
-  std::string* const dst = static_cast<std::string*>(obj);
+  std::string* const dst = (std::string*)obj;
   if (dst->empty()) {
     dst->append(reinterpret_cast<const char*>(src), len);
     return true;
@@ -263,14 +263,14 @@ struct XMPExt {
 };
 
 static uint32_t Get32b(const uint8_t* const src) {
-  return (static_cast<uint32_t>(src[0]) << 24) |
-         (static_cast<uint32_t>(src[1]) << 16) |
-         (static_cast<uint32_t>(src[2]) <<  8) |
-         (static_cast<uint32_t>(src[3]) <<  0);
+  return ((uint32_t)src[0] << 24) |
+         ((uint32_t)src[1] << 16) |
+         ((uint32_t)src[2] <<  8) |
+         ((uint32_t)src[3] <<  0);
 }
 
 static bool XMPMerge(const uint8_t* src, size_t len, void* obj) {
-  XMPExt* const xmp = static_cast<XMPExt*>(obj);
+  XMPExt* const xmp = (XMPExt*)obj;
   xmp->ok = false;
   if (len < 40) return false;
   if (xmp->guid == nullptr) {
@@ -481,13 +481,13 @@ vector<uint8_t> ReadJPEG(const std::string& in,
   stride = (int64_t)dinfo.output_width
          * dinfo.output_components * sizeof(rgb[0]);
 
-  if (stride == 0 || stride != static_cast<int>(stride) ||
-    static_cast<uint64_t>(dinfo.output_height) >
-        (1ull << 31) / static_cast<uint64_t>(stride)) {
+  if (stride == 0 || stride != (int)stride ||
+    (uint64_t)dinfo.output_height >
+        (1ull << 31) / (uint64_t)stride) {
     goto End;
   }
   rgb.resize((size_t)stride * dinfo.output_height);
-  buffer[0] = static_cast<JSAMPLE*>(&rgb[0]);
+  buffer[0] = (JSAMPLE*)&rgb[0];
 
   while (dinfo.output_scanline < dinfo.output_height) {
     if (jpeg_read_scanlines((j_decompress_ptr)&dinfo, buffer, 1) != 1) {
@@ -562,7 +562,7 @@ static std::string HexStringToBytes(const char* hexstring,
     val[0] = *src++;
     val[1] = *src;
     val[2] = '\0';
-    *dst++ = static_cast<uint8_t>(strtol(val, &end, 16));
+    *dst++ = (uint8_t)strtol(val, &end, 16);
     if (end != val + 2) break;
     ++actual_length;
   }
@@ -591,7 +591,7 @@ static bool ProcessRawProfile(const char* profile, size_t profile_len,
   ++src;
   // skip the profile name and extract the length.
   while (*src != '\0' && *src++ != '\n') {}
-  expected_length = static_cast<int>(strtol(src, &end, 10));
+  expected_length = (int)strtol(src, &end, 10);
   if (*end != '\n') {
     fprintf(stderr, "Malformed raw profile, expected '\\n' got '\\x%.2X'\n",
             *end);
@@ -693,7 +693,7 @@ static bool ExtractMetadataFromPNG(png_structp png,
                          &param->iccp)) {
           return 0;
         }
-        fprintf(stderr, "[%s : %d bytes]\n", "ICCP", static_cast<int>(len));
+        fprintf(stderr, "[%s : %d bytes]\n", "ICCP", (int)len);
       }
     }
   }
@@ -708,7 +708,7 @@ typedef struct {
 
 static void ReadFunc(png_structp png_ptr, png_bytep data, png_size_t length) {
   PNGReadContext* const ctx =
-      static_cast<PNGReadContext*>(png_get_io_ptr(png_ptr));
+      (PNGReadContext*)png_get_io_ptr(png_ptr);
   if (ctx->data_size - ctx->offset < length) {
     png_error(png_ptr, "ReadFunc: invalid read length (overflow)!");
   }
@@ -796,10 +796,10 @@ vector<uint8_t> ReadPNG(const std::string& input,
   num_passes = png_set_interlace_handling(png);
   png_read_update_info(png, info);
 
-  stride = static_cast<int64_t>(3 * width) * sizeof(rgb[0]);
-  if (stride != static_cast<int>(stride) ||
-        static_cast<uint64_t>(height) >
-            ((1ull << 31) / static_cast<uint64_t>(stride))) {
+  stride = (int64_t)(3 * width) * sizeof(rgb[0]);
+  if (stride != (int)stride ||
+        (uint64_t)height >
+            ((1ull << 31) / (uint64_t)stride)) {
     goto Error;
   }
 
@@ -818,8 +818,8 @@ vector<uint8_t> ReadPNG(const std::string& input,
     goto Error;
   }
 
-  if (width_ptr != nullptr) *width_ptr = static_cast<int>(width);
-  if (height_ptr != nullptr) *height_ptr = static_cast<int>(height);
+  if (width_ptr != nullptr) *width_ptr = (int)width;
+  if (height_ptr != nullptr) *height_ptr = (int)height;
 
  End:
   if (png != nullptr) {

@@ -228,8 +228,8 @@ static void PrintInfo() {
       msg.back() += " (rdo)";
     }
 
-    snprintf(tmp, sizeof(tmp), "Size: %ld [%.2f bpp] (%u ms)",
-             static_cast<long int>(kParams.jpeg.size()),
+    snprintf(tmp, sizeof(tmp), "Size: %zu [%.2f bpp] (%u ms)",
+             kParams.jpeg.size(),
              8.f * kParams.jpeg.size() / (kParams.width * kParams.height),
              kParams.elapsed);
     msg.push_back(tmp);
@@ -254,8 +254,8 @@ static void PrintInfo() {
     msg.push_back("- Riskiness Map -");
   } else if (kParams.show == 6) {
     char tmp[80];
-    snprintf(tmp, sizeof(tmp), "- Alt Pic (%ld bytes) -",
-             static_cast<long int>(kParams.alt_size));
+    snprintf(tmp, sizeof(tmp), "- Alt Pic (%zu bytes) -",
+             kParams.alt_size);
     msg.push_back(tmp);
   } else if (kParams.show == 7) {
     msg.push_back("- Bias Activity Map -");
@@ -450,7 +450,7 @@ static bool EncodeAndDecode() {
     kParams.error = true;
     return false;
   }
-  kParams.elapsed = static_cast<uint32_t>(1000. * (GetStopwatchTime() - start));
+  kParams.elapsed = (uint32_t)(1000. * (GetStopwatchTime() - start));
   kParams.out_rgb = ReadJPEG(kParams.jpeg, nullptr, nullptr, nullptr);
   assert(kParams.jpeg.size() > 0);
   assert(kParams.out_rgb.size() > 0);
