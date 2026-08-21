@@ -89,7 +89,7 @@ void SetQuantMatrix(const uint8_t in[64], float q_factor, uint8_t out[64]) {
   if (in == nullptr || out == nullptr) return;
   q_factor /= 100.f;
   for (size_t i = 0; i < 64; ++i) {
-    const int v = static_cast<int>(in[i] * q_factor + .5f);
+    const int v = (int)(in[i] * q_factor + .5f);
     // clamp to prevent illegal quantizer values
     out[i] = (v < 1) ? 1 : (v > 255) ? 255u : v;
   }
@@ -98,7 +98,7 @@ void SetQuantMatrix(const uint8_t in[64], float q_factor, uint8_t out[64]) {
 void SetMinQuantMatrix(const uint8_t m[64], uint8_t out[64], int tolerance) {
   assert(out != nullptr && m != nullptr);
   for (size_t i = 0; i < 64; ++i) {
-    const int v = static_cast<int>(m[i] * (256 - tolerance) >> 8);
+    const int v = (int)(m[i] * (256 - tolerance) >> 8);
     out[i] = (v < 1) ? 1u : (v > 255) ? 255u : v;
   }
 }
@@ -187,7 +187,7 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
     // 8-bit chunk placed at bit offset i.
     const __m128i cmp = _mm_cmpgt_epi16(F, zero);
     const int m8 = _mm_movemask_epi8(_mm_packs_epi16(cmp, cmp)) & 0xff;
-    nzn |= static_cast<uint64_t>(m8) << i;
+    nzn |= (uint64_t)m8 << i;
   }
   // Emit run/level entries. Remap the non-zero AC set (drop DC = bit 0) from
   // natural to zig-zag order, then iterate set bits with 'ctz' so we touch only
@@ -198,7 +198,7 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
     zz |= 1ull << kInvZigzag[TrailingZeros64(b)];
   }
   for (uint64_t b = zz; b != 0; b &= b - 1) {
-    const int i = static_cast<int>(TrailingZeros64(b));
+    const int i = (int)TrailingZeros64(b);
     const int j = kZigzag[i];
     const int n = CalcLog2(tmp[j]);
     const uint16_t code = masked[j] & ((1 << n) - 1);
@@ -257,7 +257,7 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
     s = vpadd_u16(s, s);
     const int m8 = vget_lane_u16(s, 0);
 #endif
-    nzn |= static_cast<uint64_t>(m8) << i;
+    nzn |= (uint64_t)m8 << i;
   }
   // Emit run/level entries. Remap the non-zero AC set (drop DC = bit 0) from
   // natural to zig-zag order, then iterate set bits with 'ctz' so we touch only
@@ -268,7 +268,7 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
     zz |= 1ull << kInvZigzag[TrailingZeros64(b)];
   }
   for (uint64_t b = zz; b != 0; b &= b - 1) {
-    const int i = static_cast<int>(TrailingZeros64(b));
+    const int i = (int)TrailingZeros64(b);
     const int j = kZigzag[i];
     const int n = CalcLog2(tmp[j]);
     const uint16_t code = masked[j] & ((1 << n) - 1);

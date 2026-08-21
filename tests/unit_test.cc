@@ -75,19 +75,19 @@ uint32_t g_seed = kSeed;
 
 uint8_t Random8b() {
   g_seed = 1103515245u * g_seed + 12345u;
-  return static_cast<uint8_t>(g_seed >> 16);
+  return (uint8_t)(g_seed >> 16);
 }
 
 // Noisy picture with some structure, hard to compress.
 std::vector<uint8_t> MakeRGB(int width, int height) {
   g_seed = kSeed;
-  std::vector<uint8_t> rgb(3 * static_cast<size_t>(width) * height);
+  std::vector<uint8_t> rgb(3 * (size_t)width * height);
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
-      uint8_t* const p = &rgb[3 * (x + static_cast<size_t>(y) * width)];
-      p[0] = static_cast<uint8_t>(x * 5 + (Random8b() >> 3));
-      p[1] = static_cast<uint8_t>(y * 3 + (Random8b() >> 4));
-      p[2] = static_cast<uint8_t>(((x / 8) ^ (y / 8)) * 51);
+      uint8_t* const p = &rgb[3 * (x + (size_t)y * width)];
+      p[0] = (uint8_t)(x * 5 + (Random8b() >> 3));
+      p[1] = (uint8_t)(y * 3 + (Random8b() >> 4));
+      p[2] = (uint8_t)(((x / 8) ^ (y / 8)) * 51);
     }
   }
   return rgb;
@@ -181,22 +181,22 @@ TEST(InvalidArguments) {
   // unknown yuv_mode: no encoder can be created for it. 7 is the largest
   // value the enum can hold without being out of range.
   CHECK(enc(rgb.data(), kWidth, kHeight, 3 * kWidth,
-            &data, static_cast<SjpegYUVMode>(7)) == 0);
+            &data, (SjpegYUVMode)7) == 0);
   CHECK(data == nullptr);
   const sjpeg::EncoderParam param;
   std::string out;
   CHECK(!sjpeg::Encode(nullptr, kWidth, kHeight, 3 * kWidth, param, &out));
   CHECK(!EncodeRGB(rgb, kWidth, kHeight, param,
-                   static_cast<std::string*>(nullptr)));
+                   (std::string*)nullptr));
   CHECK(!EncodeRGB(rgb, kWidth, 0, param, &out));
   CHECK(!sjpeg::EncodeGray(nullptr, kWidth, kHeight, kWidth, param, &out));
 }
 
 std::vector<uint8_t> MakePlane(int width, int height, int base) {
   g_seed = kSeed;
-  std::vector<uint8_t> plane(static_cast<size_t>(width) * height);
+  std::vector<uint8_t> plane((size_t)width * height);
   for (size_t i = 0; i < plane.size(); ++i) {
-    plane[i] = static_cast<uint8_t>(base + (Random8b() >> 2));
+    plane[i] = (uint8_t)(base + (Random8b() >> 2));
   }
   return plane;
 }
@@ -205,10 +205,10 @@ std::vector<uint8_t> MakePlane(int width, int height, int base) {
 // with a value that must never show up in the output.
 std::vector<uint8_t> WithStride(const std::vector<uint8_t>& plane,
                                 int width, int height, int stride) {
-  std::vector<uint8_t> out(static_cast<size_t>(stride) * height, 0xd5);
+  std::vector<uint8_t> out((size_t)stride * height, 0xd5);
   for (int y = 0; y < height; ++y) {
-    memcpy(&out[static_cast<size_t>(y) * stride],
-           &plane[static_cast<size_t>(y) * width], width);
+    memcpy(&out[(size_t)y * stride],
+           &plane[(size_t)y * width], width);
   }
   return out;
 }
@@ -294,15 +294,15 @@ std::vector<uint8_t> Flip(const std::vector<uint8_t>& src, int row_size,
                           int height) {
   std::vector<uint8_t> dst(src.size());
   for (int y = 0; y < height; ++y) {
-    memcpy(&dst[static_cast<size_t>(y) * row_size],
-           &src[static_cast<size_t>(height - 1 - y) * row_size], row_size);
+    memcpy(&dst[(size_t)y * row_size],
+           &src[(size_t)(height - 1 - y) * row_size], row_size);
   }
   return dst;
 }
 
 // Last row of 'p', to be paired with a negative stride.
 const uint8_t* Last(const std::vector<uint8_t>& p, int row_size, int height) {
-  return p.data() + static_cast<size_t>(height - 1) * row_size;
+  return p.data() + (size_t)(height - 1) * row_size;
 }
 
 // Only |stride| is validated: a negative stride is legal, and describes a
@@ -393,7 +393,7 @@ TEST(MemoryManager) {
 TEST(LargeDimensions) {
   const int kMaxDim = 0xffff, kSmallDim = 2;
   const std::vector<uint8_t> rgb(
-      3 * static_cast<size_t>(kMaxDim + 1) * kSmallDim, 0x80);
+      3 * (size_t)(kMaxDim + 1) * kSmallDim, 0x80);
   const sjpeg::EncoderParam param(50.f);
   std::string out;
   CHECK(EncodeRGB(rgb, kMaxDim, kSmallDim, param, &out));
@@ -485,9 +485,9 @@ TEST(Dimensions) {
 
 // Flat picture of the given color.
 std::vector<uint8_t> MakeFlatRGB(int width, int height, int r, int g, int b) {
-  const uint8_t color[3] = { static_cast<uint8_t>(r), static_cast<uint8_t>(g),
-                             static_cast<uint8_t>(b) };
-  std::vector<uint8_t> rgb(3 * static_cast<size_t>(width) * height);
+  const uint8_t color[3] = { (uint8_t)r, (uint8_t)g,
+                             (uint8_t)b };
+  std::vector<uint8_t> rgb(3 * (size_t)width * height);
   for (size_t i = 0; i < rgb.size(); ++i) rgb[i] = color[i % 3];
   return rgb;
 }
@@ -510,10 +510,10 @@ TEST(Riskiness) {
               != SJPEG_YUV_400);
 
     // and neither is a colored one
-    std::vector<uint8_t> color(3 * static_cast<size_t>(size) * size);
+    std::vector<uint8_t> color(3 * (size_t)size * size);
     for (int y = 0; y < size; ++y) {
       for (int x = 0; x < size; ++x) {
-        uint8_t* const p = &color[3 * (x + static_cast<size_t>(y) * size)];
+        uint8_t* const p = &color[3 * (x + (size_t)y * size)];
         p[0] = ((x ^ y) & 8) ? 220 : 20;
         p[1] = 40;
         p[2] = ((x ^ y) & 8) ? 20 : 220;
@@ -550,7 +550,7 @@ TEST(TargetSize) {
     const double target = out.size();
 
     param.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
-    param.target_value = static_cast<float>(target);
+    param.target_value = (float)target;
     param.tolerance = 1.f;   // percent
     param.passes = 12;
     CHECK(EncodeRGB(rgb, W, H, param, &out));

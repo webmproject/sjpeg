@@ -327,8 +327,8 @@ class EncoderNV12 final : public Encoder {
     const uint8_t* v = &UV[is_nv12_ ? 1 : 0];
     for (int y = 0; y < 8; ++y) {
       for (int x = 0; x < 8; ++x) {
-        U[x + y * 8] = static_cast<int16_t>(u[2 * x]) - 128;
-        V[x + y * 8] = static_cast<int16_t>(v[2 * x]) - 128;
+        U[x + y * 8] = (int16_t)u[2 * x] - 128;
+        V[x + y * 8] = (int16_t)v[2 * x] - 128;
       }
       u += uv_step;
       v += uv_step;

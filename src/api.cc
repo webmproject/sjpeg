@@ -112,7 +112,7 @@ void EncoderParam::SetQuantization(const uint8_t m[2][64],
   if (m == nullptr) return;
   for (int c = 0; c < 2; ++c) {
     for (size_t i = 0; i < 64; ++i) {
-      const int v = static_cast<int>(m[c][i] * 100. / reduction + .5);
+      const int v = (int)(m[c][i] * 100. / reduction + .5);
       quant_[c][i] = (v > 255) ? 255u : (v < 1) ? 1u : v;
     }
   }

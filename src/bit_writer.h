@@ -186,7 +186,7 @@ class BitWriter {
       assert(byte_pos_ + 2 * nb_bytes <= reserved_);
       uint64_t v = bits_;
       for (int i = 0; i < nb_bytes; ++i, v <<= 8) {
-        const uint8_t tmp = static_cast<uint8_t>(v >> 56);
+        const uint8_t tmp = (uint8_t)(v >> 56);
         buf_[byte_pos_++] = tmp;
         if (tmp == 0xff) buf_[byte_pos_++] = 0x00;   // escaping
       }
@@ -205,7 +205,7 @@ class BitWriter {
     // bits, about five symbols pile up per flush instead of one.
     if (nb_bits_ + nb > 56) FlushBits();
     nb_bits_ += nb;
-    bits_ |= static_cast<uint64_t>(bits) << (64 - nb_bits_);
+    bits_ |= (uint64_t)bits << (64 - nb_bits_);
   }
 #else
   // Make sure we can write 24 bits by flushing the past ones.
@@ -307,7 +307,7 @@ struct BitCounter {
     if (bit_pos_ + nbits > 56) Flush();
     size_ += nbits;
     bit_pos_ += nbits;
-    bits_ |= static_cast<uint64_t>(bits) << (64 - bit_pos_);
+    bits_ |= (uint64_t)bits << (64 - bit_pos_);
   }
   // Not const: pending bytes still owe us their escapes.
   size_t Size() { Flush(); return size_; }
@@ -337,7 +337,7 @@ struct BitCounter {
 #if defined(__GNUC__) || defined(__clang__)
     return __builtin_popcountll(z);
 #elif defined(_MSC_VER)
-    return static_cast<int>(__popcnt64(z));
+    return (int)__popcnt64(z);
 #else
     int n = 0;
     while (z != 0) { z &= z - 1; ++n; }
@@ -345,7 +345,7 @@ struct BitCounter {
 #endif
   }
   void Flush() {
-    const int nb = static_cast<int>(bit_pos_ >> 3);
+    const int nb = (int)(bit_pos_ >> 3);
     if (nb == 0) return;
     size_ += 8 * CountFF(bits_, nb);
     bits_ <<= 8 * nb;

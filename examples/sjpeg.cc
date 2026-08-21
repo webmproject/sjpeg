@@ -54,15 +54,15 @@ static void PrintMatrix(const char name[], const uint8_t m[64],
 static void PrintMetadataInfo(const EncoderParam& param) {
   if (!param.iccp.empty()) {
     fprintf(stdout, "ICCP:        %u bytes \t(CRC32: 0x%.8x)\n",
-            static_cast<uint32_t>(param.iccp.size()), GetCRC32(param.iccp));
+            (uint32_t)param.iccp.size(), GetCRC32(param.iccp));
   }
   if (!param.exif.empty()) {
     fprintf(stdout, "EXIF:        %u bytes \t(CRC32: 0x%.8x)\n",
-            static_cast<uint32_t>(param.exif.size()), GetCRC32(param.exif));
+            (uint32_t)param.exif.size(), GetCRC32(param.exif));
   }
   if (!param.xmp.empty()) {
     fprintf(stdout, "XMP:         %u bytes \t(CRC32: 0x%.8x)\n",
-            static_cast<uint32_t>(param.xmp.size()), GetCRC32(param.xmp));
+            (uint32_t)param.xmp.size(), GetCRC32(param.xmp));
   }
 }
 
@@ -301,7 +301,7 @@ int main(int argc, char * argv[]) {
   if (!short_output && !quiet && !print_crc && !print_md5) {
     fprintf(stdout, "Input [%s]: %s (%u bytes, %.2f bpp, %d x %d)\n",
             ImageTypeName(input_type), input_file,
-            static_cast<uint32_t>(input.size()),
+            (uint32_t)input.size(),
             8.f * input.size() / (W * H),
             W, H);
     if (info) {
@@ -354,7 +354,7 @@ int main(int argc, char * argv[]) {
                     "%s%.1f (adaptive: %s, Huffman: %s)\n"
                     "yuv mode:    %s (riskiness: %.1lf%%)\n"
                     "elapsed:     %d ms\n",
-                    static_cast<uint32_t>(out.size()),
+                    (uint32_t)out.size(),
                     8.f * out.size() / (W * H),
                     100. * out.size() / input.size(),
                     show_reduction ? "reduction:   r=" : "quality:     q=",
@@ -362,7 +362,7 @@ int main(int argc, char * argv[]) {
                     kNoYes[param.adaptive_quantization],
                     kNoYes[param.Huffman_compress],
                     kYUVModeNames[yuv_mode_rec], riskiness,
-                    static_cast<int>(1000. * encode_time));
+                    (int)(1000. * encode_time));
     if (use_search) {  // print final values
       fprintf(stdout, "passes:      %d\n", hook.pass + 1);
       fprintf(stdout, "final value: %.1f\n", hook.value);
@@ -371,8 +371,8 @@ int main(int argc, char * argv[]) {
     PrintMetadataInfo(param);
   } else if (!quiet) {
     fprintf(stdout, "%u %u %.2lf %%\n",
-            static_cast<uint32_t>(input.size()),
-            static_cast<uint32_t>(out.size()),
+            (uint32_t)input.size(),
+            (uint32_t)out.size(),
             100. * out.size() / input.size());
   }
 
