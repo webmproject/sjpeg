@@ -20,6 +20,8 @@
 #include <stdint.h>
 
 #include <cstdlib>
+#include <memory>
+#include <new>
 #include <string>
 
 #include "sjpegi.h"

@@ -21,8 +21,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#include <cmath>
-
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
