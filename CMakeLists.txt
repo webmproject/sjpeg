@@ -213,6 +213,13 @@ if(SJPEG_BUILD_TESTS)
   find_package(Threads REQUIRED)
   target_link_libraries(unit_test sjpeg Threads::Threads)
   add_test(NAME unit_test COMMAND unit_test)
+
+  # `ctest` alone never builds its targets first (unlike `make test` in the
+  # plain Makefile); this mirrors that with a target that does.
+  add_custom_target(check
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+    DEPENDS unit_test
+  )
 endif()
 
 # Install the different headers and libraries.
