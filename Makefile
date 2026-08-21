@@ -46,18 +46,6 @@ EXTRA_FLAGS += -Wformat-security -Wformat-nonliteral
 
 # EXTRA_FLAGS += -Wvla
 
-# SSE4.1-specific flags:
-ifeq ($(HAVE_SSE41), 1)
-EXTRA_FLAGS += -DSJPEG_HAVE_SSE41
-src/%_sse41.o: EXTRA_FLAGS += -msse4.1
-endif
-
-# AVX2-specific flags:
-ifeq ($(HAVE_AVX2), 1)
-EXTRA_FLAGS += -DSJPEG_HAVE_AVX2
-src/%_avx2.o: EXTRA_FLAGS += -mavx2
-endif
-
 # NEON-specific flags:
 # EXTRA_FLAGS += -march=armv7-a -mfloat-abi=hard -mfpu=neon -mtune=cortex-a8
 # -> seems to make the overall lib slower: -fno-split-wide-types
@@ -115,7 +103,7 @@ OUTPUT = $(OUT_LIBS) $(OUT_EXAMPLES) $(OUT_TESTS)
 
 # Without this, the built-in '%: %.o' rule takes over 'unit_test' and links it
 # with $(CC) instead of running it.
-.PHONY: all clean dist ex install test test_cmd test_png_jpg unit_test
+.PHONY: all clean dist ex pak test test_cmd test_png_jpg unit_test
 
 ex: $(OUT_EXAMPLES)
 all: ex
@@ -246,5 +234,4 @@ else
 endif
 	@echo "GENERATED ARCHIVE: $(ARCHIVE_FILE)"
 
-.PHONY: all clean dist ex pak
 .SUFFIXES:
