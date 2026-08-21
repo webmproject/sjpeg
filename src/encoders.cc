@@ -22,7 +22,6 @@
 
 #include <cstdlib>
 #include <new>
-#include <string>
 
 #include "sjpegi.h"
 
