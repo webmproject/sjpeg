@@ -237,6 +237,12 @@ struct EncoderParam {
                             // A higher value might be useful for images
                             // encoded without chroma subsampling.
 
+  // Progressive JPEG encoding. *_split (1..63) is the low/high frequency
+  // split point for luma/chroma; luma_split==64 (default) turns it off.
+  // 2/8 is a good starting point (see '-progressive' in the sjpeg CLI).
+  int progressive_luma_split = 64;
+  int progressive_chroma_split = 8;
+
   // if null, a default implementation will be used
   sjpeg::SearchHook* search_hook;
 

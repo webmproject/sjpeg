@@ -3,6 +3,12 @@ LOCAL_PATH:= $(call my-dir)
 SJPEG_CFLAGS := -Wall -DANDROID -DHAVE_MALLOC_H -DHAVE_PTHREAD
 SJPEG_CFLAGS += -fvisibility=hidden
 
+# Set to 0 to build without progressive JPEG encoding support.
+SJPEG_HAVE_PROGRESSIVE := 1
+ifeq ($(SJPEG_HAVE_PROGRESSIVE),0)
+SJPEG_CFLAGS += -DSJPEG_NO_PROGRESSIVE
+endif
+
 ifeq ($(APP_OPTIM),release)
   SJPEG_CFLAGS += -finline-functions -ffast-math \
                   -ffunction-sections -fdata-sections
@@ -36,6 +42,10 @@ enc_srcs := \
         src/quantize.$(NEON) \
         src/yuv_convert.$(NEON) \
         src/score_7.cc \
+
+ifeq ($(SJPEG_HAVE_PROGRESSIVE),1)
+enc_srcs += src/prog.cc
+endif
 
 ################################################################################
 

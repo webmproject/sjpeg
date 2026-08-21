@@ -76,6 +76,9 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink,
     max_run_levels_(0),
     qdelta_max_luma_(kDefaultDeltaMaxLuma),
     qdelta_max_chroma_(kDefaultDeltaMaxChroma),
+    progressive_(false),
+    prog_luma_split_(64), prog_chroma_split_(8),
+    prog_planes_(nullptr),
     passes_(1),
     search_hook_(nullptr),
     memory_hook_((memory == nullptr) ? &kDefaultMemory : memory) {
@@ -93,6 +96,9 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink,
 Encoder::~Encoder() {
   Free(all_run_levels_);
   DeallocateBlocks();   // clean-up leftovers in case of we had an error
+#if !defined(SJPEG_NO_PROGRESSIVE)
+  DeallocateProgPlanes();
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -126,6 +132,23 @@ void Encoder::SetCompressionMethod(int method) {
   reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5)
                    || (method >= 7);
   use_trellis_ = (method >= 7);
+}
+
+void Encoder::SetProgressive(int luma_split, int chroma_split) {
+#if !defined(SJPEG_NO_PROGRESSIVE)
+  luma_split = (luma_split < 1) ? 1 : (luma_split > 64) ? 64 : luma_split;
+  chroma_split = (chroma_split < 1) ? 1 : (chroma_split > 64) ? 64
+                                                              : chroma_split;
+  progressive_ = (luma_split < 64);
+  prog_luma_split_ = luma_split;
+  prog_chroma_split_ = chroma_split;
+  // use_extra_memory_/reuse_run_levels_ are baseline-only; EncodeProgressive()
+  // has its own storage and needs neither.
+#else
+  (void)luma_split;
+  (void)chroma_split;
+  progressive_ = false;  // not compiled in: silently a no-op
+#endif
 }
 
 void Encoder::SetMetadata(const std::string& data, MetadataType type) {
@@ -254,16 +277,18 @@ void Encoder::DeallocateBlocks() {
 ////////////////////////////////////////////////////////////////////////////////
 // Perform YUV conversion and fDCT, and store the unquantized coeffs
 
+void Encoder::TransformMCU(int mb_x, int mb_y, int16_t* const out) {
+  const bool yclip = (mb_y == mb_y_max_);
+  GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max_), out);
+  fDCT_(out, mcu_blocks_);
+}
+
 void Encoder::CollectCoeffs() {
   assert(use_extra_memory_);
   int16_t* in = in_blocks_;
-  const int mb_x_max = W_ / block_w_;
-  const int mb_y_max = H_ / block_h_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
-    const bool yclip = (mb_y == mb_y_max);
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
-      fDCT_(in, mcu_blocks_);
+      TransformMCU(mb_x, mb_y, in);
       in += 64 * mcu_blocks_;
     }
   }
@@ -278,19 +303,15 @@ void Encoder::SinglePassScan() {
 
   RunLevel base_run_levels[64];
   int16_t* in = in_blocks_;
-  const int mb_x_max = W_ / block_w_;
-  const int mb_y_max = H_ / block_h_;
   const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
                                                         : quantize_block_;
   const bool have_coeffs = have_coeffs_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
-    const bool yclip = (mb_y == mb_y_max);
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
       if (!CheckBuffers()) return;
       if (!have_coeffs) {
         in = in_blocks_;
-        GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
-        fDCT_(in, mcu_blocks_);
+        TransformMCU(mb_x, mb_y, in);
       }
       for (int c = 0; c < nb_comps_; ++c) {
         DCTCoeffs base_coeffs;
@@ -337,17 +358,13 @@ void Encoder::SinglePassScanOptimized() {
   ResetDCs();
   nb_run_levels_ = 0;
   int16_t* in = in_blocks_;
-  const int mb_x_max = W_ / block_w_;
-  const int mb_y_max = H_ / block_h_;
   const bool have_coeffs = have_coeffs_;
   const bool reuse_run_levels = reuse_run_levels_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
-    const bool yclip = (mb_y == mb_y_max);
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
       if (!have_coeffs) {
         in = in_blocks_;
-        GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max), in);
-        fDCT_(in, mcu_blocks_);
+        TransformMCU(mb_x, mb_y, in);
       }
       if (!CheckBuffers()) goto End;
       for (int c = 0; c < nb_comps_; ++c) {
@@ -409,6 +426,8 @@ bool Encoder::Encode() {
 
   mb_w_ = (W_ + (block_w_ - 1)) / block_w_;
   mb_h_ = (H_ + (block_h_ - 1)) / block_h_;
+  mb_x_max_ = W_ / block_w_;
+  mb_y_max_ = H_ / block_h_;
   const size_t nb_blocks = use_extra_memory_ ? mb_w_ * mb_h_ : 1;
   if (!AllocateBlocks(nb_blocks * mcu_blocks_)) return false;
 
@@ -421,6 +440,8 @@ bool Encoder::Encode() {
   if (!WriteEXIF(exif_) || !WriteICCP(iccp_) || !WriteXMP(xmp_)) return false;
 
   if (passes_ > 1) {
+    // Note: progressive mode is not supported together with the multi-pass
+    // target-size/PSNR search; -prog is silently ignored in that case.
     LoopScan();
   } else {
     if (use_adaptive_quant_) {
@@ -430,14 +451,23 @@ bool Encoder::Encode() {
     }
 
     WriteDQT();
-    WriteSOF();
 
-    if (optimize_size_) {
-      SinglePassScanOptimized();
-    } else {
-      WriteDHT();
-      WriteSOS();
-      SinglePassScan();
+#if !defined(SJPEG_NO_PROGRESSIVE)
+    if (progressive_) {
+      WriteSOF(/*progressive=*/true);
+      EncodeProgressive();
+    } else
+#endif
+    {
+      WriteSOF();
+
+      if (optimize_size_) {
+        SinglePassScanOptimized();
+      } else {
+        WriteDHT();
+        WriteSOS();
+        SinglePassScan();
+      }
     }
   }
   WriteEOI();

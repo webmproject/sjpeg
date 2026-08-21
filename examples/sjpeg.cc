@@ -73,6 +73,11 @@ static const char* kYUVModeNames[] = {
 };
 static const char* kNoYes[2] = { "no", "yes" };
 
+// '-progressive' shortcut values; see the progressive_luma_split doc comment
+// in src/sjpeg.h for how these were picked.
+static const int kProgressiveLumaSplit = 2;
+static const int kProgressiveChromaSplit = 8;
+
 int main(int argc, char * argv[]) {
   const char* input_file = nullptr;
   const char* output_file = nullptr;
@@ -127,6 +132,12 @@ int main(int argc, char * argv[]) {
     "  -no_optim .......... Don't use Huffman optimization (=faster)\n"
     "  -no_adapt .......... Don't use adaptive quantization (=faster)\n"
     "  -trellis ........... use trellis-based quantization (=slower)\n"
+    "  -progressive ....... shortcut for '-prog 2,8'\n"
+    "  -prog <int>[,<int>]. Progressive encoding: AC spectral split point for\n"
+    "                       luma (1..63), and optionally for chroma\n"
+    "                       (default: 8). Disabled by default. '2,8' is a\n"
+    "                       good starting point. Ineffective with multi-pass\n"
+    "                       (-pass/-size/-psnr).\n"
     "  -no_metadata ....... Ignore metadata from the source\n"
     "  -pass <int> ........ number of passes for -size or -psnr (default: 10)\n"
     "  -qmin <float> ...... minimum acceptable quality factor during search\n"
@@ -160,7 +171,7 @@ int main(int argc, char * argv[]) {
     } else if (!strcmp(argv[c], "-q") && c + 1 < argc) {
       quality = atof(argv[++c]);
       use_reduction = false;
-      if (quality < 0 || quality > 100) {
+      if (!(quality >= 0 && quality <= 100)) {  // catches NaN too
         fprintf(stdout, "Error: invalid range for option '%s': %s\n",
                 argv[c - 1], argv[c]);
         return 1;
@@ -168,7 +179,7 @@ int main(int argc, char * argv[]) {
     } else if (!strcmp(argv[c], "-r") && c + 1 < argc) {
       reduction = atof(argv[++c]);
       use_reduction = true;
-      if (reduction <= 0 || reduction > 100) {
+      if (!(reduction > 0 && reduction <= 100)) {  // catches NaN too
         fprintf(stdout, "Error: invalid range for option '%s': %s\n",
                 argv[c - 1], argv[c]);
         return 1;
@@ -191,6 +202,14 @@ int main(int argc, char * argv[]) {
       param.adaptive_bias = true;
     } else if (!strcmp(argv[c], "-trellis")) {
       param.use_trellis = true;
+    } else if (!strcmp(argv[c], "-progressive")) {
+      param.progressive_luma_split = kProgressiveLumaSplit;
+      param.progressive_chroma_split = kProgressiveChromaSplit;
+    } else if (!strcmp(argv[c], "-prog") && c + 1 < argc) {
+      const char* const arg = argv[++c];
+      const char* const comma = strchr(arg, ',');
+      param.progressive_luma_split = atoi(arg);
+      param.progressive_chroma_split = comma ? atoi(comma + 1) : 8;
     } else if (!strcmp(argv[c], "-psnr") && c + 1 < argc) {
       param.target_mode = EncoderParam::TARGET_PSNR;
       param.target_value = atof(argv[++c]);

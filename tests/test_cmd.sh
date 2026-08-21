@@ -44,6 +44,8 @@ ${SJPEG} ${SRC_FILE2} -o ${TMP_FILE1} -q 24 -psnr 35 -pass 5 \
                                       -trellis -adapt_bias -quiet
 ${SJPEG} ${SRC_FILE4} -o ${TMP_FILE1} -size 24000 -pass -1 -tolerance .2 \
                                       -444 -quiet
+${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -progressive -quiet
+${SJPEG} ${SRC_FILE2} -o ${TMP_FILE1} -prog 4,12 -quiet
 ${SJPEG} ${SRC_FILE1} -crc
 ${SJPEG} ${SRC_FILE1} -estimate
 ${SJPEG} ${SRC_FILE1} -i
@@ -83,6 +85,15 @@ ${SJPEG} ${SRC_FILE1} -o
 ${SJPEG} -o ${TMP_FILE2} -quiet
 ${SJPEG} ${SRC_FILE1} -r 101
 ${SJPEG} ${SRC_FILE1} -r -1
+${SJPEG} ${SRC_FILE1} -q nan
+${SJPEG} ${SRC_FILE1} -r nan
+
+# malformed PPM headers must be rejected, not overflow the size computation
+printf 'P6\n999999999 999999999\n255\n' > ${TMP_FILE1}.ppm
+${SJPEG} ${TMP_FILE1}.ppm -o ${TMP_FILE1} -quiet
+printf 'P6\n-4 3\n255\n' > ${TMP_FILE1}.ppm
+${SJPEG} ${TMP_FILE1}.ppm -o ${TMP_FILE1} -quiet
+
 ${SJPEG} ${BAD_FILE} -o ${TMP_FILE1} -quiet
 ${SJPEG} ${SRC_FILE1} -o ${BAD_FILE} -quiet
 
