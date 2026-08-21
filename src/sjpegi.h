@@ -347,6 +347,7 @@ struct Encoder {
 
  private:
   bool CheckBuffers();  // returns false in case of memory alloc error
+  bool ReserveSlab();   // shared by CheckBuffers()/CheckProgBuffers()
 
   void Put16b(uint32_t size);
   void Put32b(uint32_t size);
