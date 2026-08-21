@@ -210,6 +210,12 @@ int main(int argc, char * argv[]) {
       const char* const comma = strchr(arg, ',');
       param.progressive_luma_split = atoi(arg);
       param.progressive_chroma_split = comma ? atoi(comma + 1) : 8;
+      if (param.progressive_luma_split < 1 || param.progressive_luma_split > 64 ||
+          param.progressive_chroma_split < 1 || param.progressive_chroma_split > 64) {
+        fprintf(stdout, "Error: invalid range for option '%s': %s\n",
+                argv[c - 1], argv[c]);
+        return 1;
+      }
     } else if (!strcmp(argv[c], "-psnr") && c + 1 < argc) {
       param.target_mode = EncoderParam::TARGET_PSNR;
       param.target_value = atof(argv[++c]);

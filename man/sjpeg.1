@@ -87,12 +87,14 @@ Use progressive encoding, with the recommended spectral split points.
 Shortcut for \fB\-prog 2,8\fP.
 .TP
 .BI \-prog " int[,int]
-Enable progressive (spectral-selection-only) encoding, and set the AC
-spectral split point ('Se') for luma to the first value (in 1..63), and
-optionally for chroma to the second value (defaults to 8 if omitted).
-Disabled unless this option is used; \fB2,8\fP is a well-tested starting
-point, see \-progressive above. A split point of 63 or more disables the
-split for that component, while leaving the other one progressive.
+Enable progressive encoding, and set the low/high frequency split point
+for luma to the first value (1..63), and optionally for chroma to the
+second value (defaults to 8 if omitted). Disabled unless this option is
+used; \fB2,8\fP is a well-tested starting point, see \-progressive above.
+A split point of 63 or more disables the split for that component, while
+leaving the other one progressive. Ineffective when combined with
+multi-pass search (\fB\-pass\fP/\fB\-size\fP/\fB\-psnr\fP): \fB\-prog\fP is
+silently ignored in that case.
 .SS Colorspace options
 .TP
 .BI \-yuv_mode " int

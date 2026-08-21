@@ -78,11 +78,7 @@ int Encoder::ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const {
 }
 
 bool Encoder::CheckProgBuffers() {
-  size_t chunk = (size_t)W_ * H_ / 4;
-  if (chunk < 4096) chunk = 4096;
-  if (chunk > (256 << 10)) chunk = 256 << 10;
-  ok_ = ok_ && bw_.ReserveMore(2560, chunk);
-  return ok_;
+  return ReserveSlab();
 }
 
 void Encoder::EncodeProgAC(int c, int split) {
@@ -171,10 +167,14 @@ bool Encoder::EncodeProgressive() {
       use_trellis_ ? TrellisQuantizeBlock : quantize_block_;
   // trellis needs ac_codes_[] seeded, like the baseline path does
   if (use_trellis_) InitCodes(true);
+  const bool have_coeffs = have_coeffs_;
+  int16_t* in = in_blocks_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      int16_t* in = in_blocks_;
-      TransformMCU(mb_x, mb_y, in);
+      if (!have_coeffs) {
+        in = in_blocks_;
+        TransformMCU(mb_x, mb_y, in);
+      }
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           const int idx = ProgPlaneIndex(c, mb_x, mb_y, i);

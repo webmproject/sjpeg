@@ -226,7 +226,7 @@ bool Encoder::SetError() {
   return false;
 }
 
-bool Encoder::CheckBuffers() {
+bool Encoder::ReserveSlab() {
   // Worst-case macroblock is 24bits*64*6 coeffs = 1152 bytes, doubled by 0xff
   // stuffing, so 2560 covers one MCU. Writer serves that out of a larger slab
   // and only reaches the sink when the slab runs out. Slab follows the image
@@ -236,7 +236,11 @@ bool Encoder::CheckBuffers() {
   if (chunk < 4096) chunk = 4096;
   if (chunk > (256 << 10)) chunk = 256 << 10;
   ok_ = ok_ && bw_.ReserveMore(2560, chunk);
-  if (!ok_) return false;
+  return ok_;
+}
+
+bool Encoder::CheckBuffers() {
+  if (!ReserveSlab()) return false;
 
   if (reuse_run_levels_) {
     if (nb_run_levels_ + 6*64 > max_run_levels_) {
