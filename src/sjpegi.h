@@ -19,6 +19,8 @@
 #ifndef SJPEG_JPEGI_H_
 #define SJPEG_JPEGI_H_
 
+#include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // IWYU pragma: begin_exports
@@ -30,8 +32,23 @@
 #define NULL 0
 #endif
 
+#define SJPEG_STRINGIFY_HELPER(x) #x
+#define SJPEG_STRINGIFY(x) SJPEG_STRINGIFY_HELPER(x)
+
+#if defined(__clang__)
+#define SJPEG_UNROLL(n) _Pragma(SJPEG_STRINGIFY(clang loop unroll_count(n)))
+#elif defined(__GNUC__) && (__GNUC__ >= 8)
+#define SJPEG_UNROLL(n) _Pragma(SJPEG_STRINGIFY(GCC unroll n))
+#else
+#define SJPEG_UNROLL(n)
+#endif
+
 #if defined(__SSE2__)
 #define SJPEG_USE_SSE2
+#endif
+
+#if defined(__SSSE3__)
+#define SJPEG_USE_SSSE3
 #endif
 
 #if defined(__ARM_NEON__) || defined(__aarch64__)
@@ -43,7 +60,9 @@
 #endif
 
 #if defined(SJPEG_NEED_ASM_HEADERS)
-#if defined(SJPEG_USE_SSE2)
+#if defined(SJPEG_USE_SSSE3)
+#include <tmmintrin.h>
+#elif defined(SJPEG_USE_SSE2)
 #include <emmintrin.h>
 #endif
 
