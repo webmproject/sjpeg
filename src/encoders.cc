@@ -528,10 +528,10 @@ class EncoderSharp420 final : public EncoderYUV420 {
       v_ = u_ + uv_size;
       u_step_ = uv_w;
       v_step_ = uv_w;
-      ApplySharpYUVConversion(rgb, W, H, step,
-                              const_cast<uint8_t*>(y_),
-                              const_cast<uint8_t*>(u_),
-                              const_cast<uint8_t*>(v_));
+      ok_ = ApplySharpYUVConversion(rgb, W, H, step,
+                                    const_cast<uint8_t*>(y_),
+                                    const_cast<uint8_t*>(u_),
+                                    const_cast<uint8_t*>(v_));
     }
   }
   ~EncoderSharp420() override { Free(yuv_memory_); }
