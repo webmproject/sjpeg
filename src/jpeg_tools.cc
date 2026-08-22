@@ -151,6 +151,7 @@ float SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
     uint8_t m[64];
     SjpegQuantMatrix(quality, for_chroma, m);
     float score = 0;
+    SJPEG_UNROLL(4)
     for (size_t i = 0; i < 64; ++i) {
       const float diff = m[i] - matrix[i];
       score += diff * diff;
@@ -197,18 +198,18 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
     rgb += stride;
     std::swap(row1, row2);
     cvrt_func(rgb, width, &row2[0]);  // this is the row below
+    SJPEG_UNROLL(4)
     for (int i = 0; i < width - 1; ++i) {
       const int idx0 = row1[i + 0];
       const int idx1 = row1[i + 1];
-      const int idx2 = row2[i];
-      const int score = sjpeg::kSharpnessScore[idx0 + kRGB3 * idx1]
-                      + sjpeg::kSharpnessScore[idx0 + kRGB3 * idx2]
-                      + sjpeg::kSharpnessScore[idx1 + kRGB3 * idx2];
-      if (score > kNoiseLevel) {
-        score_sum += score;
-        score_num += 1;
-      }
-      gray_num += (idx0 >= gray_min && idx0 < gray_min + s);
+      const int idx2 = row2[i + 0];
+      const int score = sjpeg::kSharpnessScore[idx0 + kRGB3 * idx1] +
+                        sjpeg::kSharpnessScore[idx0 + kRGB3 * idx2] +
+                        sjpeg::kSharpnessScore[idx1 + kRGB3 * idx2];
+      const bool m = (score > kNoiseLevel);
+      score_sum += (m ? score : 0);
+      score_num += m;
+      gray_num += ((uint32_t)(idx0 - gray_min) < (uint32_t)s);
     }
   }
   const double count = (double)score_num;

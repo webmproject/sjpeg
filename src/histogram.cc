@@ -60,9 +60,13 @@ void StoreHistoSSE2(const int16_t in[64], Histo* const histos, int nb_blocks) {
     for (int i = 0; i < 64; i += 8) {
       const __m128i A =
           _mm_loadu_si128(reinterpret_cast<const __m128i*>(in + i));
+#if defined(SJPEG_USE_SSSE3)
+      const __m128i C = _mm_abs_epi16(A);
+#else
       const __m128i B = _mm_srai_epi16(A, 15);                  // sign extract
       const __m128i C = _mm_sub_epi16(_mm_xor_si128(A, B), B);  // abs(A)
-      const __m128i D = _mm_srli_epi16(C, HSHIFT);              // >>= HSHIFT
+#endif
+      const __m128i D = _mm_srli_epi16(C, HSHIFT);  // >>= HSHIFT
       const __m128i E = _mm_min_epi16(D, kMaxHisto);
       _mm_storeu_si128(reinterpret_cast<__m128i*>(tmp + i), E);
     }
@@ -203,6 +207,7 @@ void Encoder::AnalyseHisto() {
       const int* const h = histo->counts_[pos];
       int total = 0;
       int last = 0;
+      SJPEG_UNROLL(4)
       for (int i = 0; i < MAX_HISTO_DCT_COEFF; ++i) {
         total += h[i];
         if (h[i]) last = i + 1;
@@ -222,6 +227,7 @@ void Encoder::AnalyseHisto() {
         if (dq >= min_dq0 && dq <= 255) {
           // TODO(skal): pre-compute idq and use it in FinalizeQuantMatrix too
           const int idq = ((1 << FP_BITS) + dq - 1) / dq;
+          SJPEG_UNROLL(4)
           for (int i = 0; i < last; ++i) {
             if (h[i]) {
               // v = current bin's centroid in the histogram

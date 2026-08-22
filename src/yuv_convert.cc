@@ -591,15 +591,32 @@ static void PreprocessARGB(const uint8_t* const rgb,
   InitGammaTablesF();
   InitFunctionPointers();
 
-  // TODO(skal): allocate one big memory chunk instead.
-  vector<fixed_y_t> tmp_buffer(w * 3 * 2);
-  vector<fixed_y_t> best_y(w * h);
-  vector<fixed_y_t> target_y(w * h);
-  vector<fixed_y_t> best_rgb_y(w * 2);
-  vector<fixed_t> best_uv(uv_w * 3 * uv_h);
-  vector<fixed_t> target_uv(uv_w * 3 * uv_h);
-  vector<fixed_t> best_rgb_uv(uv_w * 3 * 1);
-  const uint64_t diff_y_threshold = static_cast<uint64_t>(3.0 * w * h);
+  // Single memory chunk allocation to avoid allocator lock contention and heap
+  // fragmentation
+  const size_t total_elems = (size_t)(w * 3 * 2) + (size_t)(w * h) +
+                             (size_t)(w * h) + (size_t)(w * 2) +
+                             (size_t)(uv_w * 3 * uv_h) +
+                             (size_t)(uv_w * 3 * uv_h) + (size_t)(uv_w * 3 * 1);
+  std::unique_ptr<uint16_t[]> arena(new (std::nothrow) uint16_t[total_elems]);
+  if (arena == nullptr) return;
+
+  uint16_t* ptr = arena.get();
+  fixed_y_t* const tmp_buffer = ptr;
+  ptr += w * 3 * 2;
+  fixed_y_t* const best_y = ptr;
+  ptr += w * h;
+  fixed_y_t* const target_y = ptr;
+  ptr += w * h;
+  fixed_y_t* const best_rgb_y = ptr;
+  ptr += w * 2;
+  fixed_t* const best_uv = (fixed_t*)ptr;
+  ptr += uv_w * 3 * uv_h;
+  fixed_t* const target_uv = (fixed_t*)ptr;
+  ptr += uv_w * 3 * uv_h;
+  fixed_t* const best_rgb_uv = (fixed_t*)ptr;
+  ptr += uv_w * 3 * 1;
+  (void)ptr;
+  const uint64_t diff_y_threshold = (uint64_t)(3.0 * w * h);
 
   assert(width >= kMinDimensionIterativeConversion);
   assert(height >= kMinDimensionIterativeConversion);
