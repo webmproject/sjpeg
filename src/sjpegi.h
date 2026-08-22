@@ -30,8 +30,23 @@
 #define NULL 0
 #endif
 
+#define SJPEG_STRINGIFY_HELPER(x) #x
+#define SJPEG_STRINGIFY(x) SJPEG_STRINGIFY_HELPER(x)
+
+#if defined(__clang__)
+#define SJPEG_UNROLL(n) _Pragma(SJPEG_STRINGIFY(clang loop unroll_count(n)))
+#elif defined(__GNUC__) && (__GNUC__ >= 8)
+#define SJPEG_UNROLL(n) _Pragma(SJPEG_STRINGIFY(GCC unroll n))
+#else
+#define SJPEG_UNROLL(n)
+#endif
+
 #if defined(__SSE2__)
 #define SJPEG_USE_SSE2
+#endif
+
+#if defined(__SSSE3__)
+#define SJPEG_USE_SSSE3
 #endif
 
 #if defined(__ARM_NEON__) || defined(__aarch64__)
@@ -43,7 +58,9 @@
 #endif
 
 #if defined(SJPEG_NEED_ASM_HEADERS)
-#if defined(SJPEG_USE_SSE2)
+#if defined(SJPEG_USE_SSSE3)
+#include <tmmintrin.h>
+#elif defined(SJPEG_USE_SSE2)
 #include <emmintrin.h>
 #endif
 
@@ -115,7 +132,7 @@ extern RGBToIndexRowFunc GetRowFunc();
 // Enhanced slower RGB->YUV conversion:
 //  y_plane[] has dimension W x H, whereas u_plane[] and v_plane[] have
 //  dimension (W + 1)/2 x (H + 1)/2.
-void ApplySharpYUVConversion(const uint8_t* const rgb,
+bool ApplySharpYUVConversion(const uint8_t* const rgb,
                              int W, int H, int stride,
                              uint8_t* y_plane,
                              uint8_t* u_plane, uint8_t* v_plane);
