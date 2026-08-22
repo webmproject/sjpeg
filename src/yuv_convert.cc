@@ -16,11 +16,15 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <assert.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include <memory>
 #include <mutex>  // NOLINT
+#include <new>
 #include <vector>
 using std::vector;
 
@@ -577,10 +581,9 @@ static void ConvertWRGBToYUV(const fixed_y_t* best_y,
 //------------------------------------------------------------------------------
 // Main function
 
-static void PreprocessARGB(const uint8_t* const rgb,
-                           int width, int height, size_t stride,
-                           uint8_t* y_plane,
-                           uint8_t* u_plane, uint8_t* v_plane) {
+static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
+                           size_t stride, uint8_t* y_plane, uint8_t* u_plane,
+                           uint8_t* v_plane) {
   // we expand the right/bottom border if needed
   const int w = (width + 1) & ~1;
   const int h = (height + 1) & ~1;
@@ -591,15 +594,31 @@ static void PreprocessARGB(const uint8_t* const rgb,
   InitGammaTablesF();
   InitFunctionPointers();
 
-  // TODO(skal): allocate one big memory chunk instead.
-  vector<fixed_y_t> tmp_buffer(w * 3 * 2);
-  vector<fixed_y_t> best_y(w * h);
-  vector<fixed_y_t> target_y(w * h);
-  vector<fixed_y_t> best_rgb_y(w * 2);
-  vector<fixed_t> best_uv(uv_w * 3 * uv_h);
-  vector<fixed_t> target_uv(uv_w * 3 * uv_h);
-  vector<fixed_t> best_rgb_uv(uv_w * 3 * 1);
-  const uint64_t diff_y_threshold = static_cast<uint64_t>(3.0 * w * h);
+  // Single memory chunk allocation to avoid allocator lock contention and heap
+  // fragmentation
+  const size_t total_elems = (size_t)(w * 3 * 2) + (size_t)(w * h) +
+                             (size_t)(w * h) + (size_t)(w * 2) +
+                             (size_t)(uv_w * 3 * uv_h) +
+                             (size_t)(uv_w * 3 * uv_h) + (size_t)(uv_w * 3 * 1);
+  std::unique_ptr<uint16_t[]> arena(new (std::nothrow) uint16_t[total_elems]);
+  if (arena == nullptr) return false;
+
+  uint16_t* ptr = arena.get();
+  fixed_y_t* const tmp_buffer = ptr;
+  ptr += w * 3 * 2;
+  fixed_y_t* const best_y = ptr;
+  ptr += w * h;
+  fixed_y_t* const target_y = ptr;
+  ptr += w * h;
+  fixed_y_t* const best_rgb_y = ptr;
+  ptr += w * 2;
+  fixed_t* const best_uv = (fixed_t*)ptr;
+  ptr += uv_w * 3 * uv_h;
+  fixed_t* const target_uv = (fixed_t*)ptr;
+  ptr += uv_w * 3 * uv_h;
+  fixed_t* const best_rgb_uv = (fixed_t*)ptr;
+  assert(ptr + (uv_w * 3 * 1) == arena.get() + total_elems);
+  const uint64_t diff_y_threshold = (uint64_t)(3.0 * w * h);
 
   assert(width >= kMinDimensionIterativeConversion);
   assert(height >= kMinDimensionIterativeConversion);
@@ -664,6 +683,7 @@ static void PreprocessARGB(const uint8_t* const rgb,
   // final reconstruction
   ConvertWRGBToYUV(&best_y[0], &best_uv[0], width, height,
                    y_plane, u_plane, v_plane);
+  return true;
 }
 
 }  // namespace sjpeg
@@ -671,9 +691,8 @@ static void PreprocessARGB(const uint8_t* const rgb,
 ////////////////////////////////////////////////////////////////////////////////
 // Entry point
 
-void sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb,
-                                    int W, int H, int stride,
-                                    uint8_t* y_plane,
+bool sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb, int W, int H,
+                                    int stride, uint8_t* y_plane,
                                     uint8_t* u_plane, uint8_t* v_plane) {
   if (W <= kMinDimensionIterativeConversion ||
       H <= kMinDimensionIterativeConversion) {
@@ -689,8 +708,9 @@ void sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb,
                      &u_plane[(y >> 1) * uv_w],
                      &v_plane[(y >> 1) * uv_w]);
     }
+    return true;
   } else {
-    PreprocessARGB(rgb, W, H, stride, y_plane, u_plane, v_plane);
+    return PreprocessARGB(rgb, W, H, stride, y_plane, u_plane, v_plane);
   }
 }
 

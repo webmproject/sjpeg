@@ -134,10 +134,11 @@ extern RGBToIndexRowFunc GetRowFunc();
 // Enhanced slower RGB->YUV conversion:
 //  y_plane[] has dimension W x H, whereas u_plane[] and v_plane[] have
 //  dimension (W + 1)/2 x (H + 1)/2.
-void ApplySharpYUVConversion(const uint8_t* const rgb,
+bool ApplySharpYUVConversion(const uint8_t* const rgb,
                              int W, int H, int stride,
                              uint8_t* y_plane,
-                             uint8_t* u_plane, uint8_t* v_plane);
+                             uint8_t* u_plane,
+                             uint8_t* v_plane);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Generic sample-replication function. Replicate sub_w x sub_h area of 'src'
