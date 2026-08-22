@@ -577,7 +577,7 @@ static void ConvertWRGBToYUV(const fixed_y_t* best_y,
 //------------------------------------------------------------------------------
 // Main function
 
-static void PreprocessARGB(const uint8_t* const rgb,
+static bool PreprocessARGB(const uint8_t* const rgb,
                            int width, int height, size_t stride,
                            uint8_t* y_plane,
                            uint8_t* u_plane, uint8_t* v_plane) {
@@ -598,7 +598,7 @@ static void PreprocessARGB(const uint8_t* const rgb,
                              (size_t)(uv_w * 3 * uv_h) +
                              (size_t)(uv_w * 3 * uv_h) + (size_t)(uv_w * 3 * 1);
   std::unique_ptr<uint16_t[]> arena(new (std::nothrow) uint16_t[total_elems]);
-  if (arena == nullptr) return;
+  if (arena == nullptr) return false;
 
   uint16_t* ptr = arena.get();
   fixed_y_t* const tmp_buffer = ptr;
@@ -614,8 +614,7 @@ static void PreprocessARGB(const uint8_t* const rgb,
   fixed_t* const target_uv = (fixed_t*)ptr;
   ptr += uv_w * 3 * uv_h;
   fixed_t* const best_rgb_uv = (fixed_t*)ptr;
-  ptr += uv_w * 3 * 1;
-  (void)ptr;
+  assert(ptr + (uv_w * 3 * 1) == arena.get() + total_elems);
   const uint64_t diff_y_threshold = (uint64_t)(3.0 * w * h);
 
   assert(width >= kMinDimensionIterativeConversion);
@@ -681,6 +680,7 @@ static void PreprocessARGB(const uint8_t* const rgb,
   // final reconstruction
   ConvertWRGBToYUV(&best_y[0], &best_uv[0], width, height,
                    y_plane, u_plane, v_plane);
+  return true;
 }
 
 }  // namespace sjpeg
@@ -688,7 +688,7 @@ static void PreprocessARGB(const uint8_t* const rgb,
 ////////////////////////////////////////////////////////////////////////////////
 // Entry point
 
-void sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb,
+bool sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb,
                                     int W, int H, int stride,
                                     uint8_t* y_plane,
                                     uint8_t* u_plane, uint8_t* v_plane) {
@@ -706,8 +706,9 @@ void sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb,
                      &u_plane[(y >> 1) * uv_w],
                      &v_plane[(y >> 1) * uv_w]);
     }
+    return true;
   } else {
-    PreprocessARGB(rgb, W, H, stride, y_plane, u_plane, v_plane);
+    return PreprocessARGB(rgb, W, H, stride, y_plane, u_plane, v_plane);
   }
 }
 
