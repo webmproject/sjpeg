@@ -549,13 +549,13 @@ static void ConvertWRGBToYUV(const fixed_y_t* best_y,
                              int width, int height,
                              uint8_t* y_plane,
                              uint8_t* u_plane, uint8_t* v_plane) {
-  const int w = (width + 1) & ~1;
-  const int h = (height + 1) & ~1;
-  const int uv_w = w >> 1;
-  const int uv_h = h >> 1;
-  for (int j = 0; j < height; ++j) {
-    const int off = (j >> 1) * 3 * uv_w;
-    for (int i = 0; i < width; ++i) {
+  const size_t w = ((size_t)width + 1) & ~1ULL;
+  const size_t h = ((size_t)height + 1) & ~1ULL;
+  const size_t uv_w = w >> 1;
+  const size_t uv_h = h >> 1;
+  for (size_t j = 0; j < (size_t)height; ++j) {
+    const size_t off = (j >> 1) * 3 * uv_w;
+    for (size_t i = 0; i < (size_t)width; ++i) {
       const int W = best_y[i + j * w];
       const int r = best_uv[off + (i >> 1) + 0 * uv_w] + W;
       const int g = best_uv[off + (i >> 1) + 1 * uv_w] + W;
@@ -564,9 +564,9 @@ static void ConvertWRGBToYUV(const fixed_y_t* best_y,
     }
     y_plane += width;
   }
-  for (int j = 0; j < uv_h; ++j) {
-    for (int i = 0; i < uv_w; ++i) {
-      const int off = i + j * 3 * uv_w;
+  for (size_t j = 0; j < uv_h; ++j) {
+    for (size_t i = 0; i < uv_w; ++i) {
+      const size_t off = i + j * 3 * uv_w;
       const int r = best_uv[off + 0 * uv_w];
       const int g = best_uv[off + 1 * uv_w];
       const int b = best_uv[off + 2 * uv_w];
@@ -585,21 +585,20 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
                            size_t stride, uint8_t* y_plane, uint8_t* u_plane,
                            uint8_t* v_plane) {
   // we expand the right/bottom border if needed
-  const int w = (width + 1) & ~1;
-  const int h = (height + 1) & ~1;
-  const int uv_w = w >> 1;
-  const int uv_h = h >> 1;
-  uint64_t prev_diff_y_sum = ~0;
+  const size_t w = ((size_t)width + 1) & ~1ULL;
+  const size_t h = ((size_t)height + 1) & ~1ULL;
+  const size_t uv_w = w >> 1;
+  const size_t uv_h = h >> 1;
+  uint64_t prev_diff_y_sum = ~0ULL;
 
   InitGammaTablesF();
   InitFunctionPointers();
 
   // Single memory chunk allocation to avoid allocator lock contention and heap
   // fragmentation
-  const size_t total_elems = (size_t)(w * 3 * 2) + (size_t)(w * h) +
-                             (size_t)(w * h) + (size_t)(w * 2) +
-                             (size_t)(uv_w * 3 * uv_h) +
-                             (size_t)(uv_w * 3 * uv_h) + (size_t)(uv_w * 3 * 1);
+  const size_t total_elems = (w * 3 * 2) + (w * h) + (w * h) + (w * 2) +
+                             (uv_w * 3 * uv_h) + (uv_w * 3 * uv_h) +
+                             (uv_w * 3 * 1);
   std::unique_ptr<uint16_t[]> arena(new (std::nothrow) uint16_t[total_elems]);
   if (arena == nullptr) return false;
 
@@ -624,13 +623,13 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
   assert(height >= kMinDimensionIterativeConversion);
 
   // Import RGB samples to W/RGB representation.
-  for (int j = 0; j < height; j += 2) {
-    const int is_last_row = (j == height - 1);
+  for (size_t j = 0; j < (size_t)height; j += 2) {
+    const bool is_last_row = (j == (size_t)height - 1);
     fixed_y_t* const src1 = &tmp_buffer[0 * w];
     fixed_y_t* const src2 = &tmp_buffer[3 * w];
-    const int rgb_off = j * stride;
-    const int y_off = j * w;
-    const int uv_off = (j >> 1) * 3 * uv_w;
+    const size_t rgb_off = j * stride;
+    const size_t y_off = j * w;
+    const size_t uv_off = (j >> 1) * 3 * uv_w;
 
     // prepare two rows of input
     ImportOneRow(rgb + rgb_off, width, src1);
@@ -653,25 +652,26 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
     const fixed_t* prev_uv = &best_uv[0];
     uint64_t diff_y_sum = 0;
 
-    for (int j = 0; j < h; j += 2) {
-      const int uv_off = (j >> 1) * 3 * uv_w;
+    for (size_t j = 0; j < h; j += 2) {
+      const size_t uv_off = (j >> 1) * 3 * uv_w;
+      const size_t y_off = j * w;
       fixed_y_t* const src1 = &tmp_buffer[0 * w];
       fixed_y_t* const src2 = &tmp_buffer[3 * w];
       const fixed_t* const next_uv = cur_uv + ((j < h - 2) ? 3 * uv_w : 0);
-      InterpolateTwoRows(&best_y[j * w], prev_uv, cur_uv, next_uv,
-                         w, src1, src2);
+      InterpolateTwoRows(&best_y[y_off], prev_uv, cur_uv, next_uv, (int)w, src1,
+                         src2);
       prev_uv = cur_uv;
       cur_uv = next_uv;
 
-      UpdateW(src1, &best_rgb_y[0 * w], w);
-      UpdateW(src2, &best_rgb_y[1 * w], w);
-      UpdateChroma(src1, src2, &best_rgb_uv[0], uv_w);
+      UpdateW(src1, &best_rgb_y[0 * w], (int)w);
+      UpdateW(src2, &best_rgb_y[1 * w], (int)w);
+      UpdateChroma(src1, src2, &best_rgb_uv[0], (int)uv_w);
 
       // update two rows of Y and one row of RGB
-      diff_y_sum += kSharpUpdateY(&target_y[j * w],
-                                  &best_rgb_y[0], &best_y[j * w], 2 * w);
-      kSharpUpdateRGB(&target_uv[uv_off],
-                      &best_rgb_uv[0], &best_uv[uv_off], 3 * uv_w);
+      diff_y_sum += kSharpUpdateY(&target_y[y_off], &best_rgb_y[0],
+                                  &best_y[y_off], (int)(2 * w));
+      kSharpUpdateRGB(&target_uv[uv_off], &best_rgb_uv[0], &best_uv[uv_off],
+                      (int)(3 * uv_w));
     }
     // test exit condition
     if (iter > 0) {
