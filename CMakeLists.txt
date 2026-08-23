@@ -26,6 +26,13 @@ set(CMAKE_CXX_STANDARD 11)
 option(SJPEG_ENABLE_SIMD "Enable any SIMD optimization." ON)
 option(SJPEG_BUILD_EXAMPLES "Build the sjpeg / vjpeg command line tools." ON)
 option(SJPEG_BUILD_TESTS "Build the unit tests." ON)
+# Opt-in, off by default: unlike SSE2 (guaranteed on all x86-64) or NEON,
+# AVX2 isn't a safe baseline assumption, so it isn't part of the
+# SJPEG_SIMD_DEFINES loop in cmake/cpu.cmake (which applies its flag to the
+# whole target). Instead just src/*_avx2.cc gets -mavx2, and support is
+# picked at runtime (SupportsAVX2() in src/enc.cc), so a binary built with
+# this ON still runs on pre-Haswell CPUs.
+option(SJPEG_HAVE_AVX2 "Build the AVX2 kernel variants (x86 only)." OFF)
 
 set(SJPEG_DEP_LIBRARIES)
 set(SJPEG_DEP_INCLUDE_DIRS)
@@ -84,6 +91,25 @@ add_library(sjpeg ${CMAKE_CURRENT_SOURCE_DIR}/src/bit_writer.cc
 )
 if(SJPEG_DEP_LIBRARIES)
   target_link_libraries(sjpeg ${SJPEG_DEP_LIBRARIES})
+endif()
+
+if(SJPEG_HAVE_AVX2)
+  target_sources(sjpeg PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/histogram_avx2.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize_avx2.cc)
+  if(MSVC)
+    set(SJPEG_AVX2_FLAG "/arch:AVX2")
+  else()
+    set(SJPEG_AVX2_FLAG "-mavx2")
+  endif()
+  set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/histogram_avx2.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize_avx2.cc
+    PROPERTIES COMPILE_OPTIONS "${SJPEG_AVX2_FLAG}"
+  )
+  # PUBLIC: unit_test / sjpeg-bin link against 'sjpeg' and need to see the
+  # same define (matches how SJPEG_HAVE_PNG/JPEG propagate below).
+  target_compile_definitions(sjpeg PUBLIC SJPEG_HAVE_AVX2)
 endif()
 
 # Make sure the OBJECT libraries are built with position independent code
