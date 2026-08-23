@@ -6215,6 +6215,8 @@ const uint8_t kSharpnessScore[] = {  // 114k
    7,  8,  9,  9,  4,  6,  6,  5,  5,  5,  6,  4,  4,  6,  3,  2,  2,  3,  2,
    5,  7,  6,  3,  2,  2,  4,  6,  8,  7,  4,  3,  2,  5,  7,  8,  8,  5,  3,
    0,
+  // pad: AVX2 gather reads dwords, needs 3 bytes past the last index
+   0,  0,  0,
 };
 
 }   // namespace sjpeg

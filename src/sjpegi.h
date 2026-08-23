@@ -51,6 +51,11 @@
 #define SJPEG_USE_AVX2
 #endif
 
+// Experimental: gather-based AVX2 riskiness scoring (src/riskiness_avx2.cc).
+// Off by default -- gather throughput is poor on first-gen AVX2 hardware
+// (Haswell/Broadwell), needs real measurement before it's on by default.
+// #define SJPEG_USE_AVX2_RISKINESS
+
 #if defined(__ARM_NEON__) || defined(__aarch64__)
 #define SJPEG_USE_NEON
 #endif
