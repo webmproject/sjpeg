@@ -43,7 +43,8 @@ const uint8_t kZigzag[64] = {
 // Inverse of kZigzag: maps a natural coefficient index to its zig-zag scan
 // position (kInvZigzag[kZigzag[i]] == i). Used by the SIMD run-length emitters
 // to turn a natural-order non-zero bitmask into a zig-zag-ordered one.
-static const uint8_t kInvZigzag[64] = {
+// Not static: quantize_avx2.cc (a separate TU) needs it too.
+const uint8_t kInvZigzag[64] = {
   0,   1,  5,  6, 14, 15, 27, 28,
   2,   4,  7, 13, 16, 26, 29, 42,
   3,   8, 12, 17, 25, 30, 41, 43,
@@ -456,7 +457,18 @@ int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
   return dc;
 }
 
+#if defined(SJPEG_HAVE_AVX2)
+// defined in quantize_avx2.cc, built separately with -mavx2 (see Makefile)
+// so this file itself doesn't need an AVX2 target.
+extern int QuantizeBlockAVX2(const int16_t in[64], int idx,
+                             const Quantizer* const Q, DCTCoeffs* const out,
+                             RunLevel* const rl);
+#endif
+
 Encoder::QuantizeBlockFunc Encoder::GetQuantizeBlockFunc() {
+#if defined(SJPEG_HAVE_AVX2)
+  if (SupportsAVX2()) return QuantizeBlockAVX2;
+#endif
 #if defined(SJPEG_USE_SSE2)
   if (SupportsSSE2()) return QuantizeBlockSSE2;
 #elif defined(SJPEG_USE_NEON)

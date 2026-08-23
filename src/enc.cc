@@ -173,6 +173,23 @@ bool SupportsNEON() {
   return false;
 }
 
+// unlike SSE2/NEON above, AVX2 support is a real runtime question even on a
+// binary built with AVX2 code paths compiled in (SJPEG_HAVE_AVX2): plenty of
+// deployed x86-64 CPUs predate Haswell. __builtin_cpu_supports() is itself
+// x86-only, so guard on the target too -- HAVE_AVX2=1 is meant for x86
+// builds, but nothing stops it being set by mistake (or by a generic CI
+// matrix) on another architecture, and this should degrade to "false"
+// there, not fail to compile.
+bool SupportsAVX2() {
+  if (ForceSlowCImplementation) return false;
+#if defined(SJPEG_HAVE_AVX2) && (defined(__i386__) || defined(__x86_64__))
+  __builtin_cpu_init();
+  return __builtin_cpu_supports("avx2") != 0;
+#else
+  return false;
+#endif
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // static pointers to architecture-dependant implementation
 
