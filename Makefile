@@ -96,6 +96,7 @@ SJPEG_OBJS = \
 ifeq ($(HAVE_AVX2), 1)
 SJPEG_OBJS += src/histogram_avx2.o
 SJPEG_OBJS += src/quantize_avx2.o
+SJPEG_OBJS += src/riskiness_avx2.o
 endif
 
 UTILS_OBJS = \
@@ -221,6 +222,7 @@ DIST_FILES= \
          src/jpeg_tools.cc  \
          src/quantize.cc  \
          src/quantize_avx2.cc  \
+         src/riskiness_avx2.cc  \
          src/md5sum.h \
          src/score_7.cc  \
          src/sjpeg.h  \

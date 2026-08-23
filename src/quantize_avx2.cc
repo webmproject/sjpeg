@@ -38,8 +38,8 @@
 
 #if defined(SJPEG_USE_AVX2)
 
-// uses BMI2 pext to compact the non-zero mask (2 ops vs 5). off by default:
-// pext is microcoded and slower on AMD Zen1/Zen+. needs -mbmi2 if enabled.
+// Uses BMI2 pext to compact the non-zero mask (2 ops vs 5). Off by default:
+// pext is microcoded and slower on AMD Zen1/Zen+. Needs -mbmi2 if enabled.
 // #define SJPEG_USE_PEXT
 
 namespace sjpeg {
