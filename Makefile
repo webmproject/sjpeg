@@ -183,7 +183,7 @@ DIST_FILES= \
          INSTALL  \
          Makefile \
          NEWS  \
-         README  \
+         README.md  \
          CMakeLists.txt \
          cmake/android.cmake \
          cmake/cpu.cmake \
