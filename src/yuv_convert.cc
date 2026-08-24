@@ -674,10 +674,8 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
                       (int)(3 * uv_w));
     }
     // test exit condition
-    if (iter > 0) {
-      if (diff_y_sum < diff_y_threshold) break;
-      if (diff_y_sum > prev_diff_y_sum) break;
-    }
+    if (diff_y_sum < diff_y_threshold) break;
+    if (iter > 0 && diff_y_sum > prev_diff_y_sum) break;
     prev_diff_y_sum = diff_y_sum;
   }
   // final reconstruction
