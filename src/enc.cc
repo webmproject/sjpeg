@@ -124,7 +124,7 @@ void Encoder::SetCompressionMethod(int method) {
   optimize_size_ = (method != 0) && (method != 3);
   use_extra_memory_ = (method == 3) || (method == 4) || (method == 7);
   reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5)
-                   || (method >= 7);
+                   || (method == 7);
   use_trellis_ = (method >= 7);
 }
 
@@ -391,6 +391,11 @@ void Encoder::SinglePassScanOptimized() {
 bool Encoder::Encode() {
   if (!ok_) return false;
 
+  // validate some input parameters
+  if (W_ <= 0 || H_ <= 0 || W_ > kMaxDimension || H_ > kMaxDimension) {
+    return SetError();
+  }
+
   FinalizeQuantMatrix(&quants_[0], q_bias_);
   FinalizeQuantMatrix(&quants_[1], q_bias_);
   SetCostCodes(0);
@@ -402,10 +407,6 @@ bool Encoder::Encode() {
   InitComponents();
   assert(nb_comps_ <= MAX_COMP);
   assert(mcu_blocks_ <= 6);
-  // validate some input parameters
-  if (W_ <= 0 || H_ <= 0 || W_ > kMaxDimension || H_ > kMaxDimension) {
-    return SetError();
-  }
 
   mb_w_ = (W_ + (block_w_ - 1)) / block_w_;
   mb_h_ = (H_ + (block_h_ - 1)) / block_h_;
@@ -423,28 +424,32 @@ bool Encoder::Encode() {
   if (passes_ > 1) {
     LoopScan();
   } else {
-    if (use_adaptive_quant_) {
-      // Histogram analysis + derive optimal quant matrices
-      CollectHistograms();
-      AnalyseHisto();
-    }
-
-    WriteDQT();
-    WriteSOF();
-
-    if (optimize_size_) {
-      SinglePassScanOptimized();
-    } else {
-      WriteDHT();
-      WriteSOS();
-      SinglePassScan();
-    }
+    SinglePassEncode();
   }
   WriteEOI();
   ok_ = ok_ && bw_.Finalize();
 
   DeallocateBlocks();
   return ok_;
+}
+
+void Encoder::SinglePassEncode() {
+  if (use_adaptive_quant_) {
+    // Histogram analysis + derive optimal quant matrices
+    CollectHistograms();
+    AnalyseHisto();
+  }
+
+  WriteDQT();
+  WriteSOF();
+
+  if (optimize_size_) {
+    SinglePassScanOptimized();
+  } else {
+    WriteDHT();
+    WriteSOS();
+    SinglePassScan();
+  }
 }
 
 }    // namespace sjpeg

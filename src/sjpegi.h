@@ -375,6 +375,8 @@ struct Encoder {
   void SinglePassScan();           // finalizing scan
   void SinglePassScanOptimized();  // optimize the Huffman table + finalize scan
 
+  void SinglePassEncode();         // non-iterating encoding pass
+
   // quantize and compute run/levels from already stored coeffs
   void StoreRunLevels(DCTCoeffs* coeffs);
   // just write already stored run_levels & coeffs:
@@ -489,9 +491,6 @@ struct Encoder {
   bool have_coeffs_;          // true if the Fourier coefficients are stored
   bool AllocateBlocks(size_t num_blocks);  // returns false in case of error
   void DeallocateBlocks();
-
-  // these are for regular compression methods 0 or 2.
-  RunLevel base_run_levels_[64];
 
   // this is the extra memory for compression method 1
   RunLevel* all_run_levels_;
