@@ -35,6 +35,8 @@ enum { FRAC = 16, HALF = 1 << FRAC >> 1,
 
 // Load eight 16b-words from *src.
 #define LOAD_16(src) _mm_loadu_si128(reinterpret_cast<const __m128i*>(src))
+#define LOAD_ALIGNED_16(src) \
+  _mm_load_si128(reinterpret_cast<const __m128i*>(src))
 // Store eight 16b-words into *dst
 #define STORE_16(V, dst) _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), (V))
 
@@ -246,6 +248,18 @@ static inline void BGRA32PackedToPlanar(const uint8_t* const bgra,
   const __m128i zero = _mm_setzero_si128();
   const __m128i in0 = LOAD_16(bgra + 0);   // B0 G0 R0 A0 ... B3 G3 R3 A3
   const __m128i in1 = LOAD_16(bgra + 16);  // B4 G4 R4 A4 ... B7 G7 R7 A7
+#if defined(SJPEG_USE_SSSE3)
+  alignas(16) static const int8_t kShuf[16] = {0, 4, 8,  12, 1, 5, 9,  13,
+                                               2, 6, 10, 14, 3, 7, 11, 15};
+  const __m128i mask = LOAD_ALIGNED_16(kShuf);
+  const __m128i p0 = _mm_shuffle_epi8(in0, mask);
+  const __m128i p1 = _mm_shuffle_epi8(in1, mask);
+  const __m128i bg0 = _mm_unpacklo_epi32(p0, p1);
+  const __m128i ra0 = _mm_unpackhi_epi32(p0, p1);
+  *b = _mm_unpacklo_epi8(bg0, zero);
+  *g = _mm_unpackhi_epi8(bg0, zero);
+  *r = _mm_unpacklo_epi8(ra0, zero);
+#else
   const __m128i t0 = _mm_unpacklo_epi8(in0, in1);
   const __m128i t1 = _mm_unpackhi_epi8(in0, in1);
   const __m128i t2 = _mm_unpacklo_epi8(t0, t1);
@@ -255,6 +269,7 @@ static inline void BGRA32PackedToPlanar(const uint8_t* const bgra,
   *b = _mm_unpacklo_epi8(t4, zero);
   *g = _mm_unpackhi_epi8(t4, zero);
   *r = _mm_unpacklo_epi8(t5, zero);
+#endif
 }
 
 // Convert 8 packed RGBA samples to r[], g[], b[] (alpha dropped).
@@ -266,6 +281,18 @@ static inline void RGBA32PackedToPlanar(const uint8_t* const rgba,
   const __m128i zero = _mm_setzero_si128();
   const __m128i in0 = LOAD_16(rgba + 0);   // R0 G0 B0 A0 ... R3 G3 B3 A3
   const __m128i in1 = LOAD_16(rgba + 16);  // R4 G4 B4 A4 ... R7 G7 B7 A7
+#if defined(SJPEG_USE_SSSE3)
+  alignas(16) static const int8_t kShuf[16] = {0, 4, 8,  12, 1, 5, 9,  13,
+                                               2, 6, 10, 14, 3, 7, 11, 15};
+  const __m128i mask = LOAD_ALIGNED_16(kShuf);
+  const __m128i p0 = _mm_shuffle_epi8(in0, mask);
+  const __m128i p1 = _mm_shuffle_epi8(in1, mask);
+  const __m128i rg0 = _mm_unpacklo_epi32(p0, p1);
+  const __m128i ba0 = _mm_unpackhi_epi32(p0, p1);
+  *r = _mm_unpacklo_epi8(rg0, zero);
+  *g = _mm_unpackhi_epi8(rg0, zero);
+  *b = _mm_unpacklo_epi8(ba0, zero);
+#else
   const __m128i t0 = _mm_unpacklo_epi8(in0, in1);
   const __m128i t1 = _mm_unpackhi_epi8(in0, in1);
   const __m128i t2 = _mm_unpacklo_epi8(t0, t1);
@@ -275,6 +302,7 @@ static inline void RGBA32PackedToPlanar(const uint8_t* const rgba,
   *r = _mm_unpacklo_epi8(t4, zero);
   *g = _mm_unpackhi_epi8(t4, zero);
   *b = _mm_unpacklo_epi8(t5, zero);
+#endif
 }
 
 // Typedef for packed-to-planar 8-sample unpack function
@@ -376,6 +404,7 @@ static void Get16x16Block_RGBA_SSE2(const uint8_t* data, int step,
 }
 
 #undef LOAD_16
+#undef LOAD_ALIGNED_16
 #undef STORE_16
 
 #endif    // SJPEG_USE_SSE2
@@ -1007,6 +1036,52 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
   const __m128i mult1 = _mm_set1_epi16(sjpeg::kRGBSize);
   const __m128i mult2 = _mm_set1_epi16(sjpeg::kRGBSize * sjpeg::kRGBSize);
   const __m128i k255 = _mm_set1_epi16(255);
+  while (width >= 16) {
+    __m128i r0, g0, b0, r1, g1, b1;
+    __m128i Y0, U0, V0, Y1, U1, V1;
+    RGB24PackedToPlanar(rgb + 0, &r0, &g0, &b0);
+    RGB24PackedToPlanar(rgb + 24, &r1, &g1, &b1);
+    ConvertRGBToY(&r0, &g0, &b0, 0, &Y0);
+    ConvertRGBToY(&r1, &g1, &b1, 0, &Y1);
+    ConvertRGBToUV(&r0, &g0, &b0, 128, &U0, &V0);
+    ConvertRGBToUV(&r1, &g1, &b1, 128, &U1, &V1);
+
+    // clamping to [0, 255]
+    const __m128i y1_0 = _mm_min_epi16(_mm_max_epi16(Y0, zero), k255);
+    const __m128i u1_0 = _mm_min_epi16(_mm_max_epi16(U0, zero), k255);
+    const __m128i v1_0 = _mm_min_epi16(_mm_max_epi16(V0, zero), k255);
+    // convert to idx and divide by 255:
+    // (v * (kRGBSize - 1) * 0x0101) >> 16 ~= v * (kRGBSize - 1) / 255
+    const __m128i y2_0 = _mm_mulhi_epi16(y1_0, mult);
+    const __m128i u2_0 = _mm_mulhi_epi16(u1_0, mult);
+    const __m128i v2_0 = _mm_mulhi_epi16(v1_0, mult);
+    // store final idx
+    const __m128i u3_0 = _mm_mullo_epi16(u2_0, mult1);
+    const __m128i v3_0 = _mm_mullo_epi16(v2_0, mult2);
+    const __m128i tmp0 = _mm_add_epi16(y2_0, u3_0);
+    const __m128i idx0 = _mm_add_epi16(tmp0, v3_0);
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), idx0);
+
+    // clamping to [0, 255]
+    const __m128i y1_1 = _mm_min_epi16(_mm_max_epi16(Y1, zero), k255);
+    const __m128i u1_1 = _mm_min_epi16(_mm_max_epi16(U1, zero), k255);
+    const __m128i v1_1 = _mm_min_epi16(_mm_max_epi16(V1, zero), k255);
+    // convert to idx and divide by 255:
+    // (v * (kRGBSize - 1) * 0x0101) >> 16 ~= v * (kRGBSize - 1) / 255
+    const __m128i y2_1 = _mm_mulhi_epi16(y1_1, mult);
+    const __m128i u2_1 = _mm_mulhi_epi16(u1_1, mult);
+    const __m128i v2_1 = _mm_mulhi_epi16(v1_1, mult);
+    // store final idx
+    const __m128i u3_1 = _mm_mullo_epi16(u2_1, mult1);
+    const __m128i v3_1 = _mm_mullo_epi16(v2_1, mult2);
+    const __m128i tmp1 = _mm_add_epi16(y2_1, u3_1);
+    const __m128i idx1 = _mm_add_epi16(tmp1, v3_1);
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + 8), idx1);
+
+    rgb += 3 * 16;
+    dst += 16;
+    width -= 16;
+  }
   while (width >= 8) {
     __m128i r, g, b;
     __m128i Y, U, V;
@@ -1132,6 +1207,45 @@ void Convert8To16bClipped(const uint8_t* src, int src_step, int16_t* dst,
 }
 
 void Convert8To16b(const uint8_t* src, int src_step, int16_t* dst) {
+#if defined(SJPEG_USE_SSE2)
+  if (SupportsSSE2()) {
+    // Process two rows of 8 samples per iteration.
+    const __m128i k128 = _mm_set1_epi16(128);
+    for (int y = 0; y < 8; y += 2) {
+      const __m128i in0 =
+          _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src));
+      const __m128i in1 =
+          _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src + src_step));
+      const __m128i in0_16 = _mm_unpacklo_epi8(in0, _mm_setzero_si128());
+      const __m128i in1_16 = _mm_unpacklo_epi8(in1, _mm_setzero_si128());
+      const __m128i out0 = _mm_sub_epi16(in0_16, k128);
+      const __m128i out1 = _mm_sub_epi16(in1_16, k128);
+      _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), out0);
+      _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + 8), out1);
+      src += 2 * src_step;
+      dst += 16;
+    }
+    return;
+  }
+#elif defined(SJPEG_USE_NEON)
+  if (SupportsNEON()) {
+    // Process two rows of 8 samples per iteration.
+    const int16x8_t k128 = vdupq_n_s16(128);
+    for (int y = 0; y < 8; y += 2) {
+      const uint8x8_t in0 = vld1_u8(src);
+      const uint8x8_t in1 = vld1_u8(src + src_step);
+      const int16x8_t out0 =
+          vsubq_s16(vreinterpretq_s16_u16(vmovl_u8(in0)), k128);
+      const int16x8_t out1 =
+          vsubq_s16(vreinterpretq_s16_u16(vmovl_u8(in1)), k128);
+      vst1q_s16(dst + 0, out0);
+      vst1q_s16(dst + 8, out1);
+      src += 2 * src_step;
+      dst += 16;
+    }
+    return;
+  }
+#endif
   for (int y = 0; y < 8; ++y) {
     for (int x = 0; x < 8; ++x) *dst++ = static_cast<int16_t>(src[x]) - 128;
     src += src_step;
