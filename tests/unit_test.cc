@@ -776,7 +776,7 @@ TEST(Progressive) {
     sjpeg::EncoderParam param2(75.f);
     param2.progressive_luma_split = 2;
     param2.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
-    param2.target_value = static_cast<float>(out.size());
+    param2.target_value = (float)out.size();
     param2.passes = 5;
     std::string out2;
     CHECK(EncodeRGB(rgb, kWidth, kHeight, param2, &out2));

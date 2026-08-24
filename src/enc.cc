@@ -143,7 +143,7 @@ void Encoder::SetProgressive(int luma_split, int chroma_split) {
   prog_luma_split_ = luma_split;
   prog_chroma_split_ = chroma_split;
   // use_extra_memory_/reuse_run_levels_ are baseline-only; EncodeProgressive()
-  // has its own storage and needs neither.
+  // has its own storage and doesn't need either of them.
 #else
   (void)luma_split;
   (void)chroma_split;

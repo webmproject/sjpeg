@@ -31,7 +31,7 @@ is 75.
 A small factor produces a smaller file
 with lower quality. Best quality is achieved by using a value of 100.
 If the input source is a JPEG file, the compression factor will be limited
-to never exceed the source's quality unless the \-no_limit option is used.
+to never exceed the source's quality unless the \fB\-no_limit\fP option is used.
 This option is disabled by subsequent use (in parsing order) of the \-r
 option.
 .TP
@@ -50,7 +50,7 @@ If the source is a JPEG file, print the estimated quality and exit.
 Print some information about the input file and exit.
 .TP
 .B \-quiet
-Disable information message (error messages are still printed).
+Disable informational messages (error messages are still printed).
 .TP
 .B \-short
 Only display short information about the output result.
@@ -90,7 +90,7 @@ Shortcut for \fB\-prog 2,8\fP.
 Enable progressive encoding, and set the low/high frequency split point
 for luma to the first value (1..63), and optionally for chroma to the
 second value (defaults to 8 if omitted). Disabled unless this option is
-used; \fB2,8\fP is a well-tested starting point, see \-progressive above.
+used; \fB2,8\fP is a well-tested starting point, see \fB\-progressive\fP above.
 A split point of 63 or more disables the split for that component, while
 leaving the other one progressive. Ineffective when combined with
 multi-pass search (\fB\-pass\fP/\fB\-size\fP/\fB\-psnr\fP): \fB\-prog\fP is
