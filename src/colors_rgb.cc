@@ -187,16 +187,6 @@ static inline void ToYUV_8(const __m128i* const r,
   STORE_16(V, out + 2 * 64);
 }
 
-static void Get8x8Block_SSE2(const uint8_t* data, int step, int16_t* out) {
-  for (int y = 8; y > 0; --y) {
-    __m128i r, g, b;
-    RGB24PackedToPlanar(data, &r, &g, &b);
-    ToYUV_8(&r, &g, &b, out);
-    out += 8;
-    data += step;
-  }
-}
-
 // Convert 8 RGB samples to Y only. out[] points to a 1*64 data block.
 static inline void ToY_8(const __m128i* const r,
                          const __m128i* const g,
@@ -205,16 +195,6 @@ static inline void ToY_8(const __m128i* const r,
   __m128i Y;
   ConvertRGBToY(r, g, b, -128, &Y);
   STORE_16(Y, out);
-}
-
-static void Get8x8Block_Y_SSE2(const uint8_t* data, int step, int16_t* out) {
-  for (int y = 8; y > 0; --y) {
-    __m128i r, g, b;
-    RGB24PackedToPlanar(data, &r, &g, &b);
-    ToY_8(&r, &g, &b, out);
-    out += 8;
-    data += step;
-  }
 }
 
 // Convert 16x16 RGB samples to YUV420
@@ -257,35 +237,6 @@ static void Condense16To8(const __m128i* const acc1, __m128i* const acc2) {
   *acc2 = _mm_packs_epi32(tmp1, tmp2);
 }
 
-// convert two 16x8 RGB blocks into two blocks of luma, and 2 blocks of U/V
-static void Get16x8_SSE2(const uint8_t* src1, int src_stride,
-                         int16_t y[4 * 64], int16_t uv[2 * 64]) {
-  for (int i = 4; i > 0; --i, src1 += 2 * src_stride) {
-    __m128i r_acc1, r_acc2, g_acc1, g_acc2, b_acc1, b_acc2;
-    __m128i r, g, b;
-    const uint8_t* const src2 = src1 + src_stride;
-    RGB24PackedToPlanar(src1 + 0 * 8, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, y + 0 * 64 + 0, &r_acc1, &g_acc1, &b_acc1, false);
-    RGB24PackedToPlanar(src1 + 3 * 8, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, y + 1 * 64 + 0, &r_acc2, &g_acc2, &b_acc2, false);
-    RGB24PackedToPlanar(src2 + 0 * 8, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, y + 0 * 64 + 8, &r_acc1, &g_acc1, &b_acc1, true);
-    RGB24PackedToPlanar(src2 + 3 * 8, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, y + 1 * 64 + 8, &r_acc2, &g_acc2, &b_acc2, true);
-    Condense16To8(&r_acc1, &r_acc2);
-    Condense16To8(&g_acc1, &g_acc2);
-    Condense16To8(&b_acc1, &b_acc2);
-    ToUV_8x8(&r_acc2, &g_acc2, &b_acc2, uv);
-    y += 2 * 8;
-    uv += 8;
-  }
-}
-
-static void Get16x16Block_SSE2(const uint8_t* data, int step, int16_t* blocks) {
-  Get16x8_SSE2(data + 0 * step, step, blocks + 0 * 64, blocks + 4 * 64 + 0 * 8);
-  Get16x8_SSE2(data + 8 * step, step, blocks + 2 * 64, blocks + 4 * 64 + 4 * 8);
-}
-
 // Convert 8 packed BGRA samples to r[], g[], b[] (alpha dropped, R/B swapped).
 // Produces exactly the same r/g/b registers as RGB24PackedToPlanar for the same
 // pixels, so all downstream YUV math is bit-identical.
@@ -304,59 +255,6 @@ static inline void BGRA32PackedToPlanar(const uint8_t* const bgra,
   *b = _mm_unpacklo_epi8(t4, zero);
   *g = _mm_unpackhi_epi8(t4, zero);
   *r = _mm_unpacklo_epi8(t5, zero);
-}
-
-static void Get8x8Block_BGRA_SSE2(const uint8_t* data, int step, int16_t* out) {
-  for (int y = 8; y > 0; --y) {
-    __m128i r, g, b;
-    BGRA32PackedToPlanar(data, &r, &g, &b);
-    ToYUV_8(&r, &g, &b, out);
-    out += 8;
-    data += step;
-  }
-}
-
-static void Get8x8Block_Y_BGRA_SSE2(const uint8_t* data, int step,
-                                    int16_t* out) {
-  for (int y = 8; y > 0; --y) {
-    __m128i r, g, b;
-    BGRA32PackedToPlanar(data, &r, &g, &b);
-    ToY_8(&r, &g, &b, out);
-    out += 8;
-    data += step;
-  }
-}
-
-// 16 pixels wide = 64 bytes; RGB used offset 3*8(=24)=8 px, BGRA uses 4*8(=32).
-static void Get16x8_BGRA_SSE2(const uint8_t* src1, int src_stride,
-                              int16_t y[4 * 64], int16_t uv[2 * 64]) {
-  for (int i = 4; i > 0; --i, src1 += 2 * src_stride) {
-    __m128i r_acc1, r_acc2, g_acc1, g_acc2, b_acc1, b_acc2;
-    __m128i r, g, b;
-    const uint8_t* const src2 = src1 + src_stride;
-    BGRA32PackedToPlanar(src1 + 0, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, y + 0 * 64 + 0, &r_acc1, &g_acc1, &b_acc1, false);
-    BGRA32PackedToPlanar(src1 + 4 * 8, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, y + 1 * 64 + 0, &r_acc2, &g_acc2, &b_acc2, false);
-    BGRA32PackedToPlanar(src2 + 0, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, y + 0 * 64 + 8, &r_acc1, &g_acc1, &b_acc1, true);
-    BGRA32PackedToPlanar(src2 + 4 * 8, &r, &g, &b);
-    ToY_16x16(&r, &g, &b, y + 1 * 64 + 8, &r_acc2, &g_acc2, &b_acc2, true);
-    Condense16To8(&r_acc1, &r_acc2);
-    Condense16To8(&g_acc1, &g_acc2);
-    Condense16To8(&b_acc1, &b_acc2);
-    ToUV_8x8(&r_acc2, &g_acc2, &b_acc2, uv);
-    y += 2 * 8;
-    uv += 8;
-  }
-}
-
-static void Get16x16Block_BGRA_SSE2(const uint8_t* data, int step,
-                                    int16_t* blocks) {
-  Get16x8_BGRA_SSE2(data + 0 * step, step, blocks + 0 * 64,
-                    blocks + 4 * 64 + 0 * 8);
-  Get16x8_BGRA_SSE2(data + 8 * step, step, blocks + 2 * 64,
-                    blocks + 4 * 64 + 4 * 8);
 }
 
 // Convert 8 packed RGBA samples to r[], g[], b[] (alpha dropped).
@@ -379,40 +277,48 @@ static inline void RGBA32PackedToPlanar(const uint8_t* const rgba,
   *b = _mm_unpacklo_epi8(t5, zero);
 }
 
-static void Get8x8Block_RGBA_SSE2(const uint8_t* data, int step, int16_t* out) {
+// Typedef for packed-to-planar 8-sample unpack function
+typedef void (*UnpackFuncSSE2)(const uint8_t*, __m128i*, __m128i*, __m128i*);
+
+template <UnpackFuncSSE2 PackedToPlanar>
+static inline void Get8x8Block_SSE2_Impl(const uint8_t* data, int step,
+                                         int16_t* out) {
   for (int y = 8; y > 0; --y) {
     __m128i r, g, b;
-    RGBA32PackedToPlanar(data, &r, &g, &b);
+    PackedToPlanar(data, &r, &g, &b);
     ToYUV_8(&r, &g, &b, out);
     out += 8;
     data += step;
   }
 }
 
-static void Get8x8Block_Y_RGBA_SSE2(const uint8_t* data, int step,
-                                    int16_t* out) {
+template <UnpackFuncSSE2 PackedToPlanar>
+static inline void Get8x8Block_Y_SSE2_Impl(const uint8_t* data, int step,
+                                           int16_t* out) {
   for (int y = 8; y > 0; --y) {
     __m128i r, g, b;
-    RGBA32PackedToPlanar(data, &r, &g, &b);
+    PackedToPlanar(data, &r, &g, &b);
     ToY_8(&r, &g, &b, out);
     out += 8;
     data += step;
   }
 }
 
-static void Get16x8_RGBA_SSE2(const uint8_t* src1, int src_stride,
+template <int kBytesPerPixel, UnpackFuncSSE2 PackedToPlanar>
+static void Get16x8_SSE2_Impl(const uint8_t* src1, int src_stride,
                               int16_t y[4 * 64], int16_t uv[2 * 64]) {
+  enum { kOffset8 = 8 * kBytesPerPixel };
   for (int i = 4; i > 0; --i, src1 += 2 * src_stride) {
     __m128i r_acc1, r_acc2, g_acc1, g_acc2, b_acc1, b_acc2;
     __m128i r, g, b;
     const uint8_t* const src2 = src1 + src_stride;
-    RGBA32PackedToPlanar(src1 + 0, &r, &g, &b);
+    PackedToPlanar(src1 + 0, &r, &g, &b);
     ToY_16x16(&r, &g, &b, y + 0 * 64 + 0, &r_acc1, &g_acc1, &b_acc1, false);
-    RGBA32PackedToPlanar(src1 + 4 * 8, &r, &g, &b);
+    PackedToPlanar(src1 + kOffset8, &r, &g, &b);
     ToY_16x16(&r, &g, &b, y + 1 * 64 + 0, &r_acc2, &g_acc2, &b_acc2, false);
-    RGBA32PackedToPlanar(src2 + 0, &r, &g, &b);
+    PackedToPlanar(src2 + 0, &r, &g, &b);
     ToY_16x16(&r, &g, &b, y + 0 * 64 + 8, &r_acc1, &g_acc1, &b_acc1, true);
-    RGBA32PackedToPlanar(src2 + 4 * 8, &r, &g, &b);
+    PackedToPlanar(src2 + kOffset8, &r, &g, &b);
     ToY_16x16(&r, &g, &b, y + 1 * 64 + 8, &r_acc2, &g_acc2, &b_acc2, true);
     Condense16To8(&r_acc1, &r_acc2);
     Condense16To8(&g_acc1, &g_acc2);
@@ -423,12 +329,50 @@ static void Get16x8_RGBA_SSE2(const uint8_t* src1, int src_stride,
   }
 }
 
+template <int kBytesPerPixel, UnpackFuncSSE2 PackedToPlanar>
+static inline void Get16x16Block_SSE2_Impl(const uint8_t* data, int step,
+                                           int16_t* blocks) {
+  Get16x8_SSE2_Impl<kBytesPerPixel, PackedToPlanar>(
+      data + 0 * step, step, blocks + 0 * 64, blocks + 4 * 64 + 0 * 8);
+  Get16x8_SSE2_Impl<kBytesPerPixel, PackedToPlanar>(
+      data + 8 * step, step, blocks + 2 * 64, blocks + 4 * 64 + 4 * 8);
+}
+
+// Convert 8x8 and 16x16 RGB samples
+static void Get8x8Block_SSE2(const uint8_t* data, int step, int16_t* out) {
+  Get8x8Block_SSE2_Impl<RGB24PackedToPlanar>(data, step, out);
+}
+static void Get8x8Block_Y_SSE2(const uint8_t* data, int step, int16_t* out) {
+  Get8x8Block_Y_SSE2_Impl<RGB24PackedToPlanar>(data, step, out);
+}
+static void Get16x16Block_SSE2(const uint8_t* data, int step, int16_t* blocks) {
+  Get16x16Block_SSE2_Impl<3, RGB24PackedToPlanar>(data, step, blocks);
+}
+
+// Convert 8x8 and 16x16 BGRA samples
+static void Get8x8Block_BGRA_SSE2(const uint8_t* data, int step, int16_t* out) {
+  Get8x8Block_SSE2_Impl<BGRA32PackedToPlanar>(data, step, out);
+}
+static void Get8x8Block_Y_BGRA_SSE2(const uint8_t* data, int step,
+                                    int16_t* out) {
+  Get8x8Block_Y_SSE2_Impl<BGRA32PackedToPlanar>(data, step, out);
+}
+static void Get16x16Block_BGRA_SSE2(const uint8_t* data, int step,
+                                    int16_t* blocks) {
+  Get16x16Block_SSE2_Impl<4, BGRA32PackedToPlanar>(data, step, blocks);
+}
+
+// Convert 8x8 and 16x16 RGBA samples
+static void Get8x8Block_RGBA_SSE2(const uint8_t* data, int step, int16_t* out) {
+  Get8x8Block_SSE2_Impl<RGBA32PackedToPlanar>(data, step, out);
+}
+static void Get8x8Block_Y_RGBA_SSE2(const uint8_t* data, int step,
+                                    int16_t* out) {
+  Get8x8Block_Y_SSE2_Impl<RGBA32PackedToPlanar>(data, step, out);
+}
 static void Get16x16Block_RGBA_SSE2(const uint8_t* data, int step,
                                     int16_t* blocks) {
-  Get16x8_RGBA_SSE2(data + 0 * step, step, blocks + 0 * 64,
-                    blocks + 4 * 64 + 0 * 8);
-  Get16x8_RGBA_SSE2(data + 8 * step, step, blocks + 2 * 64,
-                    blocks + 4 * 64 + 4 * 8);
+  Get16x16Block_SSE2_Impl<4, RGBA32PackedToPlanar>(data, step, blocks);
 }
 
 #undef LOAD_16
@@ -534,35 +478,12 @@ static void ToYUV_8(const int16x8_t r, const int16x8_t g, const int16x8_t b,
   vst1q_s16(out + 2 * 64, V);
 }
 
-static void Get8x8Block_NEON(const uint8_t* data, int step, int16_t* out) {
-  const int16x4_t kC1 = vld1_s16(kCoeff1);
-  const int16x4_t kC2 = vld1_s16(kCoeff2);
-  for (int y = 8; y > 0; --y) {
-    int16x8_t r, g, b;
-    RGB24PackedToPlanar(data, &r, &g, &b);
-    ToYUV_8(r, g, b, kC1, kC2, out);
-    out += 8;
-    data += step;
-  }
-}
-
 // Convert 8 RGB samples to Y only. out[] points to a 1*64 data block.
 static void ToY_8(const int16x8_t r, const int16x8_t g, const int16x8_t b,
                   const int16x4_t coeffs, int16_t* const out) {
   int16x8_t Y;
   ConvertRGBToY(r, g, b, coeffs, &Y);
   vst1q_s16(out, Y);
-}
-
-static void Get8x8Block_Y_NEON(const uint8_t* data, int step, int16_t* out) {
-  const int16x4_t kC1 = vld1_s16(kCoeff1);
-  for (int y = 8; y > 0; --y) {
-    int16x8_t r, g, b;
-    RGB24PackedToPlanar(data, &r, &g, &b);
-    ToY_8(r, g, b, kC1, out);
-    out += 8;
-    data += step;
-  }
 }
 
 // Convert 16x16 RGB samples to YUV420
@@ -606,38 +527,6 @@ static void Condense16To8(const int16x8_t acc1, int16x8_t* const acc2) {
   *acc2 = vcombine_s16(vqmovn_s32(lo), vqmovn_s32(hi));  // pack-saturate
 }
 
-// convert two 16x8 RGB blocks into two blocks of luma, and 2 blocks of U/V
-static void Get16x8_NEON(const uint8_t* src1, int src_stride,
-                         int16_t y[4 * 64], int16_t uv[2 * 64]) {
-  const int16x4_t kC1 = vld1_s16(kCoeff1);
-  const int16x4_t kC2 = vld1_s16(kCoeff2);
-  for (int i = 4; i > 0; --i, src1 += 2 * src_stride) {
-    int16x8_t r_acc1, r_acc2, g_acc1, g_acc2, b_acc1, b_acc2;
-    int16x8_t r, g, b;
-    const uint8_t* const src2 = src1 + src_stride;
-    RGB24PackedToPlanar(src1 + 0 * 8, &r, &g, &b);
-    ToY_16x16(r, g, b, y + 0 * 64 + 0, &r_acc1, &g_acc1, &b_acc1, kC1, false);
-    RGB24PackedToPlanar(src1 + 3 * 8, &r, &g, &b);
-    ToY_16x16(r, g, b, y + 1 * 64 + 0, &r_acc2, &g_acc2, &b_acc2, kC1, false);
-    RGB24PackedToPlanar(src2 + 0 * 8, &r, &g, &b);
-    ToY_16x16(r, g, b, y + 0 * 64 + 8, &r_acc1, &g_acc1, &b_acc1, kC1, true);
-    RGB24PackedToPlanar(src2 + 3 * 8, &r, &g, &b);
-    ToY_16x16(r, g, b, y + 1 * 64 + 8, &r_acc2, &g_acc2, &b_acc2, kC1, true);
-    Condense16To8(r_acc1, &r_acc2);
-    Condense16To8(g_acc1, &g_acc2);
-    Condense16To8(b_acc1, &b_acc2);
-    ToUV_8x8(r_acc2, g_acc2, b_acc2, kC2, uv);
-    y += 2 * 8;
-    uv += 8;
-  }
-}
-
-static void Get16x16Block_NEON(const uint8_t* data, int step, int16_t* yuv) {
-  int16_t* const uv = yuv + 4 * 64;
-  Get16x8_NEON(data + 0 * step, step, yuv + 0 * 64, uv + 0 * 8);
-  Get16x8_NEON(data + 8 * step, step, yuv + 2 * 64, uv + 4 * 8);
-}
-
 // 8 packed BGRA -> r/g/b (alpha dropped).
 // Produces the same r/g/b as RGB24PackedToPlanar, so YUV math is bit-identical.
 static void BGRA32PackedToPlanar(const uint8_t* const bgra, int16x8_t* const r,
@@ -646,63 +535,6 @@ static void BGRA32PackedToPlanar(const uint8_t* const bgra, int16x8_t* const r,
   *b = vreinterpretq_s16_u16(vmovl_u8(in.val[0]));
   *g = vreinterpretq_s16_u16(vmovl_u8(in.val[1]));
   *r = vreinterpretq_s16_u16(vmovl_u8(in.val[2]));
-}
-
-static void Get8x8Block_BGRA_NEON(const uint8_t* data, int step, int16_t* out) {
-  const int16x4_t kC1 = vld1_s16(kCoeff1);
-  const int16x4_t kC2 = vld1_s16(kCoeff2);
-  for (int y = 8; y > 0; --y) {
-    int16x8_t r, g, b;
-    BGRA32PackedToPlanar(data, &r, &g, &b);
-    ToYUV_8(r, g, b, kC1, kC2, out);
-    out += 8;
-    data += step;
-  }
-}
-
-static void Get8x8Block_Y_BGRA_NEON(const uint8_t* data, int step,
-                                    int16_t* out) {
-  const int16x4_t kC1 = vld1_s16(kCoeff1);
-  for (int y = 8; y > 0; --y) {
-    int16x8_t r, g, b;
-    BGRA32PackedToPlanar(data, &r, &g, &b);
-    ToY_8(r, g, b, kC1, out);
-    out += 8;
-    data += step;
-  }
-}
-
-// convert two 16x8 BGRA blocks into two blocks of luma, and 2 blocks of U/V
-static void Get16x8_BGRA_NEON(const uint8_t* src1, int src_stride,
-                              int16_t y[4 * 64], int16_t uv[2 * 64]) {
-  const int16x4_t kC1 = vld1_s16(kCoeff1);
-  const int16x4_t kC2 = vld1_s16(kCoeff2);
-  for (int i = 4; i > 0; --i, src1 += 2 * src_stride) {
-    int16x8_t r_acc1, r_acc2, g_acc1, g_acc2, b_acc1, b_acc2;
-    int16x8_t r, g, b;
-    const uint8_t* const src2 = src1 + src_stride;
-    BGRA32PackedToPlanar(src1 + 0 * 8, &r, &g, &b);
-    ToY_16x16(r, g, b, y + 0 * 64 + 0, &r_acc1, &g_acc1, &b_acc1, kC1, false);
-    BGRA32PackedToPlanar(src1 + 4 * 8, &r, &g, &b);
-    ToY_16x16(r, g, b, y + 1 * 64 + 0, &r_acc2, &g_acc2, &b_acc2, kC1, false);
-    BGRA32PackedToPlanar(src2 + 0 * 8, &r, &g, &b);
-    ToY_16x16(r, g, b, y + 0 * 64 + 8, &r_acc1, &g_acc1, &b_acc1, kC1, true);
-    BGRA32PackedToPlanar(src2 + 4 * 8, &r, &g, &b);
-    ToY_16x16(r, g, b, y + 1 * 64 + 8, &r_acc2, &g_acc2, &b_acc2, kC1, true);
-    Condense16To8(r_acc1, &r_acc2);
-    Condense16To8(g_acc1, &g_acc2);
-    Condense16To8(b_acc1, &b_acc2);
-    ToUV_8x8(r_acc2, g_acc2, b_acc2, kC2, uv);
-    y += 2 * 8;
-    uv += 8;
-  }
-}
-
-static void Get16x16Block_BGRA_NEON(const uint8_t* data, int step,
-                                    int16_t* yuv) {
-  int16_t* const uv = yuv + 4 * 64;
-  Get16x8_BGRA_NEON(data + 0 * step, step, yuv + 0 * 64, uv + 0 * 8);
-  Get16x8_BGRA_NEON(data + 8 * step, step, yuv + 2 * 64, uv + 4 * 8);
 }
 
 // 8 packed RGBA -> r/g/b (alpha dropped).
@@ -715,45 +547,52 @@ static void RGBA32PackedToPlanar(const uint8_t* const rgba, int16x8_t* const r,
   *b = vreinterpretq_s16_u16(vmovl_u8(in.val[2]));
 }
 
-static void Get8x8Block_RGBA_NEON(const uint8_t* data, int step, int16_t* out) {
+typedef void (*UnpackFuncNEON)(const uint8_t*, int16x8_t*, int16x8_t*, int16x8_t*);
+
+template <UnpackFuncNEON PackedToPlanar>
+static inline void Get8x8Block_NEON_Impl(const uint8_t* data, int step,
+                                         int16_t* out) {
   const int16x4_t kC1 = vld1_s16(kCoeff1);
   const int16x4_t kC2 = vld1_s16(kCoeff2);
   for (int y = 8; y > 0; --y) {
     int16x8_t r, g, b;
-    RGBA32PackedToPlanar(data, &r, &g, &b);
+    PackedToPlanar(data, &r, &g, &b);
     ToYUV_8(r, g, b, kC1, kC2, out);
     out += 8;
     data += step;
   }
 }
 
-static void Get8x8Block_Y_RGBA_NEON(const uint8_t* data, int step,
-                                    int16_t* out) {
+template <UnpackFuncNEON PackedToPlanar>
+static inline void Get8x8Block_Y_NEON_Impl(const uint8_t* data, int step,
+                                           int16_t* out) {
   const int16x4_t kC1 = vld1_s16(kCoeff1);
   for (int y = 8; y > 0; --y) {
     int16x8_t r, g, b;
-    RGBA32PackedToPlanar(data, &r, &g, &b);
+    PackedToPlanar(data, &r, &g, &b);
     ToY_8(r, g, b, kC1, out);
     out += 8;
     data += step;
   }
 }
 
-static void Get16x8_RGBA_NEON(const uint8_t* src1, int src_stride,
+template <int kBytesPerPixel, UnpackFuncNEON PackedToPlanar>
+static void Get16x8_NEON_Impl(const uint8_t* src1, int src_stride,
                               int16_t y[4 * 64], int16_t uv[2 * 64]) {
+  enum { kOffset8 = 8 * kBytesPerPixel };
   const int16x4_t kC1 = vld1_s16(kCoeff1);
   const int16x4_t kC2 = vld1_s16(kCoeff2);
   for (int i = 4; i > 0; --i, src1 += 2 * src_stride) {
     int16x8_t r_acc1, r_acc2, g_acc1, g_acc2, b_acc1, b_acc2;
     int16x8_t r, g, b;
     const uint8_t* const src2 = src1 + src_stride;
-    RGBA32PackedToPlanar(src1 + 0 * 8, &r, &g, &b);
+    PackedToPlanar(src1 + 0, &r, &g, &b);
     ToY_16x16(r, g, b, y + 0 * 64 + 0, &r_acc1, &g_acc1, &b_acc1, kC1, false);
-    RGBA32PackedToPlanar(src1 + 4 * 8, &r, &g, &b);
+    PackedToPlanar(src1 + kOffset8, &r, &g, &b);
     ToY_16x16(r, g, b, y + 1 * 64 + 0, &r_acc2, &g_acc2, &b_acc2, kC1, false);
-    RGBA32PackedToPlanar(src2 + 0 * 8, &r, &g, &b);
+    PackedToPlanar(src2 + 0, &r, &g, &b);
     ToY_16x16(r, g, b, y + 0 * 64 + 8, &r_acc1, &g_acc1, &b_acc1, kC1, true);
-    RGBA32PackedToPlanar(src2 + 4 * 8, &r, &g, &b);
+    PackedToPlanar(src2 + kOffset8, &r, &g, &b);
     ToY_16x16(r, g, b, y + 1 * 64 + 8, &r_acc2, &g_acc2, &b_acc2, kC1, true);
     Condense16To8(r_acc1, &r_acc2);
     Condense16To8(g_acc1, &g_acc2);
@@ -764,11 +603,51 @@ static void Get16x8_RGBA_NEON(const uint8_t* src1, int src_stride,
   }
 }
 
+template <int kBytesPerPixel, UnpackFuncNEON PackedToPlanar>
+static inline void Get16x16Block_NEON_Impl(const uint8_t* data, int step,
+                                           int16_t* yuv) {
+  int16_t* const uv = yuv + 4 * 64;
+  Get16x8_NEON_Impl<kBytesPerPixel, PackedToPlanar>(data + 0 * step, step,
+                                                    yuv + 0 * 64, uv + 0 * 8);
+  Get16x8_NEON_Impl<kBytesPerPixel, PackedToPlanar>(data + 8 * step, step,
+                                                    yuv + 2 * 64, uv + 4 * 8);
+}
+
+// Convert 8x8 and 16x16 RGB samples
+static void Get8x8Block_NEON(const uint8_t* data, int step, int16_t* out) {
+  Get8x8Block_NEON_Impl<RGB24PackedToPlanar>(data, step, out);
+}
+static void Get8x8Block_Y_NEON(const uint8_t* data, int step, int16_t* out) {
+  Get8x8Block_Y_NEON_Impl<RGB24PackedToPlanar>(data, step, out);
+}
+static void Get16x16Block_NEON(const uint8_t* data, int step, int16_t* yuv) {
+  Get16x16Block_NEON_Impl<3, RGB24PackedToPlanar>(data, step, yuv);
+}
+
+// Convert 8x8 and 16x16 BGRA samples
+static void Get8x8Block_BGRA_NEON(const uint8_t* data, int step, int16_t* out) {
+  Get8x8Block_NEON_Impl<BGRA32PackedToPlanar>(data, step, out);
+}
+static void Get8x8Block_Y_BGRA_NEON(const uint8_t* data, int step,
+                                    int16_t* out) {
+  Get8x8Block_Y_NEON_Impl<BGRA32PackedToPlanar>(data, step, out);
+}
+static void Get16x16Block_BGRA_NEON(const uint8_t* data, int step,
+                                    int16_t* yuv) {
+  Get16x16Block_NEON_Impl<4, BGRA32PackedToPlanar>(data, step, yuv);
+}
+
+// Convert 8x8 and 16x16 RGBA samples
+static void Get8x8Block_RGBA_NEON(const uint8_t* data, int step, int16_t* out) {
+  Get8x8Block_NEON_Impl<RGBA32PackedToPlanar>(data, step, out);
+}
+static void Get8x8Block_Y_RGBA_NEON(const uint8_t* data, int step,
+                                    int16_t* out) {
+  Get8x8Block_Y_NEON_Impl<RGBA32PackedToPlanar>(data, step, out);
+}
 static void Get16x16Block_RGBA_NEON(const uint8_t* data, int step,
                                     int16_t* yuv) {
-  int16_t* const uv = yuv + 4 * 64;
-  Get16x8_RGBA_NEON(data + 0 * step, step, yuv + 0 * 64, uv + 0 * 8);
-  Get16x8_RGBA_NEON(data + 8 * step, step, yuv + 2 * 64, uv + 4 * 8);
+  Get16x16Block_NEON_Impl<4, RGBA32PackedToPlanar>(data, step, yuv);
 }
 
 #undef MULT_S32_S16_LARGE
