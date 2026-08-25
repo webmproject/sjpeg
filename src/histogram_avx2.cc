@@ -25,29 +25,40 @@
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
+#include <assert.h>
+
 #if defined(SJPEG_USE_AVX2)
 
 namespace sjpeg {
 
+#define LOAD_32(src) _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src))
+#define STORE_32(V, dst) \
+  _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst), (V))
+
 void StoreHistoAVX2(const int16_t in[64], Histo* const histos,
                     int nb_blocks) {
+  assert(nb_blocks > 0);
   const __m256i kMaxHisto = _mm256_set1_epi16(MAX_HISTO_DCT_COEFF);
-  for (int n = 0; n < nb_blocks; ++n, in += 64) {
+  int n = 0;
+  do {
     uint16_t tmp[64];
     for (int i = 0; i < 64; i += 16) {
-      const __m256i A =
-          _mm256_loadu_si256(reinterpret_cast<const __m256i*>(in + i));
+      const __m256i A = LOAD_32(in + i);
       const __m256i C = _mm256_abs_epi16(A);
       const __m256i D = _mm256_srli_epi16(C, HSHIFT);
       const __m256i E = _mm256_min_epi16(D, kMaxHisto);
-      _mm256_storeu_si256(reinterpret_cast<__m256i*>(tmp + i), E);
+      STORE_32(E, tmp + i);
     }
     for (int j = 0; j < 64; ++j) {
       const int k = tmp[j];
       ++histos->counts_[j][k];
     }
-  }
+    in += 64;
+  } while (++n < nb_blocks);
 }
+
+#undef LOAD_32
+#undef STORE_32
 
 }  // namespace sjpeg
 
