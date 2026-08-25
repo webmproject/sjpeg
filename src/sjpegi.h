@@ -28,10 +28,6 @@
 #include "bit_writer.h"
 // IWYU pragma: end_exports
 
-#ifndef NULL
-#define NULL 0
-#endif
-
 #define SJPEG_STRINGIFY_HELPER(x) #x
 #define SJPEG_STRINGIFY(x) SJPEG_STRINGIFY_HELPER(x)
 
@@ -54,6 +50,15 @@
 #define SJPEG_USE_SSSE3
 #endif
 
+#if defined(__AVX2__)
+#define SJPEG_USE_AVX2
+#endif
+
+// Experimental: gather-based AVX2 riskiness scoring (src/riskiness_avx2.cc).
+// Off by default -- gather throughput is poor on first-gen AVX2 hardware
+// (Haswell/Broadwell), needs real measurement before it's on by default.
+// #define SJPEG_USE_AVX2_RISKINESS
+
 #if defined(__ARM_NEON__) || defined(__aarch64__)
 #define SJPEG_USE_NEON
 #endif
@@ -63,7 +68,9 @@
 #endif
 
 #if defined(SJPEG_NEED_ASM_HEADERS)
-#if defined(SJPEG_USE_SSSE3)
+#if defined(SJPEG_USE_AVX2)
+#include <immintrin.h>
+#elif defined(SJPEG_USE_SSSE3)
 #include <tmmintrin.h>
 #elif defined(SJPEG_USE_SSE2)
 #include <emmintrin.h>
@@ -82,6 +89,7 @@ namespace sjpeg {
 
 extern bool SupportsSSE2();
 extern bool SupportsNEON();
+extern bool SupportsAVX2();
 
 // Constants below are marker codes defined in JPEG spec
 // ISO/IEC 10918-1 : 1993(E) Table B.1
@@ -105,6 +113,7 @@ FdctFunc GetFdct();
 // these are the default luma/chroma matrices (JPEG spec section K.1)
 extern const uint8_t kDefaultMatrices[2][64];
 extern const uint8_t kZigzag[64];
+extern const uint8_t kInvZigzag[64];
 
 // scoring tables in score_7.cc
 extern const int kRGBSize;
@@ -421,6 +430,8 @@ struct Encoder {
   void SinglePassScan();           // finalizing scan
   void SinglePassScanOptimized();  // optimize the Huffman table + finalize scan
 
+  void SinglePassEncode();         // non-iterating encoding pass
+
   // quantize and compute run/levels from already stored coeffs
   void StoreRunLevels(DCTCoeffs* coeffs);
   // just write already stored run_levels & coeffs:
@@ -536,9 +547,6 @@ struct Encoder {
   bool have_coeffs_;          // true if the Fourier coefficients are stored
   bool AllocateBlocks(size_t num_blocks);  // returns false in case of error
   void DeallocateBlocks();
-
-  // these are for regular compression methods 0 or 2.
-  RunLevel base_run_levels_[64];
 
   // this is the extra memory for compression method 1
   RunLevel* all_run_levels_;

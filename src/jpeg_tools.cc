@@ -175,9 +175,24 @@ static const double kThreshGray = 0.995;  // 1.00 = full gray (max)
 static const double kThreshYU420 = 40.0;
 static const double kThreshSharpYU420 = 70.0;
 
+#if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
+namespace sjpeg {
+// defined in riskiness_avx2.cc, built separately with -mavx2 (see Makefile)
+// so this file itself doesn't need an AVX2 target.
+extern int RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
+                                 int size, int noise_level,
+                                 int64_t* const score_sum,
+                                 int64_t* const score_num,
+                                 int64_t* const gray_num);
+}  // namespace sjpeg
+#endif
+
 SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
                             int width, int height, int stride, float* risk) {
   const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
+#if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
+  const bool use_avx2_riskiness = sjpeg::SupportsAVX2();
+#endif
 
   std::vector<uint16_t> row1(width), row2(width);
   // Use faster int64_t accumulation instead of double. A score is at most
@@ -198,8 +213,16 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
     rgb += stride;
     std::swap(row1, row2);
     cvrt_func(rgb, width, &row2[0]);  // this is the row below
+    int i = 0;
+#if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
+    if (use_avx2_riskiness) {
+      i = sjpeg::RiskinessScoreRowAVX2(&row1[0], &row2[0], width - 1,
+                                       kNoiseLevel, &score_sum, &score_num,
+                                       &gray_num);
+    }
+#endif
     SJPEG_UNROLL(4)
-    for (int i = 0; i < width - 1; ++i) {
+    for (; i < width - 1; ++i) {
       const int idx0 = row1[i + 0];
       const int idx1 = row1[i + 1];
       const int idx2 = row2[i + 0];

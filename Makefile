@@ -56,6 +56,17 @@ EXTRA_FLAGS += -Wformat-security -Wformat-nonliteral
 # EXTRA_FLAGS += -march=armv7-a -mfloat-abi=hard -mfpu=neon -mtune=cortex-a8
 # -> seems to make the overall lib slower: -fno-split-wide-types
 
+# AVX2 support: opt-in, off by default. When on, the AVX2-specific files
+# (src/*_avx2.cc) are built with -mavx2 while the rest of the library stays
+# at its normal baseline -- AVX2 support is picked at runtime (SupportsAVX2()
+# in enc.cc), so the resulting binary still runs on non-AVX2 CPUs.
+# 'make HAVE_AVX2=1' to enable.
+HAVE_AVX2 ?= 0
+ifeq ($(HAVE_AVX2), 1)
+EXTRA_FLAGS += -DSJPEG_HAVE_AVX2
+src/%_avx2.o: EXTRA_FLAGS += -mavx2
+endif
+
 #### Nothing should normally be changed below this line ####
 
 AR = ar
@@ -90,6 +101,12 @@ SJPEG_OBJS = \
 
 ifeq ($(SJPEG_HAVE_PROGRESSIVE), 1)
   SJPEG_OBJS += src/prog.o
+endif
+
+ifeq ($(HAVE_AVX2), 1)
+SJPEG_OBJS += src/histogram_avx2.o
+SJPEG_OBJS += src/quantize_avx2.o
+SJPEG_OBJS += src/riskiness_avx2.o
 endif
 
 UTILS_OBJS = \
@@ -193,7 +210,7 @@ DIST_FILES= \
          INSTALL  \
          Makefile \
          NEWS  \
-         README  \
+         README.md  \
          CMakeLists.txt \
          cmake/android.cmake \
          cmake/cpu.cmake \
@@ -211,9 +228,12 @@ DIST_FILES= \
          src/fdct.cc  \
          src/headers.cc \
          src/histogram.cc  \
+         src/histogram_avx2.cc  \
          src/jpeg_tools.cc  \
          src/prog.cc  \
          src/quantize.cc  \
+         src/quantize_avx2.cc  \
+         src/riskiness_avx2.cc  \
          src/md5sum.h \
          src/score_7.cc  \
          src/sjpeg.h  \

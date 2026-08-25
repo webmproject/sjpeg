@@ -25,7 +25,7 @@ defined in src/sjpeg.h
 
 ```
 size_t SjpegCompress(const uint8_t* rgb, int width, int height,
-                     int quality, uint8_t** out_data);
+                     float quality, uint8_t** out_data);
 ```
 
 This function will make a lot of automatic decisions based on input samples.
@@ -36,8 +36,8 @@ There is a more fine-tuned variant available too:
 size_t SjpegEncode(const uint8_t* const data,
                    int W, int H, int stride,
                    uint8_t** const out_data,
-                   int quality, int compression_method,
-                   int yuv_mode);
+                   float quality, int compression_method,
+                   SjpegYUVMode yuv_mode);
 ```
 
 as well as functions with a C++ string-based API.
@@ -49,17 +49,19 @@ too, that uses `std::string` as interface.
 `SjpegEncode()` and `SjpegCompress()`.
 
 Also included in the library: some helper functions to inspect JPEG bitstream.
-They are meant to help re-processing a JPEG source: `SjpegDimensions()`: quickly
-get the JPEG picture dimensions. `SjpegFindQuantizer()`: return the quantization
-matrices `SjpegEstimateQuality()`: return an estimate of the encoding quality
+They are meant to help re-processing a JPEG source:
+
+*   `SjpegDimensions()`: quickly get the JPEG picture dimensions.
+*   `SjpegFindQuantizer()`: return the quantization matrices
+*   `SjpegEstimateQuality()`: return an estimate of the encoding quality
 
 ## SjpegEncodeParam interface:
 
-This should be the most fine-tuned use of the library: SjpegEncodeParam gives
+This should be the most fine-tuned use of the library: `SjpegEncodeParam` gives
 access to a lot of fine controls (C++ only). See `src/sjpeg.h` for details.
 
-In particular, using SjpegEncodeParam is the recommended way of re-compressing a
-JPEG input. Here is the recipe:
+In particular, using `SjpegEncodeParam` is the recommended way of re-compressing
+a JPEG input. Here is the recipe:
 
 *   use `SjpegFindQuantizer` to extract the quantization matrices from the
     source
@@ -68,7 +70,7 @@ JPEG input. Here is the recipe:
 *   call `sjpeg::SjpegEncode()` with this parameter
 
 Alternately, one can use `SjpegEstimateQuality()` and
-`SjpegEncodeParam::SetQuality()` to pass a quality factor instead of the
+`SjpegEncodeParam::SetQuality()` to pass a quality factor instead of using the
 matrices.
 
 `SjpegEncodeParam` is also useful for transferring some metadata to the final
@@ -89,9 +91,10 @@ which returns a recommendation for 'yuv_mode' to use in the above API.
 
 `examples/sjpeg` is a very simple tool to compress a PNG/JPEG file to JPEG.
 
-`sjpeg in.png -o out.jpg -q 70 # compress the PNG source with quality 70`
-
-`sjpeg in.jpg -o out.jpg -r 90 # recompress JPEG input to ~90%`
+```
+sjpeg in.png -o out.jpg -q 70 # compress the PNG source with quality 70
+sjpeg in.jpg -o out.jpg -r 90 # recompress JPEG input to ~90%
+```
 
 sjpeg has various options to change the encoding method. Just try `sjpeg -h`.
 

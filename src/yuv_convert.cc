@@ -596,9 +596,15 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
 
   // Single memory chunk allocation to avoid allocator lock contention and heap
   // fragmentation
-  const size_t total_elems = (w * 3 * 2) + (w * h) + (w * h) + (w * 2) +
-                             (uv_w * 3 * uv_h) + (uv_w * 3 * uv_h) +
-                             (uv_w * 3 * 1);
+  // 64-bit intermediate: size_t is only 32-bit on a 32-bit build, and this sum
+  // can overflow it well before reaching kMaxDimension (0xffff) on each side.
+  const uint64_t total_elems64 = ((uint64_t)w * 3 * 2) + ((uint64_t)w * h) +
+                                 ((uint64_t)w * h) + ((uint64_t)w * 2) +
+                                 ((uint64_t)uv_w * 3 * uv_h) +
+                                 ((uint64_t)uv_w * 3 * uv_h) +
+                                 ((uint64_t)uv_w * 3 * 1);
+  if (total_elems64 > SIZE_MAX / sizeof(uint16_t)) return false;
+  const size_t total_elems = (size_t)total_elems64;
   std::unique_ptr<uint16_t[]> arena(new (std::nothrow) uint16_t[total_elems]);
   if (arena == nullptr) return false;
 
@@ -674,10 +680,8 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
                       (int)(3 * uv_w));
     }
     // test exit condition
-    if (iter > 0) {
-      if (diff_y_sum < diff_y_threshold) break;
-      if (diff_y_sum > prev_diff_y_sum) break;
-    }
+    if (diff_y_sum < diff_y_threshold) break;
+    if (iter > 0 && diff_y_sum > prev_diff_y_sum) break;
     prev_diff_y_sum = diff_y_sum;
   }
   // final reconstruction

@@ -130,7 +130,7 @@ void Encoder::SetCompressionMethod(int method) {
   optimize_size_ = (method != 0) && (method != 3);
   use_extra_memory_ = (method == 3) || (method == 4) || (method == 7);
   reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5)
-                   || (method >= 7);
+                   || (method == 7);
   use_trellis_ = (method >= 7);
 }
 
@@ -194,6 +194,23 @@ bool SupportsNEON() {
   return true;
 #endif
   return false;
+}
+
+// unlike SSE2/NEON above, AVX2 support is a real runtime question even on a
+// binary built with AVX2 code paths compiled in (SJPEG_HAVE_AVX2): plenty of
+// deployed x86-64 CPUs predate Haswell. __builtin_cpu_supports() is itself
+// x86-only, so guard on the target too -- HAVE_AVX2=1 is meant for x86
+// builds, but nothing stops it being set by mistake (or by a generic CI
+// matrix) on another architecture, and this should degrade to "false"
+// there, not fail to compile.
+bool SupportsAVX2() {
+  if (ForceSlowCImplementation) return false;
+#if defined(SJPEG_HAVE_AVX2) && (defined(__i386__) || defined(__x86_64__))
+  __builtin_cpu_init();
+  return __builtin_cpu_supports("avx2") != 0;
+#else
+  return false;
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -412,6 +429,11 @@ void Encoder::SinglePassScanOptimized() {
 bool Encoder::Encode() {
   if (!ok_) return false;
 
+  // validate some input parameters
+  if (W_ <= 0 || H_ <= 0 || W_ > kMaxDimension || H_ > kMaxDimension) {
+    return SetError();
+  }
+
   FinalizeQuantMatrix(&quants_[0], q_bias_);
   FinalizeQuantMatrix(&quants_[1], q_bias_);
   SetCostCodes(0);
@@ -423,10 +445,6 @@ bool Encoder::Encode() {
   InitComponents();
   assert(nb_comps_ <= MAX_COMP);
   assert(mcu_blocks_ <= 6);
-  // validate some input parameters
-  if (W_ <= 0 || H_ <= 0 || W_ > kMaxDimension || H_ > kMaxDimension) {
-    return SetError();
-  }
 
   mb_w_ = (W_ + (block_w_ - 1)) / block_w_;
   mb_h_ = (H_ + (block_h_ - 1)) / block_h_;
@@ -448,37 +466,41 @@ bool Encoder::Encode() {
     // target-size/PSNR search; -prog is silently ignored in that case.
     LoopScan();
   } else {
-    if (use_adaptive_quant_) {
-      // Histogram analysis + derive optimal quant matrices
-      CollectHistograms();
-      AnalyseHisto();
-    }
-
-    WriteDQT();
-
-#if !defined(SJPEG_NO_PROGRESSIVE)
-    if (progressive_) {
-      WriteSOF(/*progressive=*/true);
-      EncodeProgressive();
-    } else
-#endif
-    {
-      WriteSOF();
-
-      if (optimize_size_) {
-        SinglePassScanOptimized();
-      } else {
-        WriteDHT();
-        WriteSOS();
-        SinglePassScan();
-      }
-    }
+    SinglePassEncode();
   }
   WriteEOI();
   ok_ = ok_ && bw_.Finalize();
 
   DeallocateBlocks();
   return ok_;
+}
+
+void Encoder::SinglePassEncode() {
+  if (use_adaptive_quant_) {
+    // Histogram analysis + derive optimal quant matrices
+    CollectHistograms();
+    AnalyseHisto();
+  }
+
+  WriteDQT();
+
+#if !defined(SJPEG_NO_PROGRESSIVE)
+  if (progressive_) {
+    WriteSOF(/*progressive=*/true);
+    EncodeProgressive();
+    return;
+  }
+#endif
+
+  WriteSOF();
+
+  if (optimize_size_) {
+    SinglePassScanOptimized();
+  } else {
+    WriteDHT();
+    WriteSOS();
+    SinglePassScan();
+  }
 }
 
 }    // namespace sjpeg

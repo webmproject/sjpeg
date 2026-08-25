@@ -109,7 +109,7 @@ void EncoderParam::SetQuality(float quality_factor) {
 }
 
 void EncoderParam::SetQuantization(const uint8_t m[2][64],
-                                       float reduction) {
+                                   float reduction) {
   if (reduction <= 1.f) reduction = 1.f;
   if (m == nullptr) return;
   for (int c = 0; c < 2; ++c) {
@@ -121,13 +121,13 @@ void EncoderParam::SetQuantization(const uint8_t m[2][64],
 }
 
 void EncoderParam::SetLimitQuantization(bool limit_quantization,
-                                            int min_quant_tolerance) {
+                                        int min_quant_tolerance) {
   use_min_quant_ = limit_quantization;
   if (limit_quantization) SetMinQuantization(quant_, min_quant_tolerance);
 }
 
 void EncoderParam::SetMinQuantization(const uint8_t m[2][64],
-                                          int min_quant_tolerance) {
+                                      int min_quant_tolerance) {
   use_min_quant_ = true;
   CopyQuantMatrix(m[0], min_quant_[0]);
   CopyQuantMatrix(m[1], min_quant_[1]);
