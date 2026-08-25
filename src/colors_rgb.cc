@@ -1230,14 +1230,12 @@ void Convert8To16b(const uint8_t* src, int src_step, int16_t* dst) {
 #elif defined(SJPEG_USE_NEON)
   if (SupportsNEON()) {
     // Process two rows of 8 samples per iteration.
-    const int16x8_t k128 = vdupq_n_s16(128);
+    const uint8x8_t k128 = vdup_n_u8(128);
     for (int y = 0; y < 8; y += 2) {
       const uint8x8_t in0 = vld1_u8(src);
       const uint8x8_t in1 = vld1_u8(src + src_step);
-      const int16x8_t out0 =
-          vsubq_s16(vreinterpretq_s16_u16(vmovl_u8(in0)), k128);
-      const int16x8_t out1 =
-          vsubq_s16(vreinterpretq_s16_u16(vmovl_u8(in1)), k128);
+      const int16x8_t out0 = vreinterpretq_s16_u16(vsubl_u8(in0, k128));
+      const int16x8_t out1 = vreinterpretq_s16_u16(vsubl_u8(in1, k128));
       vst1q_s16(dst + 0, out0);
       vst1q_s16(dst + 8, out1);
       src += 2 * src_step;
