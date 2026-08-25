@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#define SJPEG_VERSION 0x000101   // 0.1.1
+#define SJPEG_VERSION 0x000102   // 0.1.2
 
 #if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
@@ -236,6 +236,12 @@ struct EncoderParam {
   int qdelta_max_chroma;    // [0..12] How much to hurt chroma in adaptive quant
                             // A higher value might be useful for images
                             // encoded without chroma subsampling.
+
+  // Progressive JPEG encoding. *_split (1..63) is the low/high frequency
+  // split point for luma/chroma; luma_split==64 (default) turns it off.
+  // 2/8 is a good starting point (see '-progressive' in the sjpeg CLI).
+  int progressive_luma_split;
+  int progressive_chroma_split;
 
   // if null, a default implementation will be used
   sjpeg::SearchHook* search_hook;

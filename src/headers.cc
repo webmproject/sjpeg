@@ -199,11 +199,11 @@ void Encoder::WriteDQT() {
 
 #define DATA_16b(X) ((uint8_t)((X) >> 8)), ((uint8_t)((X) & 0xff))
 
-void Encoder::WriteSOF() {   // SOF
+void Encoder::WriteSOF(bool progressive) {   // SOF
   const size_t data_size = 3 * nb_comps_ + 8;
   assert(data_size <= 255);
   const uint8_t kHeader[] = {
-    0xff, 0xc0, DATA_16b(data_size),         // SOF0 marker, size
+    0xff, (uint8_t)(progressive ? 0xc2 : 0xc0), DATA_16b(data_size),  // SOF
     0x08,                                    // 8bits/components
     DATA_16b(H_), DATA_16b(W_),              // height, width
     (uint8_t)nb_comps_                       // number of components
@@ -223,16 +223,7 @@ void Encoder::WriteDHT() {
   const int nb_tables = (nb_comps_ == 1 ? 1 : 2);
   for (int c = 0; c < nb_tables; ++c) {   // luma, chroma
     for (int type = 0; type <= 1; ++type) {               // dc, ac
-      const HuffmanTable* const h = Huffman_tables_[type * 2 + c];
-      const size_t data_size = 3 + 16 + h->nb_syms_;
-      assert(data_size <= 255);
-      ok_ = ok_ && bw_.Reserve(data_size + 2);
-      if (!ok_) return;
-      Put16b(0xffc4);
-      Put16b(data_size);
-      bw_.PutByte((type << 4) | c);
-      bw_.PutBytes(h->bits_, 16);
-      bw_.PutBytes(h->syms_, h->nb_syms_);
+      WriteOneDHT(type, c, Huffman_tables_[type * 2 + c]);
     }
   }
 }
@@ -240,21 +231,46 @@ void Encoder::WriteDHT() {
 ////////////////////////////////////////////////////////////////////////////////
 
 void Encoder::WriteSOS() {   // SOS
-  const size_t data_size = 3 + nb_comps_ * 2 + 3;
+  ScanComponent comps[MAX_COMP];
+  for (int c = 0; c < nb_comps_; ++c) {
+    comps[c] = {c, quant_idx_[c], quant_idx_[c]};
+  }
+  WriteProgSOS(comps, nb_comps_, /*Ss=*/0, /*Se=*/0x3f);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// General DHT/SOS writers; WriteDHT()/WriteSOS() above call these too.
+
+void Encoder::WriteOneDHT(int table_class, int table_id,
+                          const HuffmanTable* table) {
+  const size_t data_size = 3 + 16 + table->nb_syms_;
+  assert(data_size <= 255);
+  ok_ = ok_ && bw_.Reserve(data_size + 2);
+  if (!ok_) return;
+  Put16b(0xffc4);
+  Put16b(data_size);
+  bw_.PutByte((table_class << 4) | table_id);
+  bw_.PutBytes(table->bits_, 16);
+  bw_.PutBytes(table->syms_, table->nb_syms_);
+}
+
+void Encoder::WriteProgSOS(const ScanComponent* comps, int nb_comps,
+                           int Ss, int Se) {
+  const size_t data_size = 3 + nb_comps * 2 + 3;
   assert(data_size <= 255);
   const uint8_t kHeader[] = {
-      0xff, 0xda, DATA_16b(data_size), (uint8_t)nb_comps_
+      0xff, 0xda, DATA_16b(data_size), (uint8_t)nb_comps
   };
   ok_ = ok_ && bw_.Reserve(data_size + 2);
   if (!ok_) return;
   bw_.PutBytes(kHeader, sizeof(kHeader));
-  for (int c = 0; c < nb_comps_; ++c) {
-    bw_.PutByte(c + 1);
-    bw_.PutByte(quant_idx_[c] * 0x11);
+  for (int i = 0; i < nb_comps; ++i) {
+    bw_.PutByte(comps[i].comp_idx + 1);
+    bw_.PutByte((comps[i].dc_table_id << 4) | comps[i].ac_table_id);
   }
-  bw_.PutByte(0x00);        // Ss
-  bw_.PutByte(0x3f);        // Se
-  bw_.PutByte(0x00);        // Ah/Al
+  bw_.PutByte((uint8_t)Ss);
+  bw_.PutByte((uint8_t)Se);
+  bw_.PutByte(0x00);        // Ah/Al: no successive approximation in this mode
 }
 
 ////////////////////////////////////////////////////////////////////////////////

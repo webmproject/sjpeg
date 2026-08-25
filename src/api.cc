@@ -88,6 +88,8 @@ void EncoderParam::Init(float quality_factor) {
   quantization_bias = kDefaultBias;
   qdelta_max_luma = kDefaultDeltaMaxLuma;
   qdelta_max_chroma = kDefaultDeltaMaxChroma;
+  progressive_luma_split = 64;    // = "no progressive"
+  progressive_chroma_split = 8;
   adaptive_bias = false;
   SetLimitQuantization(false);
   min_quant_tolerance_ = 0;
@@ -159,6 +161,7 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   SetCompressionMethod(method);
   SetQuantizationBias(param.quantization_bias, param.adaptive_bias);
   SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);
+  SetProgressive(param.progressive_luma_split, param.progressive_chroma_split);
 
   SetMetadata(param.iccp, Encoder::ICC);
   SetMetadata(param.exif, Encoder::EXIF);

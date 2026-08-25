@@ -39,6 +39,9 @@
 #define SJPEG_UNROLL(n)
 #endif
 
+// Progressive (spectral-split-only) encoding; on by default. Pass
+// -DSJPEG_NO_PROGRESSIVE to strip the feature's code out entirely.
+
 #if defined(__SSE2__)
 #define SJPEG_USE_SSE2
 #endif
@@ -324,6 +327,9 @@ struct Encoder {
   // setters
   void SetQuality(float q);
   void SetCompressionMethod(int method);
+  // luma_split/chroma_split: see EncoderParam::progressive_luma_split in
+  // sjpeg.h.
+  void SetProgressive(int luma_split, int chroma_split);
 
   // all-in-one init from EncoderParam.
   bool InitFromParam(const EncoderParam& param);
@@ -350,6 +356,7 @@ struct Encoder {
 
  private:
   bool CheckBuffers();  // returns false in case of memory alloc error
+  bool ReserveSlab();   // shared by CheckBuffers()/CheckProgBuffers()
 
   void Put16b(uint32_t size);
   void Put32b(uint32_t size);
@@ -361,12 +368,51 @@ struct Encoder {
   bool WriteXMP(const std::string& data);
   bool WriteXMPExtended(const std::string& data);
   void WriteDQT();
-  void WriteSOF();
+  void WriteSOF(bool progressive = false);
   void WriteDHT();
   void WriteSOS();
   void WriteEOI();
 
+  // General per-scan marker writers; WriteDHT()/WriteSOS() above use these
+  // too, in addition to the progressive path (see SetProgressive()).
+  // Writes one Huffman table as its own DHT segment (table_class: 0=DC, 1=AC).
+  void WriteOneDHT(int table_class, int table_id, const HuffmanTable* table);
+  struct ScanComponent {
+    int comp_idx;      // 0, 1 or 2
+    int dc_table_id;    // Huffman DC table selector for this component
+    int ac_table_id;    // Huffman AC table selector for this component
+  };
+  // Writes one SOS for the given component list and spectral range.
+  void WriteProgSOS(const ScanComponent* comps, int nb_comps, int Ss, int Se);
+
+#if !defined(SJPEG_NO_PROGRESSIVE)
+  void AddEntropyStatsDC(const DCTCoeffs* const coeffs);
+  void CodeBlockDC(const DCTCoeffs* const coeffs);
+  void CompileEntropyStatsDC();  // builds dc_codes_[] from freq_dc_[] directly
+
+  // Restricts a block's RunLevel list to window [Ss,Se]; see entropy.cc.
+  static int WindowRunLevels(const DCTCoeffs* const coeffs,
+                             const RunLevel* const rl, int Ss, int Se,
+                             RunLevel* const out, bool* const out_has_eob);
+
+  void ResetEntropyStatsAC();  // resets prog_planes_->freq_ac only
+  // WindowRunLevels()'s explicit entries only; has_eob (EOBn) is separate.
+  void AddEntropyStatsACWindowed(const RunLevel* const windowed,
+                                 int nb_windowed);
+  void CodeBlockACWindowed(const RunLevel* const windowed, int nb_windowed);
+  // EOBn run-length coding across empty blocks; see entropy.cc.
+  void AddEntropyStatsEOBRun(int run);
+  void CodeEOBRun(int run);
+  void CompileEntropyStatsAC();  // builds prog_planes_->opt_table_ac/ac_codes
+
+  bool EncodeProgressive();  // the whole progressive-mode encode path
+#endif  // !SJPEG_NO_PROGRESSIVE
+
   void ResetDCs();
+
+  // GetSamples() + fDCT_() for one MCU, into 'out'. Shared by the baseline
+  // and progressive quantize loops.
+  void TransformMCU(int mb_x, int mb_y, int16_t* const out);
 
   // collect transformed coeffs (unquantized) only
   void CollectCoeffs();
@@ -445,6 +491,7 @@ struct Encoder {
   // data accessible to sub-classes implementing alternate input format
   int W_, H_;           // width, height
   int mb_w_, mb_h_;     // width / height in units of mcu
+  int mb_x_max_, mb_y_max_;   // clip boundary: last full MCU column/row
 
   // Replicate an RGB source sub_w x sub_h block, expanding it to w x h size.
   const uint8_t* GetReplicatedSamples(const uint8_t* rgb,    // block source
@@ -539,6 +586,42 @@ struct Encoder {
   void AnalyseHisto();
   void ResetHisto();  // initialize histos_[]
   Histo histos_[2];
+
+  // --- progressive (spectral-split-only) mode. See SetProgressive(). ---
+  bool progressive_;                          // true if -prog mode is active
+  int prog_luma_split_, prog_chroma_split_;   // Se of the low band, or >=63
+
+  // Per-component planes + scratch AC-Huffman state. Allocated by
+  // AllocateProgPlanes(), freed by DeallocateProgPlanes(); nullptr otherwise
+  // (always, if SJPEG_NO_PROGRESSIVE). Only forward-declared here so this
+  // pointer can stay unconditional; see the full definition below.
+  struct ProgPlanes;
+  ProgPlanes* prog_planes_;
+
+#if !defined(SJPEG_NO_PROGRESSIVE)
+  struct ProgPlanes {
+    // Non-MCU-interleaved storage (non-interleaved AC scans need true raster
+    // order). Fixed 63-entry RunLevel slot per block.
+    DCTCoeffs* coeffs[MAX_COMP];
+    RunLevel* run_levels[MAX_COMP];
+    int plane_w[MAX_COMP], plane_h[MAX_COMP];  // MCU-padded stride
+    // True (non-MCU-padded) per-component block dims per spec A.2.4; what
+    // non-interleaved AC scans must actually visit.
+    int true_w[MAX_COMP], true_h[MAX_COMP];
+    // Scratch AC Huffman state, rebuilt per progressive scan (unlike
+    // freq_ac_/ac_codes_, which hold 2 permanent baseline tables).
+    uint32_t freq_ac[256 + 1];
+    uint32_t ac_codes[256];
+    uint8_t opt_syms_ac[256];
+    HuffmanTable opt_table_ac;
+  };
+  bool AllocateProgPlanes();
+  void DeallocateProgPlanes();
+  // index of sub-block 'i' of MCU (mb_x,mb_y) in component c's plane.
+  int ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const;
+  bool CheckProgBuffers();  // like CheckBuffers(), but for the bw_ slab only
+  void EncodeProgAC(int c, int split);  // all AC scans for one component
+#endif  // !SJPEG_NO_PROGRESSIVE
 
   // multi-pass parameters
   int passes_;
