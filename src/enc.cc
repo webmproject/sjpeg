@@ -76,7 +76,6 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink,
     max_run_levels_(0),
     qdelta_max_luma_(kDefaultDeltaMaxLuma),
     qdelta_max_chroma_(kDefaultDeltaMaxChroma),
-    progressive_(false),
     prog_luma_split_(64), prog_chroma_split_(8),
     prog_planes_(nullptr),
     passes_(1),
@@ -139,15 +138,13 @@ void Encoder::SetProgressive(int luma_split, int chroma_split) {
   luma_split = (luma_split < 1) ? 1 : (luma_split > 64) ? 64 : luma_split;
   chroma_split = (chroma_split < 1) ? 1 : (chroma_split > 64) ? 64
                                                               : chroma_split;
-  progressive_ = (luma_split < 64);
   prog_luma_split_ = luma_split;
   prog_chroma_split_ = chroma_split;
   // use_extra_memory_/reuse_run_levels_ are baseline-only; EncodeProgressive()
   // has its own storage and doesn't need either of them.
 #else
   (void)luma_split;
-  (void)chroma_split;
-  progressive_ = false;  // not compiled in: silently a no-op
+  (void)chroma_split;  // not compiled in: silently a no-op
 #endif
 }
 
@@ -290,8 +287,7 @@ bool Encoder::AllocateBlocks(size_t num_blocks) {
 }
 
 void Encoder::DeallocateBlocks() {
-  Free(in_blocks_base_);
-  in_blocks_base_ = nullptr;
+  FreePtr(&in_blocks_base_);
   in_blocks_ = nullptr;          // sanity
 }
 
@@ -302,6 +298,12 @@ void Encoder::TransformMCU(int mb_x, int mb_y, int16_t* const out) {
   const bool yclip = (mb_y == mb_y_max_);
   GetSamples(mb_x, mb_y, yclip | (mb_x == mb_x_max_), out);
   fDCT_(out, mcu_blocks_);
+}
+
+void Encoder::MaybeTransformMCU(int mb_x, int mb_y, int16_t** const in) {
+  if (have_coeffs_) return;
+  *in = in_blocks_;
+  TransformMCU(mb_x, mb_y, *in);
 }
 
 void Encoder::CollectCoeffs() {
@@ -326,14 +328,10 @@ void Encoder::SinglePassScan() {
   int16_t* in = in_blocks_;
   const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
                                                         : quantize_block_;
-  const bool have_coeffs = have_coeffs_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
       if (!CheckBuffers()) return;
-      if (!have_coeffs) {
-        in = in_blocks_;
-        TransformMCU(mb_x, mb_y, in);
-      }
+      MaybeTransformMCU(mb_x, mb_y, &in);
       for (int c = 0; c < nb_comps_; ++c) {
         DCTCoeffs base_coeffs;
         for (int i = 0; i < nb_blocks_[c]; ++i) {
@@ -379,14 +377,10 @@ void Encoder::SinglePassScanOptimized() {
   ResetDCs();
   nb_run_levels_ = 0;
   int16_t* in = in_blocks_;
-  const bool have_coeffs = have_coeffs_;
   const bool reuse_run_levels = reuse_run_levels_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      if (!have_coeffs) {
-        in = in_blocks_;
-        TransformMCU(mb_x, mb_y, in);
-      }
+      MaybeTransformMCU(mb_x, mb_y, &in);
       if (!CheckBuffers()) goto End;
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
@@ -485,13 +479,15 @@ void Encoder::SinglePassEncode() {
   WriteDQT();
 
 #if !defined(SJPEG_NO_PROGRESSIVE)
-  if (progressive_) {
+  // progressive path: must be after WriteDQT() and before WriteSOF()
+  if (prog_luma_split_ < 64) {  // needs progressive coding?
     WriteSOF(/*progressive=*/true);
-    EncodeProgressive();
+    if (!EncodeProgressive()) SetError();
     return;
   }
 #endif
 
+  // baseline coding
   WriteSOF();
 
   if (optimize_size_) {
