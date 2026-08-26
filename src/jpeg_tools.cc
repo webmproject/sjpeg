@@ -16,9 +16,12 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <assert.h>
+#include <math.h>     // for fabs
 #include <stdint.h>
 #include <string.h>   // for memset
 
+#include <algorithm>  // for std::min, std::max
 #include <cstdlib>
 #include <utility>   // for std::swap
 #include <vector>
@@ -175,6 +178,26 @@ static const double kThreshGray = 0.995;  // 1.00 = full gray (max)
 static const double kThreshYU420 = 40.0;
 static const double kThreshSharpYU420 = 70.0;
 
+// Progressive refinement: score rows in bands spread in bit-reversed dispersed
+// order. Check score at pre-defined increasingly sparse check-points.
+// Equivalent to a sequential pass if there's no early-out (full coverage).
+static const int kBandHeight = 8;
+static const double kConfidenceMargin = 4.0;
+static const int kNumCheckpoints = 4;
+static const double kCheckpointFractions[kNumCheckpoints + 1] = {
+  0.05, 0.15, 0.30, 0.50, /*sentinel*/1.0
+};
+
+// reverses the low 'bits' bits of v, bits in [0, 16]
+static int BitReversal16b(int v, int bits) {
+  int r = 0;
+  for (int i = 0; i < bits; ++i) {
+    r = (r << 1) | (v & 1);
+    v >>= 1;
+  }
+  return r;
+}
+
 #if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
 namespace sjpeg {
 // defined in riskiness_avx2.cc, built separately with -mavx2 (see Makefile)
@@ -193,14 +216,6 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
 #if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
   const bool use_avx2_riskiness = sjpeg::SupportsAVX2();
 #endif
-
-  std::vector<uint16_t> row1(width), row2(width);
-  // Use faster int64_t accumulation instead of double. A score is at most
-  // 3 * 255, so even a 16k x 16k image stays under 2^38. The cast to double
-  // below is safe.
-  int64_t score_sum = 0;   // scores above the noise level
-  int64_t score_num = 0;   // how many samples that was
-  int64_t gray_num = 0;    // samples with neutral chroma
   const int s = sjpeg::kRGBSize;  // shortcut
   const int kRGB3 = s * s * s;
   const int gray = (s / 2) * (1 + s) * s;   // gray level for y=0,u=128,v=128
@@ -208,11 +223,52 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
   // exactly the ones in [gray_min, gray_min + s), whatever their luma.
   const int gray_min = gray - gray % s;
 
-  cvrt_func(rgb, width, &row2[0]);  // convert first row ahead
-  for (int j = 1; j < height; ++j) {
-    rgb += stride;
-    std::swap(row1, row2);
-    cvrt_func(rgb, width, &row2[0]);  // this is the row below
+  // Use faster int64_t accumulation instead of double. A score is at most
+  // 3 * 255, so even a 16k x 16k image stays under 2^38. The cast to double
+  // below is safe.
+  int64_t score_sum = 0;    // scores above the noise level
+  int64_t score_num = 0;    // how many samples that was
+  int64_t gray_num = 0;     // samples with neutral chroma
+  int64_t rows_scored = 0;  // number of true adjacent row-pairs scored so far
+
+  // derives best recommendation from the accumulators collected so far
+  const auto Finalize = [&](float* const risk_out) -> SjpegYUVMode {
+    const double count = (double)score_num;
+    double gray_count = (double)gray_num;
+    double total_score = (count > 0) ? score_sum / count : 0.;
+    // rightmost pixel is excluded, hence the (width - 1.)
+    const double num_samples = (width - 1.) * (double)rows_scored;
+    if (num_samples > 0.) gray_count /= num_samples;
+
+    // pixels evaluated, scaled by how many rows were actually scored
+    const double effective_area = (rows_scored > 0)
+        ? (double)width * height * rows_scored / (height - 1.) : 0.;
+    // if less than 1% of pixels were evaluated -> below noise level.
+    const double frac =
+        (effective_area > 0.) ? 100. * count / effective_area : 0.;
+    if (frac < 1.) total_score = 0.;
+
+    // recommendation (TODO(skal): tune thresholds)
+    total_score = (total_score > 25.) ? 100. : total_score * 100. / 25.;
+    if (risk_out != nullptr) *risk_out = (float)total_score;
+    return (gray_count > kThreshGray) ?        SJPEG_YUV_400 :
+           (total_score < kThreshYU420) ?      SJPEG_YUV_420 :
+           (total_score < kThreshSharpYU420) ? SJPEG_YUV_SHARP :
+                                               SJPEG_YUV_444;
+  };
+
+  const int num_bands = (height - 1 + kBandHeight - 1) / kBandHeight;
+  // height is 16-bit in practice (kMaxDimension, JPEG's SOF field width), so
+  // num_bands stays under ~8192 and bits stays under 16 -- required for
+  // BitReversal16b() above, not just a speed assumption.
+  int bits = 0;
+  while ((1 << bits) < num_bands) ++bits;
+  assert(bits <= 16);
+
+  std::vector<uint16_t> row1(width), row2(width);
+
+  // scores one adjacent row-pair (row1 = above, row2 = below)
+  const auto ScoreRow = [&]() {
     int i = 0;
 #if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
     if (use_avx2_riskiness) {
@@ -235,29 +291,48 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
       }
       gray_num += ((uint32_t)(idx0 - gray_min) < (uint32_t)s);
     }
+  };
+
+  int next_checkpoint = 0;
+  int target = (int)ceil(kCheckpointFractions[next_checkpoint] * num_bands);
+  int cursor = 0;  // walks bit-reversed indices in [0, 1<<bits), skipping
+                   // the ones larger than num_bands
+
+  for (int k = 0; k < num_bands; ++k) {
+    int band;
+    do {
+      band = BitReversal16b(cursor, bits);
+      ++cursor;
+    } while (band >= num_bands);
+    int j = band * kBandHeight;  // current row
+    const int last_band = std::min(j + 1 + kBandHeight, height);
+    cvrt_func(rgb + (size_t)j * stride, width, &row1[0]);
+    while (++j < last_band) {
+      // note: cvrt_func() is called height/kBandHeight times too much,
+      // but that's ok
+      cvrt_func(rgb + (size_t)j * stride, width, &row2[0]);
+      ScoreRow();
+      std::swap(row1, row2);
+      ++rows_scored;
+    }
+
+    if (k >= target) {
+      float candidate_risk;
+      const SjpegYUVMode candidate_mode = Finalize(&candidate_risk);
+      // never trust an early gray verdict: unlike 420/SHARP/444
+      // YUV400 discards chroma directly. Don't let a local flat gray area
+      // derail the estimation!
+      if (candidate_mode != SJPEG_YUV_400 &&
+          fabs(candidate_risk - kThreshYU420) >= kConfidenceMargin &&
+          fabs(candidate_risk - kThreshSharpYU420) >= kConfidenceMargin) {
+        if (risk != nullptr) *risk = candidate_risk;
+        return candidate_mode;
+      }
+      ++next_checkpoint;
+      target = (int)ceil(kCheckpointFractions[next_checkpoint] * num_bands);
+    }
   }
-  const double count = (double)score_num;
-  double gray_count = (double)gray_num;
-  double total_score = (count > 0) ? score_sum / count : 0.;
-  // the loops above visit (width - 1) x (height - 1) samples
-  const double num_samples = (width - 1.) * (height - 1.);
-  if (num_samples > 0.) gray_count /= num_samples;
-
-  // number of pixels evaluated
-  const double frac = 100. * count / ((double)width * height);
-  // if less than 1% of pixels were evaluated -> below noise level.
-  if (frac < 1.) total_score = 0.;
-
-  // recommendation (TODO(skal): tune thresholds)
-  total_score = (total_score > 25.) ? 100. : total_score * 100. / 25.;
-  if (risk != nullptr) *risk = (float)total_score;
-
-  const SjpegYUVMode recommendation =
-      (gray_count > kThreshGray) ?        SJPEG_YUV_400 :
-      (total_score < kThreshYU420) ?      SJPEG_YUV_420 :
-      (total_score < kThreshSharpYU420) ? SJPEG_YUV_SHARP :
-                                          SJPEG_YUV_444;
-  return recommendation;
+  return Finalize(risk);
 }
 
 namespace sjpeg {
