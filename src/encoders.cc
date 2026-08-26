@@ -48,7 +48,7 @@ void Encoder::InitComponents() {
       block_dims_[0] = 0x11;
       block_dims_[1] = 0x11;
       block_dims_[2] = 0x11;
-    break;
+      break;
     case SJPEG_YUV_420:
       nb_comps_ = 3;
 
@@ -66,7 +66,7 @@ void Encoder::InitComponents() {
       block_dims_[0] = 0x22;
       block_dims_[1] = 0x11;
       block_dims_[2] = 0x11;
-    break;
+      break;
     case SJPEG_YUV_400:
       nb_comps_ = 1;
 
@@ -78,12 +78,12 @@ void Encoder::InitComponents() {
       block_w_ = 8;
       block_h_ = 8;
       block_dims_[0] = 0x11;
-    break;
+      break;
     case SJPEG_YUV_AUTO:
     case SJPEG_YUV_SHARP:
     default:
       assert(0);   // shouldn't happen
-    break;
+      break;
   }
 }
 

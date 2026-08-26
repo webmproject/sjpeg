@@ -106,6 +106,47 @@ bool HasSize(const std::string& jpg, int W, int H) {
          width == W && height == H;
 }
 
+// Only used by TEST(Progressive) below.
+#if !defined(SJPEG_NO_PROGRESSIVE)
+// Walks a JPEG bitstream's marker structure (without decoding entropy data)
+// and returns true if it's well-formed: starts with SOI, every marker's
+// declared length stays in bounds, and it ends with a clean EOI right after
+// the last scan's entropy data (no trailing garbage, no early truncation).
+// Also reports the SOF marker byte seen (0xc0 or 0xc2) and the number of SOS
+// (scan) markers found.
+bool CheckMarkerStructure(const std::string& jpg, int* sof_marker,
+                          int* num_sos) {
+  const uint8_t* const data = reinterpret_cast<const uint8_t*>(jpg.data());
+  const size_t size = jpg.size();
+  *sof_marker = 0;
+  *num_sos = 0;
+  if (size < 4 || data[0] != 0xff || data[1] != 0xd8) return false;  // SOI
+  size_t i = 2;
+  while (i + 1 < size) {
+    if (data[i] != 0xff) return false;
+    const uint8_t marker = data[i + 1];
+    if (marker == 0xd9) return (i + 2 == size);  // EOI must be the very last
+    if (marker == 0x00 || marker == 0xff) return false;
+    if (i + 3 >= size) return false;
+    const int length = (data[i + 2] << 8) | data[i + 3];
+    if (length < 2 || i + 2 + (size_t)length > size) return false;
+    if (marker == 0xc0 || marker == 0xc2) *sof_marker = marker;
+    i += 2 + length;
+    if (marker == 0xda) {  // SOS: skip over its entropy-coded data too
+      ++*num_sos;
+      while (i + 1 < size) {
+        if (data[i] == 0xff && data[i + 1] != 0x00 &&
+            !(data[i + 1] >= 0xd0 && data[i + 1] <= 0xd7)) {
+          break;
+        }
+        ++i;
+      }
+    }
+  }
+  return false;  // ran off the end without a clean EOI
+}
+#endif  // !SJPEG_NO_PROGRESSIVE
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // The sharp-YUV tables are built lazily: concurrent encoders must not race on
@@ -644,6 +685,135 @@ TEST(QuantMatrix) {
   CHECK(memcmp(quant[0], param.GetQuantMatrix(0), 64) == 0);
   CHECK(memcmp(quant[1], param.GetQuantMatrix(1), 64) == 0);
 }
+
+#if !defined(SJPEG_NO_PROGRESSIVE)
+TEST(Progressive) {
+  const int kWidth = 40, kHeight = 24;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+
+  // Default (progressive off) must be a byte-for-byte no-op: explicitly
+  // passing the "off" sentinel (64) must match not touching the field at all.
+  {
+    sjpeg::EncoderParam param1(75.f);
+    sjpeg::EncoderParam param2(75.f);
+    param2.progressive_luma_split = 64;
+    std::string out1, out2;
+    CHECK(EncodeRGB(rgb, kWidth, kHeight, param1, &out1));
+    CHECK(EncodeRGB(rgb, kWidth, kHeight, param2, &out2));
+    CHECK(!out1.empty() && out1 == out2);
+    int sof = 0, num_sos = 0;
+    CHECK(CheckMarkerStructure(out1, &sof, &num_sos));
+    CHECK(sof == 0xc0);
+    CHECK(num_sos == 1);
+  }
+  // Progressive on, default chroma split: DC + luma(2 bands) + Cb(2) + Cr(2).
+  {
+    sjpeg::EncoderParam param(75.f);
+    param.progressive_luma_split = 20;
+    std::string out;
+    CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    int sof = 0, num_sos = 0;
+    CHECK(CheckMarkerStructure(out, &sof, &num_sos));
+    CHECK(sof == 0xc2);
+    CHECK(num_sos == 7);
+  }
+  // Luma-only split: chroma_split == 64 disables the split for chroma only,
+  // without needing a separate on/off flag.
+  {
+    sjpeg::EncoderParam param(75.f);
+    param.progressive_luma_split = 20;
+    param.progressive_chroma_split = 64;
+    std::string out;
+    CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    int sof = 0, num_sos = 0;
+    CHECK(CheckMarkerStructure(out, &sof, &num_sos));
+    CHECK(sof == 0xc2);
+    CHECK(num_sos == 5);  // DC + luma(2) + Cb(1) + Cr(1)
+  }
+  // Extreme split points.
+  for (const int split : {1, 62}) {
+    sjpeg::EncoderParam param(75.f);
+    param.progressive_luma_split = split;
+    std::string out;
+    CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    int sof = 0, num_sos = 0;
+    CHECK(CheckMarkerStructure(out, &sof, &num_sos));
+    CHECK(sof == 0xc2);
+  }
+  // Regression: a wide, dense row used to overflow the AC emit loop's
+  // per-row output-buffer reservation (fixed: check per-block, not per-row).
+  {
+    const int kWideWidth = 2000, kWideHeight = 32;
+    const std::vector<uint8_t> wide_rgb = MakeRGB(kWideWidth, kWideHeight);
+    sjpeg::EncoderParam param(95.f);
+    param.progressive_luma_split = 20;
+    std::string out;
+    CHECK(EncodeRGB(wide_rgb, kWideWidth, kWideHeight, param, &out));
+    int sof = 0, num_sos = 0;
+    CHECK(CheckMarkerStructure(out, &sof, &num_sos));
+    CHECK(sof == 0xc2);
+    CHECK(num_sos == 7);
+  }
+  // Same guarantee as AllocationFailure above, for progressive's own plane
+  // storage (AllocateProgPlanes()/DeallocateProgPlanes()).
+  for (int num_ok = 0; num_ok < 10; ++num_ok) {
+    FailingMemory memory(num_ok);
+    sjpeg::EncoderParam param(75.f);
+    param.progressive_luma_split = 2;
+    param.memory = &memory;
+    std::string out;
+    const bool ok = EncodeRGB(rgb, kWidth, kHeight, param, &out);
+    CHECK(ok == (memory.num_refused == 0));
+    CHECK(memory.live.empty());
+  }
+  // -prog under multi-pass search: see the LoopScan() note in Encode().
+  {
+    sjpeg::EncoderParam param(75.f);
+    param.progressive_luma_split = 2;
+    std::string out;
+    CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+
+    sjpeg::EncoderParam param2(75.f);
+    param2.progressive_luma_split = 2;
+    param2.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
+    param2.target_value = (float)out.size();
+    param2.passes = 5;
+    std::string out2;
+    CHECK(EncodeRGB(rgb, kWidth, kHeight, param2, &out2));
+    int sof = 0, num_sos = 0;
+    CHECK(CheckMarkerStructure(out2, &sof, &num_sos));
+    CHECK(sof == 0xc0);
+    CHECK(num_sos == 1);
+  }
+  // A flat image forces the EOBn run past kMaxEOBRun (32767), needing a
+  // mid-scan flush.
+  {
+    const int kFlatWidth = 1024, kFlatHeight = 2048;
+    const std::vector<uint8_t> flat_rgb(kFlatWidth * kFlatHeight * 3, 128);
+    sjpeg::EncoderParam param(90.f);
+    param.yuv_mode = SJPEG_YUV_420;
+    param.progressive_luma_split = 20;
+    std::string out;
+    CHECK(EncodeRGB(flat_rgb, kFlatWidth, kFlatHeight, param, &out));
+    int sof = 0, num_sos = 0;
+    CHECK(CheckMarkerStructure(out, &sof, &num_sos));
+    CHECK(sof == 0xc2);
+    CHECK(num_sos == 7);
+  }
+  // Regression: trellis + progressive used ac_codes_[] uninitialized
+  // (InitCodes(true) was missing), tripping an assert in SearchBestPrev().
+  {
+    sjpeg::EncoderParam param(75.f);
+    param.use_trellis = true;
+    param.progressive_luma_split = 2;
+    std::string out;
+    CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    int sof = 0, num_sos = 0;
+    CHECK(CheckMarkerStructure(out, &sof, &num_sos));
+    CHECK(sof == 0xc2);
+  }
+}
+#endif  // !SJPEG_NO_PROGRESSIVE
 
 }  // namespace
 

@@ -11,7 +11,13 @@
 VERSION=1.0
 ARCHIVE_FILE=sjpeg-$(VERSION).tar.gz
 
+# Set to 0 to build without progressive JPEG encoding support.
+SJPEG_HAVE_PROGRESSIVE ?= 1
+
 EXTRA_FLAGS= -DSJPEG_HAVE_PNG -DSJPEG_HAVE_JPEG
+ifeq ($(SJPEG_HAVE_PROGRESSIVE), 0)
+  EXTRA_FLAGS += -DSJPEG_NO_PROGRESSIVE
+endif
 UTILS_LIBS= -lpng -ljpeg
 
 # we use C++-11
@@ -92,6 +98,11 @@ SJPEG_OBJS = \
     src/quantize.o \
     src/score_7.o  \
     src/yuv_convert.o \
+
+ifeq ($(SJPEG_HAVE_PROGRESSIVE), 1)
+  SJPEG_OBJS += src/prog.o
+endif
+
 
 ifeq ($(HAVE_AVX2), 1)
 SJPEG_OBJS += src/histogram_avx2.o
@@ -200,7 +211,7 @@ DIST_FILES= \
          INSTALL  \
          Makefile \
          NEWS  \
-         README  \
+         README.md  \
          CMakeLists.txt \
          cmake/android.cmake \
          cmake/cpu.cmake \
@@ -220,6 +231,7 @@ DIST_FILES= \
          src/histogram.cc  \
          src/histogram_avx2.cc  \
          src/jpeg_tools.cc  \
+         src/prog.cc  \
          src/quantize.cc  \
          src/quantize_avx2.cc  \
          src/riskiness_avx2.cc  \

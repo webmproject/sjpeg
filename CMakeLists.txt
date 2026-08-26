@@ -26,6 +26,7 @@ set(CMAKE_CXX_STANDARD 11)
 option(SJPEG_ENABLE_SIMD "Enable any SIMD optimization." ON)
 option(SJPEG_BUILD_EXAMPLES "Build the sjpeg / vjpeg command line tools." ON)
 option(SJPEG_BUILD_TESTS "Build the unit tests." ON)
+option(SJPEG_ENABLE_PROGRESSIVE "Build with progressive JPEG encoding support." ON)
 # Opt-in, off by default: unlike SSE2 (guaranteed on all x86-64) or NEON,
 # AVX2 isn't a safe baseline assumption, so it isn't part of the
 # SJPEG_SIMD_DEFINES loop in cmake/cpu.cmake (which applies its flag to the
@@ -70,7 +71,8 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/cpu.cmake)
 
 # Build the sjpeg library.
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/ ${SJPEG_DEP_INCLUDE_DIRS})
-add_library(sjpeg ${CMAKE_CURRENT_SOURCE_DIR}/src/bit_writer.cc
+set(SJPEG_SRCS
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/bit_writer.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/bit_writer.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/colors_rgb.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/api.cc
@@ -89,6 +91,13 @@ add_library(sjpeg ${CMAKE_CURRENT_SOURCE_DIR}/src/bit_writer.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/sjpegi.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/yuv_convert.cc
 )
+if(SJPEG_ENABLE_PROGRESSIVE)
+  list(APPEND SJPEG_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/src/prog.cc)
+endif()
+add_library(sjpeg ${SJPEG_SRCS})
+if(NOT SJPEG_ENABLE_PROGRESSIVE)
+  target_compile_definitions(sjpeg PUBLIC SJPEG_NO_PROGRESSIVE)
+endif()
 if(SJPEG_DEP_LIBRARIES)
   target_link_libraries(sjpeg ${SJPEG_DEP_LIBRARIES})
 endif()

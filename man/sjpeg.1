@@ -1,7 +1,7 @@
 .\"                                      Hey, EMACS: -*- nroff -*-
-.TH SJPEG 1 "Feb 26, 2018"
+.TH SJPEG 1 "Aug 21, 2026"
 .SH NAME
-sjpeg \- compress a PNG, JPEG or PPM image file to a baseline JPEG file
+sjpeg \- compress a PNG, JPEG or PPM image file to a JPEG file
 .SH SYNOPSIS
 .B sjpeg
 .RI [ options ] " input_file \-o output_file.jpg
@@ -11,15 +11,15 @@ This manual page documents the
 .B sjpeg
 command.
 .PP
-\fBsjpeg\fP compresses a PNG, JPEG or PPM image or recompresses a JPEG image,
-using the baseline JPEG format.
+\fBsjpeg\fP compresses a PNG, JPEG or PPM image, or recompresses a JPEG image,
+to a baseline or progressive JPEG file.
 .SH OPTIONS
-The basic options are:
+.SS Basic options
 .TP
 .BI \-o " string
 Specify the name of the output JPEG file.
 .TP
-.B \-h, \-help
+.B \-h, \-\-help
 A summary of all the possible options.
 .TP
 .B \-version
@@ -31,7 +31,7 @@ is 75.
 A small factor produces a smaller file
 with lower quality. Best quality is achieved by using a value of 100.
 If the input source is a JPEG file, the compression factor will be limited
-to never exceed the source's quality unless the -no_limit option is used.
+to never exceed the source's quality unless the \fB\-no_limit\fP option is used.
 This option is disabled by subsequent use (in parsing order) of the \-r
 option.
 .TP
@@ -39,61 +39,9 @@ option.
 Specify the reduction factor for JPEG source. The default is 100 (no reduction).
 A small reduction factor produces a smaller file with lower quality.
 When using a value of 100, the source JPEG file is only recompressed with
-closed to no quality loss (but file size will likely be smaller).
+close to no quality loss (but file size will likely be smaller).
 This option is disabled by subsequent use (in parsing order) of the \-q
 option.
-.TP
-.BI \-size " int
-Specify a target size to try and reach using several passes. By default, the
-internal search loop will try to get as close as possible to the specified
-size. This option has precedence over the \-pnsr one.
-See also the \-pass option.
-.TP
-.BI \-psnr " float
-Specify a target PSNR to try and reach using several passes. By default, the
-internal search loop will try to get as close as possible to the specified
-distortion. Note that the Peak-Signal-to-Noise is computed using the YUV
-samples, not the RGB ones.
-See also the \-pass option.
-.TP
-.BI \-tolerance " float
-Tolerance (in percent) used during convergence to target value when \-psnr
-or \-size option is used.
-.TP
-.BI \-qmin " int
-Minimum acceptable quality factor used during the search (when \-psnr
-or \-size option is used). The search will halt if the quality adjustment
-would drop lower than the \fBqmin\fP value.
-.TP
-.BI \-qmax " int
-Maximum acceptable quality factor used during the search (when \-psnr
-or \-size option is used). The search will avoid using a quality factor
-larger than the \fBqmax\fP value.
-.TP
-.BI \-pass " int
-Specify the number of internal loop to use for convergence toward a target
-size or distortion. If none is specified but \-size or \-psnr option is
-used, then a default value of \fB10\fP is used.
-.TP
-.B \-yuv_mode " int
-Specify the YUV color space method to use. Possible values are
-.IP
-0: automatic decision (default)
-.IP
-1: use YUV 4:2:0 downsampling
-.IP
-2: use 'Sharp' YUV 4:2:0 downsampling - slower but more accurate
-.IP
-3: use YUV 4:4:4 (full resolution for U/V chroma planes)
-.TP
-.B \-444
-Shortcut for \-yuv_mode 3
-.TP
-.B \-sharp
-Shortcut for \-yuv_mode 2
-.TP
-.B \-420
-Shortcut for \-yuv_mode 1
 .TP
 .B \-estimate
 If the source is a JPEG file, print the estimated quality and exit.
@@ -101,20 +49,8 @@ If the source is a JPEG file, print the estimated quality and exit.
 .B \-i, \-info
 Print some information about the input file and exit.
 .TP
-.BI \-xmp " string
-Specify the output XMP metadata. Warning, this will overwrite any data
-available from the source. No content validation is performed.
-.TP
-.BI \-exif " string
-Specify the output EXIF metadata. Warning, this will overwrite any data
-available from the source. No content validation is performed.
-.TP
-.BI \-icc " string
-Specify the output Color Profile metadata. Warning, this will overwrite
-any data available from the source. No content validation is performed.
-.TP
 .B \-quiet
-Disable information message (error messages are still printed).
+Disable informational messages (error messages are still printed).
 .TP
 .B \-short
 Only display short information about the output result.
@@ -124,6 +60,103 @@ Only display the CRC32 checksum of the output and exit.
 .TP
 .B \-md5
 Only display the MD5 digest of the output and exit.
+.SS Metadata options
+.TP
+.BI \-xmp " file
+Specify the output's XMP metadata with the supplied file's content.
+Warning, this will overwrite any data available from the source.
+No content validation is performed.
+.TP
+.BI \-exif " file
+Specify the output's EXIF metadata with the supplied file's content.
+Warning, this will overwrite any data available from the source.
+No content validation is performed.
+.TP
+.BI \-icc " file
+Specify the output's Color Profile (ICC) metadata with the supplied file's
+content. Warning, this will overwrite any data available from the source.
+No content validation is performed.
+.TP
+.B \-no_metadata
+Disable transfer of metadata from source to JPEG (saves file size, but discards
+information).
+.SS Progressive encoding
+.TP
+.B \-progressive
+Use progressive encoding, with the recommended spectral split points.
+Shortcut for \fB\-prog 2,8\fP.
+.TP
+.BI \-prog " int[,int]
+Enable progressive encoding, and set the low/high frequency split point
+for luma to the first value (1..63), and optionally for chroma to the
+second value (defaults to 8 if omitted). Disabled unless this option is
+used; \fB2,8\fP is a well-tested starting point, see \fB\-progressive\fP above.
+A split point of 63 or more disables the split for that component, while
+leaving the other one progressive. Ineffective when combined with
+multi-pass search (\fB\-pass\fP/\fB\-size\fP/\fB\-psnr\fP): \fB\-prog\fP is
+silently ignored in that case.
+.SS Colorspace options
+.TP
+.BI \-yuv_mode " int
+Specify the YUV color space method to use. Possible values are:
+.RS
+.IP 0: 4
+automatic decision (default)
+.IP 1: 4
+use YUV 4:2:0 downsampling
+.IP 2: 4
+use 'Sharp' YUV 4:2:0 downsampling \- slower but more accurate
+.IP 3: 4
+use YUV 4:4:4 (full resolution for U/V chroma planes)
+.IP 4: 4
+use YUV 4:0:0 (grayscale, luma plane only)
+.RE
+.TP
+.B \-420
+Shortcut for \-yuv_mode 1
+.TP
+.B \-sharp
+Shortcut for \-yuv_mode 2
+.TP
+.B \-444
+Shortcut for \-yuv_mode 3
+.TP
+.B \-gray
+Shortcut for \-yuv_mode 4
+.SS Quality-search options
+.TP
+.BI \-size " int
+Specify a target size to try and reach using several passes. By default, the
+internal search loop will try to get as close as possible to the specified
+size. This option has precedence over the \-psnr one.
+See also the \-pass option.
+.TP
+.BI \-psnr " float
+Specify a target PSNR to try and reach using several passes. By default, the
+internal search loop will try to get as close as possible to the specified
+distortion. Note that the Peak-Signal-to-Noise is computed using the YUV
+samples, not the RGB ones.
+See also the \-pass option.
+.TP
+.BI \-pass " int
+Specify the number of internal loop to use for convergence toward a target
+size or distortion. If none is specified but \-size or \-psnr option is
+used, then a default value of \fB10\fP is used.
+.TP
+.BI \-tolerance " float
+Tolerance (in percent) used during convergence to target value when \-psnr
+or \-size option is used.
+.TP
+.BI \-qmin " float
+Minimum acceptable quality factor used during the search (when \-psnr
+or \-size option is used). The search will halt if the quality adjustment
+would drop lower than the \fBqmin\fP value.
+.TP
+.BI \-qmax " float
+Maximum acceptable quality factor used during the search (when \-psnr
+or \-size option is used). The search will avoid using a quality factor
+larger than the \fBqmax\fP value.
+.SS Advanced encoding options
 .TP
 .B \-no_limit
 Disable the quantization limit (in case of JPEG input file) allowing to
@@ -131,21 +164,18 @@ recompress the source at a higher quality factor (result is uncertain,
 though!).
 .TP
 .B \-no_adapt
-Disable adaptive quantization optimization (faster processing, larger file)
+Disable adaptive quantization optimization (faster processing, larger file).
+.TP
+.B \-adapt_bias
+Enable the adaptive quantization-bias optimization (slower processing,
+usually smaller file). Disabled by default.
 .TP
 .B \-trellis
 Enable trellis-based quantization (slower processing, but produces file
-optimized for rate-distortion)
+optimized for rate-distortion).
 .TP
 .B \-no_optim
-Disable Huffman code optimization (faster processing, larger file)
-.TP
-.B \-adapt_bias
-Disable the adaptive bias optimization.
-.TP
-.B \-no_metadata
-Disable transfer of metadata from source to JPEG (saves file size, but discards
-information).
+Disable Huffman code optimization (faster processing, larger file).
 
 .SH BUGS
 Please report any bugs to the SJPEG discussion list:
@@ -160,6 +190,8 @@ http://www.webmproject.org/code/contribute/submitting-patches/
 sjpeg \-q 50 picture.png \-o picture.jpg
 .br
 sjpeg picture.jpg \-r 90 \-o optimized_jpeg.jpg
+.br
+sjpeg \-q 85 \-progressive picture.png \-o progressive.jpg
 
 .SH AUTHORS
 \fBsjpeg\fP was written by Pascal Massimino.
@@ -170,7 +202,9 @@ This manual page was written by Pascal Massimino <pascal.massimino@gmail.com>,
 for the Debian project (and may be used by others).
 
 .SH SEE ALSO
-.BR cjpeg (1), djpeg(1)
+.BR cjpeg (1),
+.BR djpeg (1),
+.BR vjpeg (1)
 .br
 .SS Input file format details
 PPM: http://netpbm.sourceforge.net/doc/ppm.html

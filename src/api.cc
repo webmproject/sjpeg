@@ -88,6 +88,8 @@ void EncoderParam::Init(float quality_factor) {
   quantization_bias = kDefaultBias;
   qdelta_max_luma = kDefaultDeltaMaxLuma;
   qdelta_max_chroma = kDefaultDeltaMaxChroma;
+  progressive_luma_split = 64;    // = "no progressive"
+  progressive_chroma_split = 8;
   adaptive_bias = false;
   SetLimitQuantization(false);
   min_quant_tolerance_ = 0;
@@ -107,7 +109,7 @@ void EncoderParam::SetQuality(float quality_factor) {
 }
 
 void EncoderParam::SetQuantization(const uint8_t m[2][64],
-                                       float reduction) {
+                                   float reduction) {
   if (reduction <= 1.f) reduction = 1.f;
   if (m == nullptr) return;
   for (int c = 0; c < 2; ++c) {
@@ -119,13 +121,13 @@ void EncoderParam::SetQuantization(const uint8_t m[2][64],
 }
 
 void EncoderParam::SetLimitQuantization(bool limit_quantization,
-                                            int min_quant_tolerance) {
+                                        int min_quant_tolerance) {
   use_min_quant_ = limit_quantization;
   if (limit_quantization) SetMinQuantization(quant_, min_quant_tolerance);
 }
 
 void EncoderParam::SetMinQuantization(const uint8_t m[2][64],
-                                          int min_quant_tolerance) {
+                                      int min_quant_tolerance) {
   use_min_quant_ = true;
   CopyQuantMatrix(m[0], min_quant_[0]);
   CopyQuantMatrix(m[1], min_quant_[1]);
@@ -159,6 +161,7 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   SetCompressionMethod(method);
   SetQuantizationBias(param.quantization_bias, param.adaptive_bias);
   SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);
+  SetProgressive(param.progressive_luma_split, param.progressive_chroma_split);
 
   SetMetadata(param.iccp, Encoder::ICC);
   SetMetadata(param.exif, Encoder::EXIF);

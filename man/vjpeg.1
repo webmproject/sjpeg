@@ -1,34 +1,49 @@
 .\"                                      Hey, EMACS: -*- nroff -*-
-.TH VJPEG 1 "Feb 26, 2018"
+.TH VJPEG 1 "Aug 21, 2026"
 .SH NAME
-vjpeg \- visual tool to experience the compression parameter available in sjpeg.
+vjpeg \- visual tool to experience the compression parameters available in sjpeg
 .SH SYNOPSIS
 .B vjpeg
-.RI [ options ] " input_file
+.RI [ options ] " input_file " [ input_file2 " ...]
 .br
 .SH DESCRIPTION
 This manual page documents the
 .B vjpeg
 command.
 .PP
-\fBvjpeg\fP compresses a PNG, JPEG or PPM image or recompresses a JPEG image, using
-the baseline JPEG format and a visual interface based on OpenGL.
+\fBvjpeg\fP compresses a PNG, JPEG or PPM image, or recompresses a JPEG image,
+using an interactive OpenGL-based viewer to visually compare the source
+picture against the effect of sjpeg's compression parameters, adjusted live.
+.PP
+Several input files can be supplied; use the
+.B +
+and
+.B \-
+keys (see KEYS below) to cycle through them.
 .SH OPTIONS
-The basic options are:
 .TP
 .B \-h, \-help
 A summary of all the possible options.
 .TP
 .B \-version
-Print the SimpleJPEG's library version number (as major.minor.revision) and exit.
+Print the SimpleJPEG library's version number (as major.minor.revision) and
+exit.
 .TP
-.B \-q " int
+.BI \-q " int
 Specify the compression factor between 0 and 100. The default
 is 75.
 A small factor produces a smaller file with lower quality.
 .TP
 .B \-info
 Overlay some file information on the display.
+.TP
+.BI \-alt " file
+Specify an alternate picture file to compare against, toggled on and off by
+holding the return key (see KEYS below).
+.TP
+.B \-\-
+Treat the next argument as an input file name, even if it starts with a
+dash.
 
 .SH KEYS
 The available key shortcuts are:
@@ -41,9 +56,10 @@ The available key shortcuts are:
 .IP
    left/right ........ change the compression factor by +/- 10 units
 .IP
-   return ............ show alternate picture (if specified)
+   return ............ show alternate picture (if specified with \-alt)
 .IP
-   0/1/2/3 ........... change the yuv_mode to auto/yuv420/sharp-yuv420/yuv444
+   0/1/2/3/4 ......... change the yuv_mode to
+                        auto/yuv420/sharp-yuv420/yuv444/yuv400
 .IP
    'o' ............... toggle Huffman optimization
 .IP
@@ -58,6 +74,8 @@ The available key shortcuts are:
    'e' ............... show error map
 .IP
    'r' ............... show riskiness map
+.IP
+   'm' ............... print the source quantization matrices to the console
 .IP
    '+'/'-' ........... go to next/previous file
 .IP
@@ -78,6 +96,8 @@ http://www.webmproject.org/code/contribute/submitting-patches/
 
 .SH EXAMPLES
 vjpeg \-q 50 picture.png
+.br
+vjpeg picture1.jpg picture2.jpg picture3.jpg
 
 .SH AUTHORS
 \fBvjpeg\fP was written by Pascal Massimino.
