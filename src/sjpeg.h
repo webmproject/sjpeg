@@ -240,6 +240,8 @@ struct EncoderParam {
   // Progressive JPEG encoding. *_split (1..63) is the low/high frequency
   // split point for luma/chroma; luma_split==64 (default) turns it off.
   // 2/8 is a good starting point (see '-progressive' in the sjpeg CLI).
+  // Not supported together with multi-pass search (passes > 1): the search
+  // takes over and produces a non-progressive file instead.
   int progressive_luma_split;
   int progressive_chroma_split;
 

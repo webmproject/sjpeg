@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-//  Progressive (spectral-split-only) mode: raster-ordered per-component
-//  planes, and the DC / AC scan drivers.
+//  Progressive mode (spectral-split-only)
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
@@ -53,7 +52,11 @@ bool Encoder::AllocateProgPlanes() {
         (size_t)prog_planes_->plane_w[c] * prog_planes_->plane_h[c];
     prog_planes_->coeffs[c] = Alloc<DCTCoeffs>(nb_blocks);
     if (prog_planes_->coeffs[c] == nullptr) return false;
-    prog_planes_->run_levels[c] = Alloc<RunLevel>(nb_blocks * 63);
+    // Need uint64_t cast here, not size_t (which is 32bit on 32-bit build).
+    // Note: nb_blocks * 63 can overflow 32bit.
+    const uint64_t nb_run_levels = (uint64_t)nb_blocks * 63;
+    if (nb_run_levels > SIZE_MAX / sizeof(RunLevel)) return SetError();
+    prog_planes_->run_levels[c] = Alloc<RunLevel>((size_t)nb_run_levels);
     if (prog_planes_->run_levels[c] == nullptr) return false;
   }
   return true;
@@ -65,8 +68,7 @@ void Encoder::DeallocateProgPlanes() {
     Free(prog_planes_->coeffs[c]);
     Free(prog_planes_->run_levels[c]);
   }
-  Free(prog_planes_);
-  prog_planes_ = nullptr;
+  FreePtr(&prog_planes_);
 }
 
 int Encoder::ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const {
@@ -78,6 +80,8 @@ int Encoder::ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const {
 }
 
 bool Encoder::CheckProgBuffers() {
+  // progressive mode doesn't use all_run_levels_ => no growth needed here,
+  // unlike CheckBuffers().
   return ReserveSlab();
 }
 
@@ -162,19 +166,17 @@ bool Encoder::EncodeProgressive() {
   ResetDCs();
   if (!AllocateProgPlanes()) return false;
 
-  // 1. Quantize every block once into the raster-ordered planes.
+  // 1. Quantize every block once, gathering DC entropy stats along the way.
+  // Same mb_y/mb_x/c/i nest as the DC-code pass below -- keep them in sync.
   const QuantizeBlockFunc quantize_block =
       use_trellis_ ? TrellisQuantizeBlock : quantize_block_;
   // trellis needs ac_codes_[] seeded, like the baseline path does
   if (use_trellis_) InitCodes(true);
-  const bool have_coeffs = have_coeffs_;
+  memset(freq_dc_, 0, sizeof(freq_dc_));
   int16_t* in = in_blocks_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      if (!have_coeffs) {
-        in = in_blocks_;
-        TransformMCU(mb_x, mb_y, in);
-      }
+      MaybeTransformMCU(mb_x, mb_y, &in);
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           const int idx = ProgPlaneIndex(c, mb_x, mb_y, i);
@@ -183,30 +185,24 @@ bool Encoder::EncodeProgressive() {
           const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
                                         coeffs, run_levels);
           coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
+          AddEntropyStatsDC(coeffs);
           in += 64;
         }
       }
     }
   }
+  DeallocateBlocks();     // we can free up some coeffs memory at this point
   if (!ok_) {
     DeallocateProgPlanes();
     return false;
   }
 
   // 2. DC scan: one interleaved scan, baseline MCU order.
-  memset(freq_dc_, 0, sizeof(freq_dc_));
-  for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
-    for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      for (int c = 0; c < nb_comps_; ++c) {
-        for (int i = 0; i < nb_blocks_[c]; ++i) {
-          const int idx = ProgPlaneIndex(c, mb_x, mb_y, i);
-          AddEntropyStatsDC(&prog_planes_->coeffs[c][idx]);
-        }
-      }
-    }
-  }
   CompileEntropyStatsDC();
-  if (!CheckProgBuffers()) return false;
+  if (!CheckProgBuffers()) {
+    DeallocateProgPlanes();
+    return false;
+  }
   {
     ScanComponent scs[MAX_COMP];
     for (int c = 0; c < nb_comps_; ++c) {
@@ -218,7 +214,10 @@ bool Encoder::EncodeProgressive() {
   }
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      if (!CheckProgBuffers()) return false;
+      if (!CheckProgBuffers()) {
+        DeallocateProgPlanes();
+        return false;
+      }
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           const int idx = ProgPlaneIndex(c, mb_x, mb_y, i);
@@ -229,10 +228,14 @@ bool Encoder::EncodeProgressive() {
   }
   bw_.Flush();
 
-  // 3. AC scans: luma, then chroma.
+  // 3. AC scans: luma, then chroma; free each component right after its scan.
   EncodeProgAC(0, prog_luma_split_);
+  FreePtr(&prog_planes_->coeffs[0]);
+  FreePtr(&prog_planes_->run_levels[0]);
   for (int c = 1; c < nb_comps_; ++c) {
     EncodeProgAC(c, prog_chroma_split_);
+    FreePtr(&prog_planes_->coeffs[c]);
+    FreePtr(&prog_planes_->run_levels[c]);
   }
 
   DeallocateProgPlanes();

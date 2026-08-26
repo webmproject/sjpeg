@@ -414,6 +414,10 @@ struct Encoder {
   // and progressive quantize loops.
   void TransformMCU(int mb_x, int mb_y, int16_t* const out);
 
+  // TransformMCU() unless coefficients are already cached. Shared guard for
+  // SinglePassScan(), SinglePassScanOptimized(), EncodeProgressive().
+  void MaybeTransformMCU(int mb_x, int mb_y, int16_t** const in);
+
   // collect transformed coeffs (unquantized) only
   void CollectCoeffs();
 
@@ -519,6 +523,11 @@ struct Encoder {
   template<class T> void Free(T* const ptr) {
     memory_hook_->Free(reinterpret_cast<void*>(ptr));
   }
+  // Free(*ptr) followed by '*ptr = nullptr', as a single safe step.
+  template<class T> void FreePtr(T** const ptr) {
+    Free(*ptr);
+    *ptr = nullptr;
+  }
 
  protected:
   bool ok_;                // set to false if a new[] fails
@@ -588,7 +597,7 @@ struct Encoder {
   Histo histos_[2];
 
   // --- progressive (spectral-split-only) mode. See SetProgressive(). ---
-  bool progressive_;                          // true if -prog mode is active
+  // prog_luma_split_ == 64 means progressive mode is off.
   int prog_luma_split_, prog_chroma_split_;   // Se of the low band, or >=63
 
   // Per-component planes + scratch AC-Huffman state. Allocated by
@@ -617,7 +626,7 @@ struct Encoder {
   };
   bool AllocateProgPlanes();
   void DeallocateProgPlanes();
-  // index of sub-block 'i' of MCU (mb_x,mb_y) in component c's plane.
+  // index of sub-block 'i' of MCU (mb_x,mb_y) in component c's plane
   int ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const;
   bool CheckProgBuffers();  // like CheckBuffers(), but for the bw_ slab only
   void EncodeProgAC(int c, int split);  // all AC scans for one component
