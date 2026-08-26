@@ -52,12 +52,9 @@ bool Encoder::AllocateProgPlanes() {
         (size_t)prog_planes_->plane_w[c] * prog_planes_->plane_h[c];
     prog_planes_->coeffs[c] = Alloc<DCTCoeffs>(nb_blocks);
     if (prog_planes_->coeffs[c] == nullptr) return false;
-    // Need uint64_t cast here, not size_t (which is 32bit on 32-bit build).
-    // Note: nb_blocks * 63 can overflow 32bit.
-    const uint64_t nb_run_levels = (uint64_t)nb_blocks * 63;
-    if (nb_run_levels > SIZE_MAX / sizeof(RunLevel)) return SetError();
-    prog_planes_->run_levels[c] = Alloc<RunLevel>((size_t)nb_run_levels);
-    if (prog_planes_->run_levels[c] == nullptr) return false;
+    // run_levels[c] grows on demand; only the offset table is sized here.
+    prog_planes_->run_level_offsets[c] = Alloc<size_t>(nb_blocks);
+    if (prog_planes_->run_level_offsets[c] == nullptr) return false;
   }
   return true;
 }
@@ -67,8 +64,26 @@ void Encoder::DeallocateProgPlanes() {
   for (int c = 0; c < MAX_COMP; ++c) {
     Free(prog_planes_->coeffs[c]);
     Free(prog_planes_->run_levels[c]);
+    Free(prog_planes_->run_level_offsets[c]);
   }
   FreePtr(&prog_planes_);
+}
+
+// Grows run_levels[c] (doubling), like CheckBuffers()'s all_run_levels_.
+bool Encoder::ReserveProgRunLevels(int c) {
+  ProgPlanes* const p = prog_planes_;
+  if (p->nb_run_levels[c] + 63 <= p->max_run_levels[c]) return true;
+  const size_t new_size = p->max_run_levels[c] ? p->max_run_levels[c] * 2
+                                               : 8192;
+  RunLevel* const new_rl = Alloc<RunLevel>(new_size);
+  if (new_rl == nullptr) return false;
+  if (p->nb_run_levels[c] > 0) {
+    memcpy(new_rl, p->run_levels[c], p->nb_run_levels[c] * sizeof(new_rl[0]));
+  }
+  Free(p->run_levels[c]);
+  p->run_levels[c] = new_rl;
+  p->max_run_levels[c] = new_size;
+  return true;
 }
 
 int Encoder::ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const {
@@ -86,13 +101,14 @@ bool Encoder::CheckProgBuffers() {
 }
 
 void Encoder::EncodeProgAC(int c, int split) {
+  ProgPlanes* const p = prog_planes_;
   const bool has_high = (split < 63);
   const int nb_bands = has_high ? 2 : 1;
   const int bands[2][2] = { { 1, has_high ? split : 63 },
                             { split + 1, 63 } };
-  const int stride = prog_planes_->plane_w[c];
-  const int tw = prog_planes_->true_w[c];
-  const int th = prog_planes_->true_h[c];
+  const int stride = p->plane_w[c];
+  const int tw = p->true_w[c];
+  const int th = p->true_h[c];
   RunLevel windowed[64];
   for (int b = 0; b < nb_bands; ++b) {
     const int Ss = bands[b][0];
@@ -103,8 +119,9 @@ void Encoder::EncodeProgAC(int c, int split) {
     for (int row = 0; row < th; ++row) {
       for (int col = 0; col < tw; ++col) {
         const int n = row * stride + col;
-        const DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][n];
-        const RunLevel* const rl = prog_planes_->run_levels[c] + n * 63;
+        const DCTCoeffs* const coeffs = &p->coeffs[c][n];
+        const RunLevel* const rl =
+            p->run_levels[c] + p->run_level_offsets[c][n];
         bool has_eob;
         const int nb_w = WindowRunLevels(coeffs, rl, Ss, Se, windowed,
                                          &has_eob);
@@ -127,7 +144,7 @@ void Encoder::EncodeProgAC(int c, int split) {
     CompileEntropyStatsAC();
 
     if (!CheckProgBuffers()) return;
-    WriteOneDHT(/*table_class=*/1, /*table_id=*/0, &prog_planes_->opt_table_ac);
+    WriteOneDHT(/*table_class=*/1, /*table_id=*/0, &p->opt_table_ac);
     const ScanComponent sc = { c, /*dc=*/0, /*ac=*/0 };
     WriteProgSOS(&sc, 1, Ss, Se);
 
@@ -137,8 +154,9 @@ void Encoder::EncodeProgAC(int c, int split) {
         // per-block: a whole row can exceed the 2560-byte guarantee
         if (!CheckProgBuffers()) return;
         const int n = row * stride + col;
-        const DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][n];
-        const RunLevel* const rl = prog_planes_->run_levels[c] + n * 63;
+        const DCTCoeffs* const coeffs = &p->coeffs[c][n];
+        const RunLevel* const rl =
+            p->run_levels[c] + p->run_level_offsets[c][n];
         bool has_eob;
         const int nb_w = WindowRunLevels(coeffs, rl, Ss, Se, windowed,
                                          &has_eob);
@@ -180,11 +198,18 @@ bool Encoder::EncodeProgressive() {
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           const int idx = ProgPlaneIndex(c, mb_x, mb_y, i);
-          DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][idx];
-          RunLevel* const run_levels = prog_planes_->run_levels[c] + idx * 63;
+          if (!ReserveProgRunLevels(c)) {
+            DeallocateProgPlanes();
+            return false;
+          }
+          ProgPlanes* const p = prog_planes_;
+          DCTCoeffs* const coeffs = &p->coeffs[c][idx];
+          p->run_level_offsets[c][idx] = p->nb_run_levels[c];
+          RunLevel* const run_levels = p->run_levels[c] + p->nb_run_levels[c];
           const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
                                         coeffs, run_levels);
           coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
+          p->nb_run_levels[c] += coeffs->nb_coeffs_;
           AddEntropyStatsDC(coeffs);
           in += 64;
         }
@@ -232,10 +257,12 @@ bool Encoder::EncodeProgressive() {
   EncodeProgAC(0, prog_luma_split_);
   FreePtr(&prog_planes_->coeffs[0]);
   FreePtr(&prog_planes_->run_levels[0]);
+  FreePtr(&prog_planes_->run_level_offsets[0]);
   for (int c = 1; c < nb_comps_; ++c) {
     EncodeProgAC(c, prog_chroma_split_);
     FreePtr(&prog_planes_->coeffs[c]);
     FreePtr(&prog_planes_->run_levels[c]);
+    FreePtr(&prog_planes_->run_level_offsets[c]);
   }
 
   DeallocateProgPlanes();

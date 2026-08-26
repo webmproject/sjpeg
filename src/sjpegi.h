@@ -610,9 +610,13 @@ struct Encoder {
 #if !defined(SJPEG_NO_PROGRESSIVE)
   struct ProgPlanes {
     // Non-MCU-interleaved storage (non-interleaved AC scans need true raster
-    // order). Fixed 63-entry RunLevel slot per block.
+    // order).
     DCTCoeffs* coeffs[MAX_COMP];
+    // run_levels[c] is packed (nb_coeffs_ entries per block, not a fixed 63);
+    // run_level_offsets[c][idx] is where block 'idx' starts.
     RunLevel* run_levels[MAX_COMP];
+    size_t* run_level_offsets[MAX_COMP];
+    size_t nb_run_levels[MAX_COMP], max_run_levels[MAX_COMP];
     int plane_w[MAX_COMP], plane_h[MAX_COMP];  // MCU-padded stride
     // True (non-MCU-padded) per-component block dims per spec A.2.4; what
     // non-interleaved AC scans must actually visit.
@@ -626,6 +630,8 @@ struct Encoder {
   };
   bool AllocateProgPlanes();
   void DeallocateProgPlanes();
+  // ensures run_levels[c] has room for one more (63-entry worst case) block
+  bool ReserveProgRunLevels(int c);
   // index of sub-block 'i' of MCU (mb_x,mb_y) in component c's plane
   int ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const;
   bool CheckProgBuffers();  // like CheckBuffers(), but for the bw_ slab only
