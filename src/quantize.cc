@@ -121,7 +121,31 @@ void SetDefaultMinQuantMatrix(uint8_t out[64]) {
 #define DIV_BY_MULT(A, M) (((A) * (M)) >> FP_BITS)
 #define QUANTIZE(A, M, B) (DIV_BY_MULT((A) + (B), (M)) >> AC_BITS)
 
-void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
+// Fills bias_out[]/qthresh_out[] for a nominal 'bias' (DC and v==1 stay
+// fixed regardless, see FinalizeQuantMatrix).
+static void ComputeBiasTable(const Quantizer* const q, int bias,
+                             uint16_t bias_out[64], uint16_t qthresh_out[64]) {
+  const uint16_t bias_1 = 0x80;
+  for (size_t i = 0; i < 64; ++i) {
+    const uint16_t v = q->quant_[i];
+    const uint16_t iquant = q->iquant_[i];
+    const uint16_t b = (v == 1) ? bias_1 : (i == 0) ? BIAS_DC : bias;
+    const uint16_t ibias = (((b * v) << AC_BITS) + 128) >> 8;
+    const uint16_t qthresh =
+        ((1 << (FP_BITS + AC_BITS)) + iquant - 1) / iquant - ibias;
+    bias_out[i] = ibias;
+    qthresh_out[i] = qthresh;
+    assert(QUANTIZE(qthresh, iquant, ibias) > 0);
+    assert(QUANTIZE(qthresh - 1, iquant, ibias) == 0);
+  }
+}
+
+// Bias offset between the mid and flat/busy tiers (0..255 scale).
+// Tuned by eye, not by PSNR/SSIM.
+#define ADAPTIVE_BIAS_DELTA 32
+
+void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias,
+                                  bool adaptive) {
   // first, clamp the quant matrix:
   for (size_t i = 0; i < 64; ++i) {
     if (q->quant_[i] < q->min_quant_[i]) q->quant_[i] = q->min_quant_[i];
@@ -131,22 +155,23 @@ void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
   // value 0x80. The overall precision isn't affected: it's bit-exact the same
   // for our working range.
   // Note that quant=1 can start appearing at quality as low as 93.
-  const uint16_t bias_1 = 0x80;
   const uint16_t iquant_1 = 0xffffu;
   for (size_t i = 0; i < 64; ++i) {
     const uint16_t v = q->quant_[i];
-    const uint16_t iquant = (v == 1) ? iquant_1 : MAKE_INV_QUANT(v);
-    const uint16_t bias = (v == 1) ? bias_1 : (i == 0) ? BIAS_DC : q_bias;
-    const uint16_t ibias = (((bias * v) << AC_BITS) + 128) >> 8;
-    const uint16_t qthresh =
-        ((1 << (FP_BITS + AC_BITS)) + iquant - 1) / iquant - ibias;
-    q->bias_[i] = ibias;
-    q->iquant_[i] = iquant;
-    q->qthresh_[i] = qthresh;
-    assert(QUANTIZE(qthresh, iquant, ibias) > 0);
-    assert(QUANTIZE(qthresh - 1, iquant, ibias) == 0);
+    q->iquant_[i] = (v == 1) ? iquant_1 : MAKE_INV_QUANT(v);
+  }
+  ComputeBiasTable(q, q_bias, q->bias_, q->qthresh_);
+  if (adaptive) {
+    const int bias_flat = (q_bias + ADAPTIVE_BIAS_DELTA > 255)
+                             ? 255 : q_bias + ADAPTIVE_BIAS_DELTA;
+    const int bias_busy = (q_bias < ADAPTIVE_BIAS_DELTA)
+                             ? 0 : q_bias - ADAPTIVE_BIAS_DELTA;
+    uint16_t unused_bias[64];  // only the tiers' threshold is used
+    ComputeBiasTable(q, bias_flat, unused_bias, q->qthresh_flat_);
+    ComputeBiasTable(q, bias_busy, unused_bias, q->qthresh_busy_);
   }
 }
+#undef ADAPTIVE_BIAS_DELTA
 
 void Encoder::SetCostCodes(int idx) {
   quants_[idx].codes_ = ac_codes_[idx];
@@ -318,6 +343,82 @@ static int QuantizeBlock(const int16_t in[64], int idx,
   out->last_ = prev - 1;
   out->nb_coeffs_ = nb;
   return dc;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Adaptive-bias quantization ("poor man's trellis").
+//
+// Huffman codes (run, size), not the mantissa.
+// => only the 0-vs-1 survival edge is worth biasing: it decides whether a
+//    coefficient is coded at all, and changes the neighboring zero-run.
+//    Other power-of-two levels (2, 4, 8, ...) are bucket edges too, but
+//    are far too common to re-round without wrecking PSNR for little rate
+//    gain -- they get plain nearest-rounding, bit-exact to QuantizeBlock().
+//
+// * busy blocks: stricter survival threshold (masked, shorter zero-run)
+// * flat blocks: laxer threshold, floor survivors to level 1 (avoids banding)
+
+// Activity thresholds (AC_BITS-scaled) for flat/normal/busy: set near the
+// 10th/90th percentile of per-block AC activity on real photos, so only
+// genuine outliers get retouched and most blocks match the plain path.
+// Heuristic, tune by eye (eval/ab_compare.py).
+#define ACTIVITY_LO (28 << AC_BITS)
+#define ACTIVITY_HI (360 << AC_BITS)
+
+int Encoder::AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
+                                       const Quantizer* const Q,
+                                       DCTCoeffs* const out,
+                                       RunLevel* const rl) {
+  uint32_t activity = 0;
+  for (int i = 1; i < 64; ++i) {
+    const int v = in[i];
+    activity += (v < 0) ? -v : v;
+  }
+  // tier < 0: flat, tier > 0: busy, 0: normal (see block comment above).
+  const int8_t tier = (activity < ACTIVITY_LO) ? -1
+                     : (activity > ACTIVITY_HI) ? 1 : 0;
+  const uint16_t* const survive_thresh = (tier < 0) ? Q->qthresh_flat_
+                                        : (tier > 0) ? Q->qthresh_busy_
+                                                     : Q->qthresh_;
+  const uint16_t* const bias = Q->bias_;      // always nearest-rounding
+  const uint16_t* const qthresh = Q->qthresh_;  // mid survival test
+  const uint16_t* const iquant = Q->iquant_;
+  int prev = 1;
+  int nb = 0;
+  for (int i = 1; i < 64; ++i) {
+    const int j = kZigzag[i];
+    int v = in[j];
+    const int32_t mask = v >> 31;
+    v = (v ^ mask) - mask;
+    if (v < survive_thresh[j]) continue;
+    // At or above the mid threshold: standard nearest-rounding, same as
+    // QuantizeBlock(). Below it (flat tier only, since busy's threshold is
+    // stricter than mid's): floor to the smallest nonzero level instead of
+    // letting it vanish.
+    v = (v >= qthresh[j]) ? QUANTIZE(v, iquant[j], bias[j]) : 1;
+    assert(v > 0);
+    const int n = CalcLog2(v);
+    const uint16_t code = (v ^ mask) & ((1 << n) - 1);
+    rl[nb].level_ = (code << 4) | n;
+    rl[nb].run_ = i - prev;
+    prev = i + 1;
+    ++nb;
+  }
+  const int dc = (in[0] < 0) ? -QUANTIZE(-in[0], iquant[0], bias[0])
+                             : QUANTIZE(in[0], iquant[0], bias[0]);
+  out->idx_ = idx;
+  out->last_ = prev - 1;
+  out->nb_coeffs_ = nb;
+  out->bias_ = tier;
+  return dc;
+}
+#undef ACTIVITY_LO
+#undef ACTIVITY_HI
+
+Encoder::QuantizeBlockFunc Encoder::GetActiveQuantizeBlockFunc() const {
+  if (use_trellis_) return TrellisQuantizeBlock;
+  if (adaptive_bias_) return AdaptiveBiasQuantizeBlock;
+  return quantize_block_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

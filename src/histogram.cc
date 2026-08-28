@@ -323,7 +323,7 @@ void Encoder::AnalyseHisto() {
       quants_[idx].quant_[pos] += best_dq;
       assert(quants_[idx].quant_[pos] >= 1);
     }
-    FinalizeQuantMatrix(&quants_[idx], q_bias_);
+    FinalizeQuantMatrix(&quants_[idx], q_bias_, adaptive_bias_);
     SetCostCodes(idx);
   }
 }

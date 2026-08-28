@@ -326,8 +326,7 @@ void Encoder::SinglePassScan() {
 
   RunLevel base_run_levels[64];
   int16_t* in = in_blocks_;
-  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
-                                                        : quantize_block_;
+  const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
       if (!CheckBuffers()) return;
@@ -367,8 +366,7 @@ void Encoder::SinglePassScanOptimized() {
   if (base_coeffs == nullptr) return;
   DCTCoeffs* coeffs = base_coeffs;
   RunLevel base_run_levels[64];
-  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
-                                                        : quantize_block_;
+  const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
 
   // We use the default Huffman tables as basis for bit-rate evaluation
   if (use_trellis_) InitCodes(true);
@@ -428,8 +426,8 @@ bool Encoder::Encode() {
     return SetError();
   }
 
-  FinalizeQuantMatrix(&quants_[0], q_bias_);
-  FinalizeQuantMatrix(&quants_[1], q_bias_);
+  FinalizeQuantMatrix(&quants_[0], q_bias_, adaptive_bias_);
+  FinalizeQuantMatrix(&quants_[1], q_bias_, adaptive_bias_);
   SetCostCodes(0);
   SetCostCodes(1);
 

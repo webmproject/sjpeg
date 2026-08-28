@@ -81,8 +81,7 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   assert(use_extra_memory_);
   assert(reuse_run_levels_);
 
-  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
-                                                        : quantize_block_;
+  const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
   if (use_trellis_) InitCodes(true);
 
   // run/levels are in registers here, so frequencies come for free. Whoever
@@ -136,7 +135,7 @@ void Encoder::LoopScan() {
     // set new matrices to evaluate
     for (int c = 0; c < 2; ++c) {
       search_hook_->NextMatrix(c, quants_[c].quant_);
-      FinalizeQuantMatrix(&quants_[c], q_bias_);
+      FinalizeQuantMatrix(&quants_[c], q_bias_, adaptive_bias_);
     }
     if (use_adaptive_quant_) {
       AnalyseHisto();   // adjust quant_[] matrices
@@ -178,7 +177,7 @@ void Encoder::LoopScan() {
   if (ok_) {
     // transfer back the final matrices
     SetQuantMatrices(opt_quants);
-    for (int c = 0; c < 2; ++c) FinalizeQuantMatrix(&quants_[c], q_bias_);
+    for (int c = 0; c < 2; ++c) FinalizeQuantMatrix(&quants_[c], q_bias_, adaptive_bias_);
 
     // return informative values to the user
     search_hook_->q = best_q;
