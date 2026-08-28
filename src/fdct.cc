@@ -496,29 +496,31 @@ static void Dct_NEON(int16_t* in) {
   const int16_t kTable6[] = MK_TABLE_CST(4520, 6270, 5906, 5315);
 
   // even part
+  // in[0] = C4*(a0+a1+a2+a3), in[4] = C4*(a0-a1-a2+a3)
+  // in[2] = C2*(a0-a3) + C6*(a1-a2), in[6] = C6*(a0-a3) - C2*(a1-a2)
+  // Compute the shared products once, share them between 2 outputs each.
   const int16x8_t kC2 = vld1q_s16(kTable1);
   const int16x8_t kC4 = vld1q_s16(kTable3);
   const int16x8_t kC6 = vld1q_s16(kTable5);
 
-  MULT_DCL_32(out0_lo, out0_hi, a0, kC4);
-  MULT_DCL_32(out2_lo, out2_hi, a0, kC2);
-  MULT_DCL_32(out4_lo, out4_hi, a0, kC4);
-  MULT_DCL_32(out6_lo, out6_hi, a0, kC6);
+  BUTTERFLY(d03, s03, a0, a3);
+  BUTTERFLY(d12, s12, a1, a2);
 
-  MULT_ADD_32(out0_lo, out0_hi, a1, kC4);
-  MULT_ADD_32(out2_lo, out2_hi, a1, kC6);
-  MULT_SUB_32(out4_lo, out4_hi, a1, kC4);
-  MULT_SUB_32(out6_lo, out6_hi, a1, kC2);
+  MULT_DCL_32(ps03_lo, ps03_hi, s03, kC4);
+  MULT_DCL_32(ps12_lo, ps12_hi, s12, kC4);
+  const int32x4_t out0_lo = vaddq_s32(ps03_lo, ps12_lo);
+  const int32x4_t out0_hi = vaddq_s32(ps03_hi, ps12_hi);
+  const int32x4_t out4_lo = vsubq_s32(ps03_lo, ps12_lo);
+  const int32x4_t out4_hi = vsubq_s32(ps03_hi, ps12_hi);
 
-  MULT_ADD_32(out0_lo, out0_hi, a2, kC4);
-  MULT_SUB_32(out2_lo, out2_hi, a2, kC6);
-  MULT_SUB_32(out4_lo, out4_hi, a2, kC4);
-  MULT_ADD_32(out6_lo, out6_hi, a2, kC2);
-
-  MULT_ADD_32(out0_lo, out0_hi, a3, kC4);
-  MULT_SUB_32(out2_lo, out2_hi, a3, kC2);
-  MULT_ADD_32(out4_lo, out4_hi, a3, kC4);
-  MULT_SUB_32(out6_lo, out6_hi, a3, kC6);
+  MULT_DCL_32(pd03C2_lo, pd03C2_hi, d03, kC2);
+  MULT_DCL_32(pd03C6_lo, pd03C6_hi, d03, kC6);
+  MULT_DCL_32(pd12C2_lo, pd12C2_hi, d12, kC2);
+  MULT_DCL_32(pd12C6_lo, pd12C6_hi, d12, kC6);
+  const int32x4_t out2_lo = vaddq_s32(pd03C2_lo, pd12C6_lo);
+  const int32x4_t out2_hi = vaddq_s32(pd03C2_hi, pd12C6_hi);
+  const int32x4_t out6_lo = vsubq_s32(pd03C6_lo, pd12C2_lo);
+  const int32x4_t out6_hi = vsubq_s32(pd03C6_hi, pd12C2_hi);
 
   int16x8_t out0 = PackS32(out0_lo, out0_hi);
   int16x8_t out2 = PackS32(out2_lo, out2_hi);
