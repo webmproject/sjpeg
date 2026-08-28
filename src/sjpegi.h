@@ -285,7 +285,6 @@ struct DCTCoeffs {
   int16_t nb_coeffs_;  // total number of non-zero AC coeffs
   uint16_t dc_code_;   // DC code (4bits for length, 12bits for suffix)
   int8_t idx_;         // component idx
-  int8_t bias_;        // perceptual bias
 };
 
 // Histogram of transform coefficients, for adaptive quant matrices

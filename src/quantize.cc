@@ -140,8 +140,8 @@ static void ComputeBiasTable(const Quantizer* const q, int bias,
   }
 }
 
-// Bias offset between the mid and flat/busy tiers (0..255 scale).
-// Tuned by eye, not by PSNR/SSIM.
+// Perceptual masking: bias offset between the mid and flat/busy tiers
+// (0..255 scale). See ClassifyBlockActivity(). Tuned by eye, not PSNR/SSIM.
 #define ADAPTIVE_BIAS_DELTA 32
 
 void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias,
@@ -348,38 +348,50 @@ static int QuantizeBlock(const int16_t in[64], int idx,
 ////////////////////////////////////////////////////////////////////////////////
 // Adaptive-bias quantization ("poor man's trellis").
 //
-// Huffman codes (run, size), not the mantissa.
-// => only the 0-vs-1 survival edge is worth biasing: it decides whether a
-//    coefficient is coded at all, and changes the neighboring zero-run.
-//    Other power-of-two levels (2, 4, 8, ...) are bucket edges too, but
-//    are far too common to re-round without wrecking PSNR for little rate
-//    gain -- they get plain nearest-rounding, bit-exact to QuantizeBlock().
-//
-// * busy blocks: stricter survival threshold (masked, shorter zero-run)
-// * flat blocks: laxer threshold, floor survivors to level 1 (avoids banding)
+// Two independent ideas, kept separate below:
+// 1. Perceptual masking (ClassifyBlockActivity, ADAPTIVE_BIAS_DELTA in
+//    FinalizeQuantMatrix): busy blocks mask error well, so quantize them
+//    harder; flat blocks show banding easily, so protect them instead.
+// 2. Bit-cost-correct rounding (AdaptiveBiasQuantizeBlock): JPEG's Huffman
+//    code depends on (run, size), not the mantissa, so only the 0-vs-1
+//    survival edge is worth re-rounding -- it's the only decision that
+//    changes a coefficient's coded size. Every other coefficient is
+//    bit-exact to plain QuantizeBlock().
 
-// Activity thresholds (AC_BITS-scaled) for flat/normal/busy: set near the
-// 10th/90th percentile of per-block AC activity on real photos, so only
-// genuine outliers get retouched and most blocks match the plain path.
+// --- 1. perceptual masking: classify block activity into a tier ---
+
+enum BlockActivityTier { kFlatBlock = -1, kNormalBlock = 0, kBusyBlock = 1 };
+
+// Thresholds (AC_BITS-scaled) near the 10th/90th percentile of per-block AC
+// activity on real photos, so only genuine outliers get reclassified.
 // Heuristic, tune by eye (eval/ab_compare.py).
 #define ACTIVITY_LO (28 << AC_BITS)
 #define ACTIVITY_HI (360 << AC_BITS)
 
-int Encoder::AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
-                                       const Quantizer* const Q,
-                                       DCTCoeffs* const out,
-                                       RunLevel* const rl) {
+static BlockActivityTier ClassifyBlockActivity(const int16_t in[64]) {
   uint32_t activity = 0;
   for (int i = 1; i < 64; ++i) {
     const int v = in[i];
     activity += (v < 0) ? -v : v;
   }
-  // tier < 0: flat, tier > 0: busy, 0: normal (see block comment above).
-  const int8_t tier = (activity < ACTIVITY_LO) ? -1
-                     : (activity > ACTIVITY_HI) ? 1 : 0;
-  const uint16_t* const survive_thresh = (tier < 0) ? Q->qthresh_flat_
-                                        : (tier > 0) ? Q->qthresh_busy_
-                                                     : Q->qthresh_;
+  return (activity < ACTIVITY_LO) ? kFlatBlock
+       : (activity > ACTIVITY_HI) ? kBusyBlock
+                                   : kNormalBlock;
+}
+#undef ACTIVITY_LO
+#undef ACTIVITY_HI
+
+// --- 2. bit-cost-correct rounding, gated by the tier's survival test ---
+
+int Encoder::AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
+                                       const Quantizer* const Q,
+                                       DCTCoeffs* const out,
+                                       RunLevel* const rl) {
+  const BlockActivityTier tier = ClassifyBlockActivity(in);
+  const uint16_t* const survive_thresh =
+      (tier == kFlatBlock) ? Q->qthresh_flat_
+    : (tier == kBusyBlock) ? Q->qthresh_busy_
+                            : Q->qthresh_;
   const uint16_t* const bias = Q->bias_;      // always nearest-rounding
   const uint16_t* const qthresh = Q->qthresh_;  // mid survival test
   const uint16_t* const iquant = Q->iquant_;
@@ -409,11 +421,8 @@ int Encoder::AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
   out->idx_ = idx;
   out->last_ = prev - 1;
   out->nb_coeffs_ = nb;
-  out->bias_ = tier;
   return dc;
 }
-#undef ACTIVITY_LO
-#undef ACTIVITY_HI
 
 Encoder::QuantizeBlockFunc Encoder::GetActiveQuantizeBlockFunc() const {
   if (use_trellis_) return TrellisQuantizeBlock;
