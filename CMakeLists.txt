@@ -104,6 +104,7 @@ endif()
 
 if(SJPEG_HAVE_AVX2)
   target_sources(sjpeg PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/fdct_avx2.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/histogram_avx2.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize_avx2.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/riskiness_avx2.cc)
@@ -113,6 +114,7 @@ if(SJPEG_HAVE_AVX2)
     set(SJPEG_AVX2_FLAG "-mavx2")
   endif()
   set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/fdct_avx2.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/histogram_avx2.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize_avx2.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/riskiness_avx2.cc

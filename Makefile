@@ -105,6 +105,7 @@ endif
 
 
 ifeq ($(HAVE_AVX2), 1)
+SJPEG_OBJS += src/fdct_avx2.o
 SJPEG_OBJS += src/histogram_avx2.o
 SJPEG_OBJS += src/quantize_avx2.o
 SJPEG_OBJS += src/riskiness_avx2.o
@@ -227,6 +228,7 @@ DIST_FILES= \
          src/encoders.cc  \
          src/entropy.cc  \
          src/fdct.cc  \
+         src/fdct_avx2.cc  \
          src/headers.cc \
          src/histogram.cc  \
          src/histogram_avx2.cc  \
