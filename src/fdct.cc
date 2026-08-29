@@ -270,15 +270,18 @@ static const union {
 
 // DCT vertical pass
 
-static void ColumnDct_SSE2(int16_t* in) {
+// Not static: fdct_avx2.cc's tail-block (odd num_blocks) path calls this
+// directly, reusing this proven code instead of re-deriving a single-block
+// AVX2 path that would waste half its lanes.
+void ColumnDct_SSE2(int16_t* in) {
   __m128i m0, m1, m2, m3, m4, m5, m6, m7;
   COLUMN_DCT8(in);
 }
 
 // DCT horizontal pass
 
-static void RowDct_SSE2(int16_t* in, const __m128i* table1,
-                        const __m128i* table2) {
+void RowDct_SSE2(int16_t* in, const __m128i* table1,
+                 const __m128i* table2) {
   // load row [0123|4567] as [0123|7654]
   __m128i m0 =
       _mm_shufflehi_epi16(*reinterpret_cast<__m128i*>(in + 0 * 8), 0x1b);
@@ -623,7 +626,16 @@ static void FdctSSE2(int16_t* coeffs, int num_blocks) {
 }
 #endif  // SJPEG_USE_SSE2
 
+#if defined(SJPEG_HAVE_AVX2)
+// defined in fdct_avx2.cc, built separately with -mavx2 (see Makefile) so
+// this file itself doesn't need an AVX2 target.
+extern void FdctAVX2(int16_t* coeffs, int num_blocks);
+#endif
+
 FdctFunc GetFdct() {
+#if defined(SJPEG_HAVE_AVX2)
+  if (SupportsAVX2()) return FdctAVX2;
+#endif
 #if defined(SJPEG_USE_SSE2)
   if (SupportsSSE2()) return FdctSSE2;
 #elif defined(SJPEG_USE_NEON)
