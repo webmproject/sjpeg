@@ -61,7 +61,7 @@ struct TestRegistrar {
   }
 };
 
-#define TEST(Name)                                          \
+#define SJPEG_TEST(Name)                                    \
   void Test##Name();                                        \
   const TestRegistrar kRegister##Name(#Name, &Test##Name);  \
   void Test##Name()
@@ -106,7 +106,7 @@ bool HasSize(const std::string& jpg, int W, int H) {
          width == W && height == H;
 }
 
-// Only used by TEST(Progressive) below.
+// Only used by SJPEG_TEST(Progressive) below.
 #if !defined(SJPEG_NO_PROGRESSIVE)
 // Walks a JPEG bitstream's marker structure (without decoding entropy data)
 // and returns true if it's well-formed: starts with SOI, every marker's
@@ -152,7 +152,7 @@ bool CheckMarkerStructure(const std::string& jpg, int* sof_marker,
 // The sharp-YUV tables are built lazily: concurrent encoders must not race on
 // them, nor see one half-filled. Runs first, since they are only initialized
 // once per process and any earlier test would have done it already.
-TEST(Threads) {
+SJPEG_TEST(Threads) {
   const int W = 33, H = 21, kNumThreads = 8;
   const std::vector<uint8_t> rgb = MakeRGB(W, H);
   std::vector<std::string> out(kNumThreads);
@@ -171,7 +171,7 @@ TEST(Threads) {
   }
 }
 
-TEST(Compress) {
+SJPEG_TEST(Compress) {
   const int kWidth = 61, kHeight = 37;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   std::string out;
@@ -183,7 +183,7 @@ TEST(Compress) {
   SJPEG_CHECK(is_yuv420 == 0 || is_yuv420 == 1);
 }
 
-TEST(EncodeParams) {
+SJPEG_TEST(EncodeParams) {
   const int kWidth = 32, kHeight = 16;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   const SjpegYUVMode kModes[] = { SJPEG_YUV_AUTO, SJPEG_YUV_420,
@@ -205,7 +205,7 @@ TEST(EncodeParams) {
   SJPEG_CHECK(small.size() < large.size());
 }
 
-TEST(InvalidArguments) {
+SJPEG_TEST(InvalidArguments) {
   const int kWidth = 16, kHeight = 16;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   uint8_t* data = nullptr;
@@ -292,16 +292,16 @@ void CheckStrides(EncodeYUVFunc encode, int sub, int width, int height) {
 
 // 17x13 is odd in both directions: the chroma planes have a half sample in
 // the last row and column, on top of the clipped MCU.
-TEST(EncodeYUV420Strides) {
+SJPEG_TEST(EncodeYUV420Strides) {
   CheckStrides(&sjpeg::EncodeYUV420, 2, 20, 20);
   CheckStrides(&sjpeg::EncodeYUV420, 2, 17, 13);
 }
-TEST(EncodeYUV444Strides) {
+SJPEG_TEST(EncodeYUV444Strides) {
   CheckStrides(&sjpeg::EncodeYUV444, 1, 20, 20);
   CheckStrides(&sjpeg::EncodeYUV444, 1, 17, 13);
 }
 
-TEST(EncodeNV) {
+SJPEG_TEST(EncodeNV) {
   const int kWidth = 18, kHeight = 14;
   const int uv_h = (kHeight + 1) / 2, uv_stride = 2 * ((kWidth + 1) / 2);
   const std::vector<uint8_t> Y = MakePlane(kWidth, kHeight, 30);
@@ -359,7 +359,7 @@ const uint8_t* Last(const std::vector<uint8_t>& p, int row_size, int height) {
 // Only |stride| is validated: a negative stride is legal, and describes a
 // bottom-up buffer. It must encode exactly like the flipped picture does with
 // a positive one. 17x13 is odd both ways, so the last MCU clips too.
-TEST(NegativeStrides) {
+SJPEG_TEST(NegativeStrides) {
   const int W = 17, H = 13, uv_w = (W + 1) / 2, uv_h = (H + 1) / 2;
   const int uv_stride = 2 * uv_w;
   const sjpeg::EncoderParam p(78.f);
@@ -422,7 +422,7 @@ class TrackingMemory : public sjpeg::MemoryManager {
   std::vector<void*> live;
 };
 
-TEST(MemoryManager) {
+SJPEG_TEST(MemoryManager) {
   const int kWidth = 40, kHeight = 24;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   const SjpegYUVMode kModes[] = { SJPEG_YUV_420, SJPEG_YUV_SHARP,
@@ -442,7 +442,7 @@ TEST(MemoryManager) {
 
 // Dimensions are stored on 16 bits in the SOF marker. Anything larger must be
 // refused rather than silently truncated.
-TEST(LargeDimensions) {
+SJPEG_TEST(LargeDimensions) {
   const int kMaxDim = 0xffff, kSmallDim = 2;
   const std::vector<uint8_t> rgb(
       3 * static_cast<size_t>(kMaxDim + 1) * kSmallDim, 0x80);
@@ -481,7 +481,7 @@ class FailingMemory : public TrackingMemory {
 
 // An allocation failure must be reported, whatever the stage it occurs at,
 // without crashing and without leaking.
-TEST(AllocationFailure) {
+SJPEG_TEST(AllocationFailure) {
   const int kWidth = 51, kHeight = 33;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   const struct { sjpeg::EncoderParam::TargetMode mode; float value; } kTargets[]
@@ -505,7 +505,7 @@ TEST(AllocationFailure) {
   }
 }
 
-TEST(Dimensions) {
+SJPEG_TEST(Dimensions) {
   const int kWidth = 35, kHeight = 19;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   std::string jpg;
@@ -544,7 +544,7 @@ std::vector<uint8_t> MakeFlatRGB(int width, int height, int r, int g, int b) {
   return rgb;
 }
 
-TEST(Riskiness) {
+SJPEG_TEST(Riskiness) {
   const int kSizes[] = { 8, 16, 32, 64, 128, 400 };
   for (size_t s = 0; s < ARRAY_SIZE(kSizes); ++s) {
     const int size = kSizes[s];
@@ -589,7 +589,7 @@ TEST(Riskiness) {
 // against the requested value. SJPEG_YUV_400 writes a single quantization
 // matrix where the other modes write two: charging it for both (67 bytes)
 // makes the search settle on the wrong quality. SJPEG_YUV_420 is the control.
-TEST(TargetSize) {
+SJPEG_TEST(TargetSize) {
   const int W = 96, H = 64;
   const std::vector<uint8_t> rgb = MakeRGB(W, H);
   const SjpegYUVMode kModes[] = { SJPEG_YUV_400, SJPEG_YUV_420 };
@@ -636,7 +636,7 @@ class FailingSink : public sjpeg::ByteSink {
 
 // A sink that stops accepting data must be reported, not crash. This is what
 // a file sink running out of space looks like.
-TEST(SinkFailure) {
+SJPEG_TEST(SinkFailure) {
   const int kWidth = 32, kHeight = 32;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   bool seen_failure = false, seen_success = false;
@@ -654,7 +654,7 @@ TEST(SinkFailure) {
   SJPEG_CHECK(seen_success);
 }
 
-TEST(CompressionMethod) {
+SJPEG_TEST(CompressionMethod) {
   const int kWidth = 48, kHeight = 32;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   std::string out[11];
@@ -674,7 +674,7 @@ TEST(CompressionMethod) {
   SJPEG_CHECK(out[10] == out[9]);    //  9 -> 8
 }
 
-TEST(QuantMatrix) {
+SJPEG_TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
       uint8_t matrix[64];
@@ -698,7 +698,7 @@ TEST(QuantMatrix) {
 }
 
 #if !defined(SJPEG_NO_PROGRESSIVE)
-TEST(Progressive) {
+SJPEG_TEST(Progressive) {
   const int kWidth = 40, kHeight = 24;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
 
