@@ -179,14 +179,54 @@ static const double kThreshYU420 = 40.0;
 static const double kThreshSharpYU420 = 70.0;
 
 // Progressive refinement: score rows in bands spread in bit-reversed dispersed
-// order. Check score at pre-defined increasingly sparse check-points.
-// Equivalent to a sequential pass if there's no early-out (full coverage).
+// order. After *every* band, check whether the running estimate has settled
+// far enough from the decision cutoffs to stop early. Equivalent to a
+// sequential pass if there's no early-out (full coverage).
 static const int kBandHeight = 8;
-static const double kConfidenceMargin = 4.0;
-static const int kNumCheckpoints = 4;
-static const double kCheckpointFractions[kNumCheckpoints + 1] = {
-  0.05, 0.15, 0.30, 0.50, /*sentinel*/1.0
+
+// Running std-dev over the last kWindowSize pushed values, used to size how
+// far from a cutoff a metric must sit before it's trusted as "settled".
+class MovingWindow {
+ public:
+  MovingWindow() = default;
+  // Pushes 'value' and returns the resulting margin: HUGE_VAL until the
+  // window is full, else z_score * std-dev (floored at margin_floor).
+  double Push(double value, double z_score, double margin_floor) {
+    if (count_ == kWindowSize) {
+      const double old = values_[next_];
+      sum_ -= old;
+      sumsq_ -= old * old;
+    } else {
+      ++count_;
+    }
+    values_[next_] = value;
+    sum_ += value;
+    sumsq_ += value * value;
+    next_ = (next_ + 1) % kWindowSize;
+
+    if (count_ < kWindowSize) return HUGE_VAL;
+    const double mean = sum_ / count_;
+    const double variance = sumsq_ / count_ - mean * mean;
+    const double margin = z_score * sqrt((variance > 0.) ? variance : 0.);
+    return (margin > margin_floor) ? margin : margin_floor;
+  }
+
+ private:
+  static constexpr int kWindowSize = 32;
+  double values_[kWindowSize] = {};
+  double sum_ = 0., sumsq_ = 0.;
+  int count_ = 0, next_ = 0;
 };
+
+// gray_count's floor is 100x smaller than frac's: it's on a 0-1 scale here,
+// not 0-100.
+static const double kFracCutoff = 1.0;  // percent, 0-100 scale
+static const double kFracZScore = 8.0;
+static const double kFracMarginFloor = 0.1;  // percentage points
+static const double kGrayZScore = 8.0;
+static const double kGrayMarginFloor = 0.001;
+static const double kScoreZScore = 5.0;
+static const double kScoreMarginFloor = 2.0;
 
 // reverses the low 'bits' bits of v, bits in [0, 16]
 static int BitReversal16b(int v, int bits) {
@@ -210,8 +250,12 @@ extern int RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
 }  // namespace sjpeg
 #endif
 
-SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
-                            int width, int height, int stride, float* risk) {
+// if 'full_scan' is true, the progressive early-exit is disabled and every
+// band gets scored -- used only to produce a before/after reference for
+// evaluation, not exposed in the public API.
+static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
+                                  int width, int height, int stride,
+                                  float* risk, bool full_scan) {
   const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
 #if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
   const bool use_avx2_riskiness = sjpeg::SupportsAVX2();
@@ -232,7 +276,8 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
   int64_t rows_scored = 0;  // number of true adjacent row-pairs scored so far
 
   // derives best recommendation from the accumulators collected so far
-  const auto Finalize = [&](float* const risk_out) -> SjpegYUVMode {
+  const auto Finalize = [&](float* const risk_out, double* const gray_count_out,
+                             double* const frac_out) -> SjpegYUVMode {
     const double count = (double)score_num;
     double gray_count = (double)gray_num;
     double total_score = (count > 0) ? score_sum / count : 0.;
@@ -243,7 +288,8 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
     // pixels evaluated, scaled by how many rows were actually scored
     const double effective_area = (rows_scored > 0)
         ? (double)width * height * rows_scored / (height - 1.) : 0.;
-    // if less than 1% of pixels were evaluated -> below noise level.
+    // fraction of scored samples that are above the noise level; if that's
+    // less than 1%, there's not enough signal yet to trust total_score.
     const double frac =
         (effective_area > 0.) ? 100. * count / effective_area : 0.;
     if (frac < 1.) total_score = 0.;
@@ -251,6 +297,8 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
     // recommendation (TODO(skal): tune thresholds)
     total_score = (total_score > 25.) ? 100. : total_score * 100. / 25.;
     if (risk_out != nullptr) *risk_out = (float)total_score;
+    if (gray_count_out != nullptr) *gray_count_out = gray_count;
+    if (frac_out != nullptr) *frac_out = frac;
     return (gray_count > kThreshGray) ?        SJPEG_YUV_400 :
            (total_score < kThreshYU420) ?      SJPEG_YUV_420 :
            (total_score < kThreshSharpYU420) ? SJPEG_YUV_SHARP :
@@ -293,10 +341,9 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
     }
   };
 
-  int next_checkpoint = 0;
-  int target = (int)ceil(kCheckpointFractions[next_checkpoint] * num_bands);
   int cursor = 0;  // walks bit-reversed indices in [0, 1<<bits), skipping
                    // the ones larger than num_bands
+  MovingWindow frac_trend, gray_trend, score_trend;
 
   for (int k = 0; k < num_bands; ++k) {
     int band;
@@ -316,23 +363,46 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
       ++rows_scored;
     }
 
-    if (k >= target) {
-      float candidate_risk;
-      const SjpegYUVMode candidate_mode = Finalize(&candidate_risk);
-      // never trust an early gray verdict: unlike 420/SHARP/444
-      // YUV400 discards chroma directly. Don't let a local flat gray area
-      // derail the estimation!
-      if (candidate_mode != SJPEG_YUV_400 &&
-          fabs(candidate_risk - kThreshYU420) >= kConfidenceMargin &&
-          fabs(candidate_risk - kThreshSharpYU420) >= kConfidenceMargin) {
+    float candidate_risk;
+    double gray_count, frac;
+    const SjpegYUVMode candidate_mode =
+        Finalize(&candidate_risk, &gray_count, &frac);
+    const double frac_margin =
+        frac_trend.Push(frac, kFracZScore, kFracMarginFloor);
+    const double gray_margin =
+        gray_trend.Push(gray_count, kGrayZScore, kGrayMarginFloor);
+    const double score_margin =
+        score_trend.Push(candidate_risk, kScoreZScore, kScoreMarginFloor);
+    // Priority-aware exit: frac settled first (else total_score isn't a
+    // real read yet), then gray_count settled high wins outright, else
+    // gray_count must be settled *low* before trusting total_score.
+    if (!full_scan && frac - kFracCutoff >= frac_margin) {
+      if (gray_count - kThreshGray >= gray_margin) {
+        if (risk != nullptr) *risk = candidate_risk;
+        return SJPEG_YUV_400;
+      }
+      if (kThreshGray - gray_count >= gray_margin &&
+          fabs(candidate_risk - kThreshYU420) >= score_margin &&
+          fabs(candidate_risk - kThreshSharpYU420) >= score_margin) {
         if (risk != nullptr) *risk = candidate_risk;
         return candidate_mode;
       }
-      ++next_checkpoint;
-      target = (int)ceil(kCheckpointFractions[next_checkpoint] * num_bands);
     }
   }
-  return Finalize(risk);
+  return Finalize(risk, /*gray_count_out=*/nullptr, /*frac_out=*/nullptr);
+}
+
+SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
+                            int width, int height, int stride, float* risk) {
+  return RiskinessImpl(rgb, width, height, stride, risk, /*full_scan=*/false);
+}
+
+// internal-only entry point for before/after evaluation, not declared in the
+// public header.
+SjpegYUVMode SjpegRiskinessFullForEval(const uint8_t* rgb,
+                                       int width, int height, int stride,
+                                       float* risk) {
+  return RiskinessImpl(rgb, width, height, stride, risk, /*full_scan=*/true);
 }
 
 namespace sjpeg {
