@@ -143,10 +143,7 @@ static void InitGammaTablesF() {
       } else {
         value = (1. + a) * pow(g, 1. / gamma) - a;
       }
-      // we already incorporate the 1/2 rounding constant here
-      kLinearToGammaTab[v] =
-          static_cast<uint32_t>(MAX_Y_T * value)
-            + (1 << GAMMA_TO_LINEAR_BITS >> 1);
+      kLinearToGammaTab[v] = static_cast<uint32_t>(MAX_Y_T * value);
     }
     // to prevent small rounding errors to cause read-overflow:
     kLinearToGammaTab[GAMMA_TABLE_SIZE + 1] =
@@ -158,10 +155,7 @@ static void InitGammaTablesF() {
 // (used by yuv_convert_avx2.cc too)
 uint32_t GammaToLinear(int v) { return kGammaToLinearTab[v]; }
 
-// TODO(skal): return range is currently [8192, 9215], and not [0, MAX_Y_T]!
-// => kLinearToGammaTab[] bakes the rounding bias into the entries.
-// It's ok since we're only using diffs of these, but it's a ticking bomb.
-// TODO(skal): remove the +8192 offset.
+// return value is in [0, MAX_Y_T]
 uint32_t LinearToGamma(uint32_t value) {
   // 'value' is in GAMMA_TO_LINEAR_BITS fractional precision
   const uint32_t v = value * GAMMA_TABLE_SIZE;
@@ -171,7 +165,7 @@ uint32_t LinearToGamma(uint32_t value) {
   // v0 / v1 are in GAMMA_TO_LINEAR_BITS fixed-point precision (range [0..1])
   const uint32_t v0 = kLinearToGammaTab[tab_pos + 0];
   const uint32_t v1 = kLinearToGammaTab[tab_pos + 1];
-  // Final interpolation. Note that rounding is already included.
+  // Final interpolation.
   const uint32_t v2 = (v1 - v0) * x;    // note: v1 >= v0.
   const uint32_t result = v0 + (v2 >> GAMMA_TO_LINEAR_BITS);
   return result;
