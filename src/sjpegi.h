@@ -262,7 +262,13 @@ struct Quantizer {
   uint8_t min_quant_[64];  // min quantizer value allowed
   uint16_t iquant_[64];    // precalc'd reciprocal for divisor
   uint16_t qthresh_[64];   // minimal absolute value that produce non-zero coeff
-  uint16_t bias_[64];      // bias, for coring
+  uint16_t bias_[64];      // bias, for coring (default / mid tier)
+  // Alternate survival thresholds for adaptive-bias mode.
+  // * qthresh_busy_ (> qthresh_): kills more near-zero AC coeffs
+  // * qthresh_flat_ (< qthresh_): protects them
+  // See Encoder::AdaptiveBiasQuantizeBlock.
+  uint16_t qthresh_flat_[64];
+  uint16_t qthresh_busy_[64];
   const uint32_t* codes_;  // codes for bit-cost calculation
 };
 
@@ -279,7 +285,6 @@ struct DCTCoeffs {
   int16_t nb_coeffs_;  // total number of non-zero AC coeffs
   uint16_t dc_code_;   // DC code (4bits for length, 12bits for suffix)
   int8_t idx_;         // component idx
-  int8_t bias_;        // perceptual bias
 };
 
 // Histogram of transform coefficients, for adaptive quant matrices
@@ -458,6 +463,14 @@ struct Encoder {
                                   DCTCoeffs* const out,
                                   RunLevel* const rl);
 
+  static int AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
+                                       const Quantizer* const Q,
+                                       DCTCoeffs* const out,
+                                       RunLevel* const rl);
+
+  // Picks quantize_block_ / TrellisQuantizeBlock / AdaptiveBiasQuantizeBlock.
+  QuantizeBlockFunc GetActiveQuantizeBlockFunc() const;
+
   typedef uint32_t (*QuantizeErrorFunc)(const int16_t in[64],
                                         const Quantizer* const Q);
   static QuantizeErrorFunc quantize_error_;
@@ -467,7 +480,7 @@ struct Encoder {
   // returns DC code (4bits for length, 12bits for suffix), updates DC_predictor
   static uint16_t GenerateDCDiffCode(int DC, int* const DC_predictor);
 
-  static void FinalizeQuantMatrix(Quantizer* const q, int bias);
+  static void FinalizeQuantMatrix(Quantizer* const q, int bias, bool adaptive);
   void SetCostCodes(int idx);
   void InitCodes(bool only_ac);
 
