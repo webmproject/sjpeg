@@ -188,7 +188,7 @@ static const int kBandHeight = 8;
 // far from a cutoff a metric must sit before it's trusted as "settled".
 class MovingWindow {
  public:
-  MovingWindow() { memset(values_, 0, sizeof(values_)); }
+  MovingWindow() = default;
   // Pushes 'value' and returns the resulting margin: HUGE_VAL until the
   // window is full, else z_score * std-dev (floored at margin_floor).
   double Push(double value, double z_score, double margin_floor) {
@@ -212,8 +212,8 @@ class MovingWindow {
   }
 
  private:
-  static const int kWindowSize = 32;
-  double values_[kWindowSize];
+  static constexpr int kWindowSize = 32;
+  double values_[kWindowSize] = {};
   double sum_ = 0., sumsq_ = 0.;
   int count_ = 0, next_ = 0;
 };
@@ -254,8 +254,8 @@ extern int RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
 // band gets scored -- used only to produce a before/after reference for
 // evaluation, not exposed in the public API.
 static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
-                                   int width, int height, int stride,
-                                   float* risk, bool full_scan) {
+                                  int width, int height, int stride,
+                                  float* risk, bool full_scan) {
   const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
 #if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
   const bool use_avx2_riskiness = sjpeg::SupportsAVX2();
@@ -389,7 +389,7 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
       }
     }
   }
-  return Finalize(risk, nullptr, nullptr);
+  return Finalize(risk, /*gray_count_out=*/nullptr, /*frac_out=*/nullptr);
 }
 
 SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
@@ -400,8 +400,8 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
 // internal-only entry point for before/after evaluation, not declared in the
 // public header.
 SjpegYUVMode SjpegRiskinessFullForEval(const uint8_t* rgb,
-                                        int width, int height, int stride,
-                                        float* risk) {
+                                       int width, int height, int stride,
+                                       float* risk) {
   return RiskinessImpl(rgb, width, height, stride, risk, /*full_scan=*/true);
 }
 
