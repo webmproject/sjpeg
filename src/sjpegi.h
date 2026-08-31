@@ -55,9 +55,12 @@
 #endif
 
 // Experimental: gather-based AVX2 riskiness scoring (src/riskiness_avx2.cc).
-// Off by default -- gather throughput is poor on first-gen AVX2 hardware
-// (Haswell/Broadwell), needs real measurement before it's on by default.
+// Off by default (gather throughput is erratic on early AVX2 hardware)
 // #define SJPEG_USE_AVX2_RISKINESS
+
+// Gather-based AVX2 variant of the Sharp RGB->YUV gamma-table lookups
+// Bit-exact with C-variant, ~1.15x faster.
+#define SJPEG_USE_AVX2_YUV_GATHER
 
 #if defined(__ARM_NEON__) || defined(__aarch64__)
 #define SJPEG_USE_NEON
@@ -151,6 +154,10 @@ bool ApplySharpYUVConversion(const uint8_t* const rgb,
                              uint8_t* y_plane,
                              uint8_t* u_plane,
                              uint8_t* v_plane);
+
+// Shared by yuv_convert.cc and yuv_convert_avx2.cc.
+typedef int16_t fixed_t;
+typedef uint16_t fixed_y_t;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Generic sample-replication function. Replicate sub_w x sub_h area of 'src'

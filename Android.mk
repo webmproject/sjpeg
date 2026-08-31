@@ -56,7 +56,8 @@ ifneq ($(filter x86 x86_64, $(TARGET_ARCH_ABI)),)
   ifeq ($(SJPEG_HAVE_AVX2),1)
     include $(CLEAR_VARS)
     LOCAL_SRC_FILES := src/fdct_avx2.cc src/histogram_avx2.cc \
-                       src/quantize_avx2.cc src/riskiness_avx2.cc
+                       src/quantize_avx2.cc src/riskiness_avx2.cc \
+                       src/yuv_convert_avx2.cc
     LOCAL_CFLAGS := $(SJPEG_CFLAGS) -mavx2
     LOCAL_C_INCLUDES += $(LOCAL_PATH)/src
     LOCAL_MODULE := sjpeg_avx2

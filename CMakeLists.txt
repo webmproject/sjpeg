@@ -107,7 +107,8 @@ if(SJPEG_HAVE_AVX2)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/fdct_avx2.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/histogram_avx2.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize_avx2.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/riskiness_avx2.cc)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/riskiness_avx2.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/yuv_convert_avx2.cc)
   if(MSVC)
     set(SJPEG_AVX2_FLAG "/arch:AVX2")
   else()
@@ -118,6 +119,7 @@ if(SJPEG_HAVE_AVX2)
     ${CMAKE_CURRENT_SOURCE_DIR}/src/histogram_avx2.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize_avx2.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/riskiness_avx2.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/yuv_convert_avx2.cc
     PROPERTIES COMPILE_OPTIONS "${SJPEG_AVX2_FLAG}"
   )
   # PUBLIC: unit_test / sjpeg-bin link against 'sjpeg' and need to see the
