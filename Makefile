@@ -109,6 +109,7 @@ SJPEG_OBJS += src/fdct_avx2.o
 SJPEG_OBJS += src/histogram_avx2.o
 SJPEG_OBJS += src/quantize_avx2.o
 SJPEG_OBJS += src/riskiness_avx2.o
+SJPEG_OBJS += src/yuv_convert_avx2.o
 endif
 
 UTILS_OBJS = \
@@ -242,6 +243,7 @@ DIST_FILES= \
          src/sjpeg.h  \
          src/sjpegi.h  \
          src/yuv_convert.cc \
+         src/yuv_convert_avx2.cc \
          man/sjpeg.1  \
          man/vjpeg.1  \
          examples/Android.mk  \

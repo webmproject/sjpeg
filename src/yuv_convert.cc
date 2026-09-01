@@ -38,8 +38,6 @@ namespace sjpeg {
 #define SFIX 2                // fixed-point precision of RGB and Y/W
 #define SHALF (1 << SFIX >> 1)
 #define MAX_Y_T ((256 << SFIX) - 1)
-typedef int16_t fixed_t;      // signed type with extra SFIX precision for UV
-typedef uint16_t fixed_y_t;   // unsigned type with extra SFIX precision for W
 
 static fixed_y_t clip_y(int y) {
   return (!(y & ~MAX_Y_T)) ? (fixed_y_t)y : (y < 0) ? 0 : MAX_Y_T;
@@ -111,9 +109,9 @@ static const int kMinDimensionIterativeConversion = 4;
 
 // size of the interpolation table for linear-to-gamma
 #define GAMMA_TABLE_SIZE 32
-static uint32_t kLinearToGammaTab[GAMMA_TABLE_SIZE + 2];
+uint32_t kLinearToGammaTab[GAMMA_TABLE_SIZE + 2];
 #define GAMMA_TO_LINEAR_BITS 14
-static uint32_t kGammaToLinearTab[MAX_Y_T + 1];   // size scales with Y_FIX
+uint32_t kGammaToLinearTab[MAX_Y_T + 1];   // size scales with Y_FIX
 
 static void InitGammaTablesF() {
   static std::once_flag once;
@@ -157,9 +155,14 @@ static void InitGammaTablesF() {
 }
 
 // return value has a fixed-point precision of GAMMA_TO_LINEAR_BITS
-static uint32_t GammaToLinear(int v) { return kGammaToLinearTab[v]; }
+// (used by yuv_convert_avx2.cc too)
+uint32_t GammaToLinear(int v) { return kGammaToLinearTab[v]; }
 
-static uint32_t LinearToGamma(uint32_t value) {
+// TODO(skal): return range is currently [8192, 9215], and not [0, MAX_Y_T]!
+// => kLinearToGammaTab[] bakes the rounding bias into the entries.
+// It's ok since we're only using diffs of these, but it's a ticking bomb.
+// TODO(skal): remove the +8192 offset.
+uint32_t LinearToGamma(uint32_t value) {
   // 'value' is in GAMMA_TO_LINEAR_BITS fractional precision
   const uint32_t v = value * GAMMA_TABLE_SIZE;
   const uint32_t tab_pos = v >> GAMMA_TO_LINEAR_BITS;
@@ -404,12 +407,26 @@ static void SharpFilterRow_NEON(const int16_t* A, const int16_t* B, int len,
 
 #endif    // SJPEG_USE_NEON
 
+// forward decls for InitFunctionPointers() below
+static void UpdateW(const fixed_y_t* src, fixed_y_t* dst, int w);
+static void UpdateChroma(const fixed_y_t* src1, const fixed_y_t* src2,
+                         fixed_t* dst, size_t uv_w);
+
 static uint64_t (*kSharpUpdateY)(const uint16_t* src, const uint16_t* ref,
                                  uint16_t* dst, int len);
 static void (*kSharpUpdateRGB)(const int16_t* src, const int16_t* ref,
                                int16_t* dst, int len);
 static void (*kSharpFilterRow)(const int16_t* A, const int16_t* B,
                                int len, const uint16_t* best_y, uint16_t* out);
+static void (*kUpdateW)(const fixed_y_t* src, fixed_y_t* dst, int w);
+static void (*kUpdateChroma)(const fixed_y_t* src1, const fixed_y_t* src2,
+                             fixed_t* dst, size_t uv_w);
+
+#if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_YUV_GATHER)
+extern void UpdateW_AVX2(const fixed_y_t* src, fixed_y_t* dst, int w);
+extern void UpdateChroma_AVX2(const fixed_y_t* src1, const fixed_y_t* src2,
+                               fixed_t* dst, size_t uv_w);
+#endif
 
 static void InitFunctionPointers() {
   static std::once_flag once;
@@ -417,6 +434,8 @@ static void InitFunctionPointers() {
     kSharpUpdateY = SharpUpdateY_C;
     kSharpUpdateRGB = SharpUpdateRGB_C;
     kSharpFilterRow = SharpFilterRow_C;
+    kUpdateW = UpdateW;
+    kUpdateChroma = UpdateChroma;
 #if defined(SJPEG_USE_SSE2)
     if (sjpeg::SupportsSSE2()) {
       kSharpUpdateY = SharpUpdateY_SSE2;
@@ -431,17 +450,23 @@ static void InitFunctionPointers() {
       kSharpFilterRow = SharpFilterRow_NEON;
     }
 #endif
+#if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_YUV_GATHER)
+    if (sjpeg::SupportsAVX2()) {
+      kUpdateW = UpdateW_AVX2;
+      kUpdateChroma = UpdateChroma_AVX2;
+    }
+#endif
   });
 }
 
 //------------------------------------------------------------------------------
 
-static uint32_t RGBToGray(uint32_t r, uint32_t g, uint32_t b) {
+uint32_t RGBToGray(uint32_t r, uint32_t g, uint32_t b) {
   const uint32_t luma = 13933 * r + 46871 * g + 4732 * b + (1u << YUV_FIX >> 1);
   return (luma >> YUV_FIX);
 }
 
-static uint32_t ScaleDown(int a, int b, int c, int d) {
+uint32_t ScaleDown(int a, int b, int c, int d) {
   const uint32_t A = GammaToLinear(a);
   const uint32_t B = GammaToLinear(b);
   const uint32_t C = GammaToLinear(c);
@@ -646,9 +671,9 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
     }
     StoreGray(src1, &best_y[y_off + 0], w);
     StoreGray(src2, &best_y[y_off + w], w);
-    UpdateW(src1, &target_y[y_off + 0], w);
-    UpdateW(src2, &target_y[y_off + w], w);
-    UpdateChroma(src1, src2, &target_uv[uv_off], uv_w);
+    kUpdateW(src1, &target_y[y_off + 0], w);
+    kUpdateW(src2, &target_y[y_off + w], w);
+    kUpdateChroma(src1, src2, &target_uv[uv_off], uv_w);
     memcpy(&best_uv[uv_off], &target_uv[uv_off], 3 * uv_w * sizeof(best_uv[0]));
   }
 
@@ -669,9 +694,9 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
       prev_uv = cur_uv;
       cur_uv = next_uv;
 
-      UpdateW(src1, &best_rgb_y[0 * w], (int)w);
-      UpdateW(src2, &best_rgb_y[1 * w], (int)w);
-      UpdateChroma(src1, src2, &best_rgb_uv[0], (int)uv_w);
+      kUpdateW(src1, &best_rgb_y[0 * w], (int)w);
+      kUpdateW(src2, &best_rgb_y[1 * w], (int)w);
+      kUpdateChroma(src1, src2, &best_rgb_uv[0], (int)uv_w);
 
       // update two rows of Y and one row of RGB
       diff_y_sum += kSharpUpdateY(&target_y[y_off], &best_rgb_y[0],
