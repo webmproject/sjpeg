@@ -423,9 +423,9 @@ static void (*kUpdateChroma)(const fixed_y_t* src1, const fixed_y_t* src2,
                              fixed_t* dst, size_t uv_w);
 
 #if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_YUV_GATHER)
-extern void UpdateWAVX2(const fixed_y_t* src, fixed_y_t* dst, int w);
-extern void UpdateChromaAVX2(const fixed_y_t* src1, const fixed_y_t* src2,
-                             fixed_t* dst, size_t uv_w);
+extern void UpdateW_AVX2(const fixed_y_t* src, fixed_y_t* dst, int w);
+extern void UpdateChroma_AVX2(const fixed_y_t* src1, const fixed_y_t* src2,
+                               fixed_t* dst, size_t uv_w);
 #endif
 
 static void InitFunctionPointers() {
@@ -452,8 +452,8 @@ static void InitFunctionPointers() {
 #endif
 #if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_YUV_GATHER)
     if (sjpeg::SupportsAVX2()) {
-      kUpdateW = UpdateWAVX2;
-      kUpdateChroma = UpdateChromaAVX2;
+      kUpdateW = UpdateW_AVX2;
+      kUpdateChroma = UpdateChroma_AVX2;
     }
 #endif
   });

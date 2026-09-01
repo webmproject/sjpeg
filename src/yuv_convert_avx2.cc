@@ -62,7 +62,7 @@ static inline __m256i LinearToGamma8(__m256i value) {
 }
 
 static inline __m256i RGBToGray8(__m256i r, __m256i g, __m256i b) {
-  const __m256i round = _mm256_set1_epi32(1 << 16 >> 1);
+  const __m256i round = _mm256_set1_epi32(1 << 15);
   const __m256i rr = _mm256_mullo_epi32(r, _mm256_set1_epi32(13933));
   const __m256i gg = _mm256_mullo_epi32(g, _mm256_set1_epi32(46871));
   const __m256i bb = _mm256_mullo_epi32(b, _mm256_set1_epi32(4732));
@@ -88,7 +88,7 @@ static inline void Store8TruncTo16(void* p, __m256i v) {
 
 //------------------------------------------------------------------------------
 
-void UpdateWAVX2(const fixed_y_t* src, fixed_y_t* dst, int w) {
+void UpdateW_AVX2(const fixed_y_t* src, fixed_y_t* dst, int w) {
   int i = 0;
   for (; i + 8 <= w; i += 8) {
     const __m256i R = GammaToLinear8(Load8U16AsI32(src + 0 * w + i));
@@ -134,8 +134,8 @@ static inline __m256i ScaleDownChannel8(const fixed_y_t* src1,
   return ScaleDown8(a1, b1, a2, b2);
 }
 
-void UpdateChromaAVX2(const fixed_y_t* src1, const fixed_y_t* src2,
-                      fixed_t* dst, size_t uv_w) {
+void UpdateChroma_AVX2(const fixed_y_t* src1, const fixed_y_t* src2,
+                        fixed_t* dst, size_t uv_w) {
   size_t i = 0;
   for (; i + 8 <= uv_w; i += 8, dst += 8, src1 += 16, src2 += 16) {
     const __m256i r = ScaleDownChannel8(src1, src2, 0 * uv_w);
