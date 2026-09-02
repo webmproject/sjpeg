@@ -22,10 +22,10 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <assert.h>
+
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
-
-#include <assert.h>
 
 #if defined(SJPEG_USE_AVX2)
 
