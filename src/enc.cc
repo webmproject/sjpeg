@@ -203,6 +203,13 @@ bool SupportsNEON() {
 bool SupportsAVX2() {
   if (ForceSlowCImplementation) return false;
 #if defined(SJPEG_HAVE_AVX2) && (defined(__i386__) || defined(__x86_64__))
+#if defined(__clang__) && defined(_MSC_VER)
+#if defined(__x86_64__)
+#pragma comment(lib, "clang_rt.builtins-x86_64.lib")
+#else
+#pragma comment(lib, "clang_rt.builtins-i386.lib")
+#endif
+#endif
   __builtin_cpu_init();
   return __builtin_cpu_supports("avx2") != 0;
 #else
