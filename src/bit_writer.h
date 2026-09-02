@@ -166,14 +166,14 @@ class BitWriter {
 #if defined(SJPEG_HAVE_64BIT)
   // Flush whole bytes out of the accumulator.
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
-  // calling this function. Fast path stores 8 bytes whatever the number pending,
-  // so up to 7 past byte_pos_ get clobbered; next flush rewrites them, and the
-  // asserts check the room.
+  // calling this function. Fast path stores 8 bytes whatever the number
+  // pending, so up to 7 past byte_pos_ get clobbered; next flush rewrites
+  // them, and the asserts check the room.
   void FlushBits() {
     const int nb_bytes = nb_bits_ >> 3;
     if (nb_bytes == 0) return;
-    // Tested on accumulator, not on stored bytes: pending bytes are the top ones
-    // of bits_ whatever the host's byte order.
+    // Tested on accumulator, not on stored bytes: pending bytes are the top
+    // ones of bits_ whatever the host's byte order.
     const uint64_t mask = (~0ull) << (64 - 8 * nb_bytes);
     if (!HasFF(bits_ & mask)) {            // common case: nothing to escape
       // Stores 8 bytes whatever the number pending, so it needs 8 in hand.

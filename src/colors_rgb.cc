@@ -576,7 +576,8 @@ static void RGBA32PackedToPlanar(const uint8_t* const rgba, int16x8_t* const r,
   *b = vreinterpretq_s16_u16(vmovl_u8(in.val[2]));
 }
 
-typedef void (*UnpackFuncNEON)(const uint8_t*, int16x8_t*, int16x8_t*, int16x8_t*);
+typedef void (*UnpackFuncNEON)(const uint8_t*, int16x8_t*, int16x8_t*,
+                               int16x8_t*);
 
 template <UnpackFuncNEON PackedToPlanar>
 static inline void Get8x8Block_NEON_Impl(const uint8_t* data, int step,

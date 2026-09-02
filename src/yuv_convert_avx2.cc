@@ -120,7 +120,8 @@ static inline __m256i ScaleDown8(__m256i a, __m256i b, __m256i c, __m256i d) {
   const __m256i B = GammaToLinear8(b);
   const __m256i C = GammaToLinear8(c);
   const __m256i D = GammaToLinear8(d);
-  __m256i sum = _mm256_add_epi32(_mm256_add_epi32(A, B), _mm256_add_epi32(C, D));
+  __m256i sum =
+      _mm256_add_epi32(_mm256_add_epi32(A, B), _mm256_add_epi32(C, D));
   sum = _mm256_srli_epi32(_mm256_add_epi32(sum, _mm256_set1_epi32(2)), 2);
   return LinearToGamma8(sum);
 }
