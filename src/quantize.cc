@@ -361,10 +361,10 @@ static bool SearchBestPrev(const TrellisNode* const nodes0, TrellisNode* node,
     uint32_t bits = node->nbits;
     bits += (run >> 4) * (codes[0xf0] & 0xff);
     const uint32_t disto = base_disto - disto0[cur->pos];
-    // Exact early-out: walking back towards the sink only grows the run, so both
-    // disto and the ZRL part of bits are monotone here, and the two terms left
-    // out -- symbol's code length and cur->score -- are non-negative. Once the
-    // bound reaches the incumbent, nothing left can win.
+    // Exact early-out: walking back towards the sink only grows the run, so
+    // both disto and the ZRL part of bits are monotone here, and the two terms
+    // left out -- symbol's code length and cur->score -- are non-negative.
+    // Once the bound reaches the incumbent, nothing left can win.
     if (disto + lambda * bits >= node->score) break;
     const uint32_t sym = ((run & 15) << 4) | node->nbits;
     assert(codes[sym] != 0);
