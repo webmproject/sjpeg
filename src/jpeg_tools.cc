@@ -190,8 +190,10 @@ class MovingWindow {
  public:
   MovingWindow() = default;
   // Pushes 'value' and returns the resulting margin: HUGE_VAL until the
-  // window is full, else z_score * std-dev (floored at margin_floor).
-  double Push(double value, double z_score, double margin_floor) {
+  // window is full, else z_score * std-dev (floored at min_margin).
+  // 'min_margin' guards against a near-zero std-dev falsely reading as
+  // confident when 'value' still sits close to its cutoff.
+  double Push(double value, double z_score, double min_margin) {
     if (count_ == kWindowSize) {
       const double old = values_[next_];
       sum_ -= old;
@@ -208,7 +210,7 @@ class MovingWindow {
     const double mean = sum_ / count_;
     const double variance = sumsq_ / count_ - mean * mean;
     const double margin = z_score * sqrt((variance > 0.) ? variance : 0.);
-    return (margin > margin_floor) ? margin : margin_floor;
+    return (margin > min_margin) ? margin : min_margin;
   }
 
  private:
@@ -222,11 +224,12 @@ class MovingWindow {
 // not 0-100.
 static const double kFracCutoff = 1.0;  // percent, 0-100 scale
 static const double kFracZScore = 8.0;
-static const double kFracMarginFloor = 0.1;  // percentage points
+static const double kFracMinMargin = 0.1;  // percentage points
 static const double kGrayZScore = 8.0;
-static const double kGrayMarginFloor = 0.001;
+static const double kGrayMinMargin = 0.001;
 static const double kScoreZScore = 5.0;
-static const double kScoreMarginFloor = 2.0;
+static const double kScoreMinMargin = 2.0;
+static const double kMaxScore = 25.0;
 
 // reverses the low 'bits' bits of v, bits in [0, 16]
 static int BitReversal16b(int v, int bits) {
@@ -295,7 +298,8 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
     if (frac < 1.) total_score = 0.;
 
     // recommendation (TODO(skal): tune thresholds)
-    total_score = (total_score > 25.) ? 100. : total_score * 100. / 25.;
+    total_score =
+        (total_score > kMaxScore) ? 100. : total_score * 100. / kMaxScore;
     if (risk_out != nullptr) *risk_out = (float)total_score;
     if (gray_count_out != nullptr) *gray_count_out = gray_count;
     if (frac_out != nullptr) *frac_out = frac;
@@ -352,9 +356,9 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
       ++cursor;
     } while (band >= num_bands);
     int j = band * kBandHeight;  // current row
-    const int last_band = std::min(j + 1 + kBandHeight, height);
+    const int last_row = std::min(j + 1 + kBandHeight, height);
     cvrt_func(rgb + (size_t)j * stride, width, &row1[0]);
-    while (++j < last_band) {
+    while (++j < last_row) {
       // note: cvrt_func() is called height/kBandHeight times too much,
       // but that's ok
       cvrt_func(rgb + (size_t)j * stride, width, &row2[0]);
@@ -368,11 +372,11 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
     const SjpegYUVMode candidate_mode =
         Finalize(&candidate_risk, &gray_count, &frac);
     const double frac_margin =
-        frac_trend.Push(frac, kFracZScore, kFracMarginFloor);
+        frac_trend.Push(frac, kFracZScore, kFracMinMargin);
     const double gray_margin =
-        gray_trend.Push(gray_count, kGrayZScore, kGrayMarginFloor);
+        gray_trend.Push(gray_count, kGrayZScore, kGrayMinMargin);
     const double score_margin =
-        score_trend.Push(candidate_risk, kScoreZScore, kScoreMarginFloor);
+        score_trend.Push(candidate_risk, kScoreZScore, kScoreMinMargin);
     // Priority-aware exit: frac settled first (else total_score isn't a
     // real read yet), then gray_count settled high wins outright, else
     // gray_count must be settled *low* before trusting total_score.
