@@ -15,6 +15,7 @@
 //  Unit tests for the library's API. Usage:
 //     ./unit_test [test-name]...
 
+#include <assert.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -25,6 +26,7 @@
 #include <thread>  // NOLINT
 #include <vector>
 
+#include "sjpegi.h"
 #include "sjpeg.h"
 
 namespace {
@@ -825,6 +827,38 @@ SJPEG_TEST(Progressive) {
   }
 }
 #endif  // !SJPEG_NO_PROGRESSIVE
+
+// Regression test: on bright/unshifted blocks in [0, 255], 16-bit intermediate
+// addition could overflow and wrap around, producing a negative DC
+// coefficient (-128) instead of positive (+32640).
+SJPEG_TEST(FdctOverflow) {
+  const sjpeg::FdctFunc fDCT = sjpeg::GetFdct();
+  int16_t block[64];
+
+  for (int i = 0; i < 64; ++i) block[i] = 255;
+  fDCT(block, 1);
+  assert(block[0] > 0);
+  SJPEG_CHECK(block[0] > 0);
+  SJPEG_CHECK(block[0] == 32640);
+
+  for (int i = 0; i < 64; ++i) block[i] = 128;
+  fDCT(block, 1);
+  assert(block[0] > 0);
+  SJPEG_CHECK(block[0] > 0);
+  SJPEG_CHECK(block[0] == 16384);
+
+  for (int i = 0; i < 64; ++i) block[i] = -128;
+  fDCT(block, 1);
+  assert(block[0] < 0);
+  SJPEG_CHECK(block[0] < 0);
+  SJPEG_CHECK(block[0] == -16384);
+
+  for (int i = 0; i < 64; ++i) block[i] = 127;
+  fDCT(block, 1);
+  assert(block[0] > 0);
+  SJPEG_CHECK(block[0] > 0);
+  SJPEG_CHECK(block[0] == 16256);
+}
 
 }  // namespace
 

@@ -506,11 +506,14 @@ static void Dct_NEON(int16_t* in) {
   const int16x8_t kC4 = vld1q_s16(kTable3);
   const int16x8_t kC6 = vld1q_s16(kTable5);
 
-  BUTTERFLY(d03, s03, a0, a3);
-  BUTTERFLY(d12, s12, a1, a2);
+  const int16x8_t d03 = vsubq_s16(a0, a3);
+  const int16x8_t d12 = vsubq_s16(a1, a2);
 
-  MULT_DCL_32(ps03_lo, ps03_hi, s03, kC4);
-  MULT_DCL_32(ps12_lo, ps12_hi, s12, kC4);
+  // Accumulate a0+a3 and a1+a2 in 32-bit to avoid 16-bit overflow
+  MULT_DCL_32(ps03_lo, ps03_hi, a0, kC4);
+  MULT_ADD_32(ps03_lo, ps03_hi, a3, kC4);
+  MULT_DCL_32(ps12_lo, ps12_hi, a1, kC4);
+  MULT_ADD_32(ps12_lo, ps12_hi, a2, kC4);
   const int32x4_t out0_lo = vaddq_s32(ps03_lo, ps12_lo);
   const int32x4_t out0_hi = vaddq_s32(ps03_hi, ps12_hi);
   const int32x4_t out4_lo = vsubq_s32(ps03_lo, ps12_lo);
