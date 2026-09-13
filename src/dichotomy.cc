@@ -99,6 +99,9 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   const int mcus_per_interval =
       (restart_interval_rows_ > 0) ? restart_interval_rows_ * mb_w_ : 0;
   for (int n = 0; n < mb_w_ * mb_h_; ++n) {
+    if (mcus_per_interval > 0 && n > 0 && n % mcus_per_interval == 0) {
+      ResetDCs();
+    }
     if (!CheckBuffers()) return;
     for (int c = 0; c < nb_comps_; ++c) {
       for (int i = 0; i < nb_blocks_[c]; ++i) {
@@ -111,9 +114,6 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
         ++coeffs;
         in += 64;
       }
-    }
-    if (mcus_per_interval > 0 && (n + 1) % mcus_per_interval == 0) {
-      ResetDCs();
     }
   }
 }

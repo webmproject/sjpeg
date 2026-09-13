@@ -1040,6 +1040,60 @@ SJPEG_TEST(RestartMarkers) {
       SJPEG_CHECK(ExtractDRI(out) == 0);
     }
   }
+
+  // Test 9: the extremes of the format. kMaxDimension is 0xffff, so 65535 is
+  // the largest side Encode() accepts.
+  {
+    // Count the RST markers. Unambiguous: 0xff in entropy-coded data is always
+    // followed by a stuffed 0x00, and no header marker falls in 0xd0..0xd7.
+    auto CountRestarts = [](const std::string& jpeg) {
+      const uint8_t* data = reinterpret_cast<const uint8_t*>(jpeg.data());
+      size_t count = 0;
+      for (size_t i = 0; i + 1 < jpeg.size(); ++i) {
+        if (data[i] == 0xff && (data[i + 1] & 0xf8) == 0xd0) ++count;
+      }
+      return count;
+    };
+
+    // Tallest picture, restarting on every MCU row: 8192 intervals, the most
+    // the format can hold, cycling RST0..RST7 1024 times over.
+    {
+      const int w = 16, h = 65535;
+      const std::vector<uint8_t> test_rgb = MakeRGB(w, h);
+      sjpeg::EncoderParam param(80.0f);
+      param.yuv_mode = SJPEG_YUV_400;
+      param.restart_interval_rows = 1;
+      std::string out;
+      SJPEG_CHECK(EncodeRGB(test_rgb, w, h, param, &out));
+      SJPEG_CHECK(HasSize(out, w, h));
+      SJPEG_CHECK(ExtractDRI(out) == MCUsPerRow(w, SJPEG_YUV_400));
+      // 8192 MCU rows, and a scan never ends on a restart marker.
+      SJPEG_CHECK(CountRestarts(out) == 8191);
+    }
+
+    // Widest picture: 8192 MCUs per row, so 7 rows is the largest interval
+    // that still fits DRI's 16 bits. 8 rows would need 65536 and clamps back
+    // to 7, landing exactly on the boundary.
+    {
+      const int w = 65535, h = 64;
+      const int mcus_per_row = MCUsPerRow(w, SJPEG_YUV_400);  // 8192
+      const std::vector<uint8_t> test_rgb = MakeRGB(w, h);
+      const int requested[] = {7, 8};
+      for (size_t i = 0; i < ARRAY_SIZE(requested); ++i) {
+        sjpeg::EncoderParam param(80.0f);
+        param.yuv_mode = SJPEG_YUV_400;
+        param.restart_interval_rows = requested[i];
+        std::string out;
+        SJPEG_CHECK(EncodeRGB(test_rgb, w, h, param, &out));
+        SJPEG_CHECK(HasSize(out, w, h));
+        const int dri = ExtractDRI(out);
+        SJPEG_CHECK(dri == 7 * mcus_per_row);  // 57344
+        SJPEG_CHECK(dri > 0 && dri <= 0xffff);
+        // 8 MCU rows at an interval of 7 leaves exactly one marker.
+        SJPEG_CHECK(CountRestarts(out) == 1);
+      }
+    }
+  }
 }
 
 }  // namespace
