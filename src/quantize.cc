@@ -354,12 +354,13 @@ static bool SearchBestPrev(const TrellisNode* const nodes0, TrellisNode* node,
   bool found = false;
   assert(codes[0xf0] != 0);
   // Careful: loop overwrites node->disto, so compute this before it runs.
+  const uint32_t zrl_len = codes[0xf0] & 0xff;
   const uint32_t base_disto = node->disto + disto0[node->pos - 1];
   for (const TrellisNode* cur = node - 1; cur >= nodes0; --cur) {
     const int run = node->pos - 1 - cur->pos;
     if (run < 0) continue;
     uint32_t bits = node->nbits;
-    bits += (run >> 4) * (codes[0xf0] & 0xff);
+    bits += (run >> 4) * zrl_len;
     const uint32_t disto = base_disto - disto0[cur->pos];
     // Exact early-out: walking back towards the sink only grows the run, so
     // both disto and the ZRL part of bits are monotone here, and the two terms

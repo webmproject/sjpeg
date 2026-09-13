@@ -78,20 +78,23 @@ void StoreHistoSSE2(const int16_t in[64], Histo* const histos, int nb_blocks) {
 }
 #elif defined(SJPEG_USE_NEON)
 void StoreHistoNEON(const int16_t in[64], Histo* const histos, int nb_blocks) {
+  auto* const counts = histos->counts_;
   const uint16x8_t kMaxHisto = vdupq_n_u16(MAX_HISTO_DCT_COEFF);
   for (int n = 0; n < nb_blocks; ++n, in += 64) {
-    uint16_t tmp[64];
     for (int i = 0; i < 64; i += 8) {
       const int16x8_t A = vld1q_s16(in + i);
       const int16x8_t B = vabsq_s16(A);               // abs(in)
       const uint16x8_t C = vreinterpretq_u16_s16(B);  // signed->unsigned
       const uint16x8_t D = vshrq_n_u16(C, HSHIFT);    // >>= HSHIFT
       const uint16x8_t E = vminq_u16(D, kMaxHisto);   // min(.,kMaxHisto)
-      vst1q_u16(tmp + i, E);
-    }
-    for (int j = 0; j < 64; ++j) {
-      const int k = tmp[j];
-      ++histos->counts_[j][k];
+      ++counts[i + 0][vgetq_lane_u16(E, 0)];
+      ++counts[i + 1][vgetq_lane_u16(E, 1)];
+      ++counts[i + 2][vgetq_lane_u16(E, 2)];
+      ++counts[i + 3][vgetq_lane_u16(E, 3)];
+      ++counts[i + 4][vgetq_lane_u16(E, 4)];
+      ++counts[i + 5][vgetq_lane_u16(E, 5)];
+      ++counts[i + 6][vgetq_lane_u16(E, 6)];
+      ++counts[i + 7][vgetq_lane_u16(E, 7)];
     }
   }
 }
