@@ -131,6 +131,7 @@ int main(int argc, char * argv[]) {
     "                       than the original (JPEG input only)\n"
     "  -no_optim .......... Don't use Huffman optimization (=faster)\n"
     "  -no_adapt .......... Don't use adaptive quantization (=faster)\n"
+    "  -adapt_bias ........ Use adaptive quantization bias (=slower)\n"
     "  -trellis ........... use trellis-based quantization (=slower)\n"
     "  -progressive ....... shortcut for '-prog 2,8'\n"
     "  -prog <int>[,<int>]. Progressive encoding: AC spectral split point for\n"

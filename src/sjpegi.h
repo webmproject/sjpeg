@@ -269,11 +269,8 @@ struct Quantizer {
   uint8_t min_quant_[64];  // min quantizer value allowed
   uint16_t iquant_[64];    // precalc'd reciprocal for divisor
   uint16_t qthresh_[64];   // minimal absolute value that produce non-zero coeff
-  uint16_t bias_[64];      // bias, for coring (default / mid tier)
-  // Alternate survival thresholds for adaptive-bias mode.
-  // * qthresh_busy_ (> qthresh_): kills more near-zero AC coeffs
-  // * qthresh_flat_ (< qthresh_): protects them
-  // See Encoder::AdaptiveBiasQuantizeBlock.
+  uint16_t bias_[64];      // bias, for coring
+  // Alternate thresholds for adaptive-bias mode.
   uint16_t qthresh_flat_[64];
   uint16_t qthresh_busy_[64];
   const uint32_t* codes_;  // codes for bit-cost calculation

@@ -1096,6 +1096,111 @@ SJPEG_TEST(RestartMarkers) {
   }
 }
 
+SJPEG_TEST(AdaptiveBias) {
+  const int kWidth = 64, kHeight = 64;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+
+  // 1. Basic encoding across quality factors.
+  const float kQualities[] = {10.0f, 50.0f, 75.0f, 90.0f, 95.0f, 100.0f};
+  for (size_t q = 0; q < ARRAY_SIZE(kQualities); ++q) {
+    sjpeg::EncoderParam param(kQualities[q]);
+    param.adaptive_bias = true;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    SJPEG_CHECK(HasSize(out, kWidth, kHeight));
+  }
+
+  // 2. All YUV modes.
+  const SjpegYUVMode kModes[] = {
+      SJPEG_YUV_AUTO, SJPEG_YUV_420, SJPEG_YUV_SHARP,
+      SJPEG_YUV_444,  SJPEG_YUV_400
+  };
+  for (size_t m = 0; m < ARRAY_SIZE(kModes); ++m) {
+    sjpeg::EncoderParam param(80.0f);
+    param.adaptive_bias = true;
+    param.yuv_mode = kModes[m];
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    SJPEG_CHECK(HasSize(out, kWidth, kHeight));
+  }
+
+  // 3. High quantization_bias must not underflow qthresh.
+  {
+    const int w = 32, h = 32;
+    const std::vector<uint8_t> flat = MakeFlatRGB(w, h, 128, 128, 128);
+    const int kBiases[] = {128, 200, 240, 255};
+    for (size_t b = 0; b < ARRAY_SIZE(kBiases); ++b) {
+      sjpeg::EncoderParam param(95.0f);
+      param.adaptive_bias = true;
+      param.quantization_bias = kBiases[b];
+      std::string out;
+      SJPEG_CHECK(EncodeRGB(flat, w, h, param, &out));
+      SJPEG_CHECK(HasSize(out, w, h));
+      // Flat block must stay compact (zero AC coeffs preserved).
+      SJPEG_CHECK(out.size() < 600);
+    }
+  }
+
+  // 4. Trellis takes precedence over adaptive bias.
+  {
+    sjpeg::EncoderParam param_trellis(80.0f);
+    param_trellis.use_trellis = true;
+    param_trellis.adaptive_bias = false;
+    std::string out_trellis;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param_trellis, &out_trellis));
+
+    sjpeg::EncoderParam param_both(80.0f);
+    param_both.use_trellis = true;
+    param_both.adaptive_bias = true;
+    std::string out_both;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param_both, &out_both));
+
+    SJPEG_CHECK(out_both == out_trellis);
+  }
+
+  // 5. Adaptive bias produces distinct bitstream from default rounding.
+  {
+    sjpeg::EncoderParam param_default(80.0f);
+    param_default.adaptive_bias = false;
+    std::string out_default;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param_default, &out_default));
+
+    sjpeg::EncoderParam param_adapt(80.0f);
+    param_adapt.adaptive_bias = true;
+    std::string out_adapt;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param_adapt, &out_adapt));
+
+    SJPEG_CHECK(out_adapt != out_default);
+  }
+
+  // 6. Multi-pass target search with adaptive bias.
+  {
+    sjpeg::EncoderParam param(75.0f);
+    param.adaptive_bias = true;
+    param.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
+    param.target_value = 2000.0f;
+    param.passes = 5;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    SJPEG_CHECK(HasSize(out, kWidth, kHeight));
+  }
+
+#if !defined(SJPEG_NO_PROGRESSIVE)
+  // 7. Progressive encoding with adaptive bias.
+  {
+    sjpeg::EncoderParam param(75.0f);
+    param.adaptive_bias = true;
+    param.progressive_luma_split = 2;
+    param.progressive_chroma_split = 8;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    int sof = 0, num_sos = 0;
+    SJPEG_CHECK(CheckMarkerStructure(out, &sof, &num_sos));
+    SJPEG_CHECK(sof == 0xc2);
+  }
+#endif
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
