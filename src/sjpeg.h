@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#define SJPEG_VERSION 0x000102   // 0.1.2
+#define SJPEG_VERSION 0x000103   // 0.1.3
 
 #if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
@@ -215,6 +215,11 @@ struct EncoderParam {
   bool adaptive_quantization;   // if true, use optimized quantizer matrices.
   bool adaptive_bias;           // if true, use perceptual bias adaptation
   bool use_trellis;             // if true, use trellis-based optimization
+
+  // Emit restart markers (RST0-RST7) every 'restart_interval_rows' MCU rows.
+  // Any value <= 0 (the default) disables them.
+  // Ignored for progressive encoding.
+  int restart_interval_rows;
 
   // target size or distortion
   typedef enum {

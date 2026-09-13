@@ -93,7 +93,15 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   ResetDCs();
   nb_run_levels_ = 0;
   int16_t* in = in_blocks_;
+  // Restart markers reset the decoder's DC predictors, so the dc_code_ deltas
+  // stored here must be relative to the very same boundaries that
+  // FinalPassScan() will later emit the markers at.
+  const int mcus_per_interval =
+      (restart_interval_rows_ > 0) ? restart_interval_rows_ * mb_w_ : 0;
   for (int n = 0; n < mb_w_ * mb_h_; ++n) {
+    if (mcus_per_interval > 0 && n > 0 && n % mcus_per_interval == 0) {
+      ResetDCs();
+    }
     if (!CheckBuffers()) return;
     for (int c = 0; c < nb_comps_; ++c) {
       for (int i = 0; i < nb_blocks_[c]; ++i) {
@@ -196,6 +204,7 @@ void Encoder::LoopScan() {
     if (ok_) {
       WriteDQT();
       WriteSOF();
+      WriteDRI();
       WriteDHT();
       WriteSOS();
       FinalPassScan(nb_mbs, base_coeffs);
@@ -230,6 +239,7 @@ size_t Encoder::HeaderSize() const {
   size += 8 + 3 * nb_comps_ + 2;  // SOF
   size += 6 + 2 * nb_comps_ + 2;  // SOS
   size += 2;                      // EOI
+  if (restart_interval_rows_ > 0) size += 6;  // DRI
   // DHT:
   for (int c = 0; c < (nb_comps_ == 1 ? 1 : 2); ++c) {   // luma, chroma
     for (int type = 0; type <= 1; ++type) {               // dc, ac
@@ -293,6 +303,13 @@ float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
     BitCounter bc;
     BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, all_run_levels_, &bc);
     size += bc.Size();
+  }
+  if (restart_interval_rows_ > 0) {
+    // Each restart costs a 2-byte RSTn marker, plus the '1'-bits padding the
+    // preceding entropy data to a byte boundary (0..7 bits, ~4 on average).
+    const int nb_restarts =
+        (mb_h_ + restart_interval_rows_ - 1) / restart_interval_rows_ - 1;
+    size += nb_restarts * (2 * 8 + 4);
   }
   return size / 8.f;
 }

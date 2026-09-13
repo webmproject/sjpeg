@@ -100,6 +100,7 @@ void EncoderParam::Init(float quality_factor) {
   tolerance = 1.;
   qmin = 0.;
   qmax = 100.;
+  restart_interval_rows = 0;
 }
 
 void EncoderParam::SetQuality(float quality_factor) {
@@ -177,6 +178,8 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
                                                   : param.search_hook;
     if (!search_hook_->Setup(param)) return false;
   }
+
+  restart_interval_rows_ = param.restart_interval_rows;
 
   assert(memory_hook_ == (param.memory == nullptr ? GetDefaultMemoryManager()
                                                   : param.memory));

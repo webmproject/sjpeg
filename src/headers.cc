@@ -228,6 +228,22 @@ void Encoder::WriteDHT() {
   }
 }
 
+// DRI's interval field counts MCUs, whereas restart_interval_rows_ counts MCU
+// rows. Encode() has already clamped the latter so the product fits 16 bits.
+void Encoder::WriteDRI() {
+  if (restart_interval_rows_ <= 0) return;
+  const int interval = restart_interval_rows_ * mb_w_;
+  const uint8_t kDRIHeader[] = {0xff,
+                                0xdd,
+                                0x00,
+                                0x04,
+                                static_cast<uint8_t>(interval >> 8),
+                                static_cast<uint8_t>(interval & 0xff)};
+  ok_ = ok_ && bw_.Reserve(sizeof(kDRIHeader));
+  if (!ok_) return;
+  bw_.PutBytes(kDRIHeader, sizeof(kDRIHeader));
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void Encoder::WriteSOS() {   // SOS

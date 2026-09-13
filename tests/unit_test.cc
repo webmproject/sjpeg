@@ -826,6 +826,276 @@ SJPEG_TEST(Progressive) {
 }
 #endif  // !SJPEG_NO_PROGRESSIVE
 
+SJPEG_TEST(RestartMarkers) {
+  const int kWidth = 64, kHeight = 64;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+
+  const uint8_t kMarkerByteDRI = 0xdd;   // define restart interval
+  const uint8_t kMarkerByteRST0 = 0xd0;  // first of the RST0..RST7 cycle
+
+  auto HasMarker = [](const std::string& jpeg, uint8_t marker_byte) {
+    const uint8_t* data = reinterpret_cast<const uint8_t*>(jpeg.data());
+    const size_t size = jpeg.size();
+    for (size_t i = 0; i + 1 < size; ++i) {
+      if (data[i] == 0xff && data[i + 1] == marker_byte) return true;
+    }
+    return false;
+  };
+
+  auto ExtractDRI = [](const std::string& jpeg) -> uint16_t {
+    const uint8_t* data = reinterpret_cast<const uint8_t*>(jpeg.data());
+    const size_t size = jpeg.size();
+    for (size_t i = 0; i + 5 < size; ++i) {
+      if (data[i] == 0xff && data[i + 1] == kMarkerByteDRI &&
+          data[i + 2] == 0x00 && data[i + 3] == 0x04) {
+        return (static_cast<uint16_t>(data[i + 4]) << 8) | data[i + 5];
+      }
+    }
+    return 0;
+  };
+
+  // Test 1: restart_interval_rows = 0 -> no DRI marker
+  {
+    sjpeg::EncoderParam param(85.0f);
+    param.restart_interval_rows = 0;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    SJPEG_CHECK(!HasMarker(out, kMarkerByteDRI));
+    SJPEG_CHECK(ExtractDRI(out) == 0);
+    SJPEG_CHECK(HasSize(out, kWidth, kHeight));
+  }
+
+  // Test 2: restart_interval_rows = 1 in YUV420 -> DRI = 4 MCUs per row, RST0
+  // present
+  {
+    sjpeg::EncoderParam param(85.0f);
+    param.restart_interval_rows = 1;
+    param.yuv_mode = SJPEG_YUV_420;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    SJPEG_CHECK(HasMarker(out, kMarkerByteDRI));
+    SJPEG_CHECK(ExtractDRI(out) == 4);
+    SJPEG_CHECK(HasMarker(out, kMarkerByteRST0));
+    SJPEG_CHECK(HasSize(out, kWidth, kHeight));
+  }
+
+  // Test 3: restart_interval_rows = 2 in YUV420 -> DRI = 8 MCUs
+  {
+    sjpeg::EncoderParam param(85.0f);
+    param.restart_interval_rows = 2;
+    param.yuv_mode = SJPEG_YUV_420;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    SJPEG_CHECK(HasMarker(out, kMarkerByteDRI));
+    SJPEG_CHECK(ExtractDRI(out) == 8);
+    SJPEG_CHECK(HasSize(out, kWidth, kHeight));
+  }
+
+  // Number of MCUs per row, which is what DRI counts: 16x16 MCUs in 4:2:0,
+  // 8x8 otherwise.
+  auto MCUsPerRow = [](int w, SjpegYUVMode yuv_mode) {
+    const int block_w = (yuv_mode == SJPEG_YUV_420) ? 16 : 8;
+    return (w + block_w - 1) / block_w;
+  };
+
+  // Test 4: Decodability across resolutions, intervals, YUV modes, and Huffman
+  // modes. DRI must hold the exact MCU count matching the requested rows.
+  const int dimensions[][2] = {{16, 16}, {64, 64}, {127, 93}, {320, 240}};
+  const int intervals[] = {0, 1, 2, 4};
+  const SjpegYUVMode yuv_modes[] = {SJPEG_YUV_420, SJPEG_YUV_444,
+                                    SJPEG_YUV_400};
+
+  for (size_t d = 0; d < ARRAY_SIZE(dimensions); ++d) {
+    const int w = dimensions[d][0];
+    const int h = dimensions[d][1];
+    const std::vector<uint8_t> test_rgb = MakeRGB(w, h);
+    for (size_t i = 0; i < ARRAY_SIZE(intervals); ++i) {
+      const int restart = intervals[i];
+      for (size_t y = 0; y < ARRAY_SIZE(yuv_modes); ++y) {
+        for (int opt = 0; opt <= 1; ++opt) {
+          sjpeg::EncoderParam param(80.0f);
+          param.yuv_mode = yuv_modes[y];
+          param.restart_interval_rows = restart;
+          param.Huffman_compress = (opt == 1);
+          std::string out;
+          SJPEG_CHECK(EncodeRGB(test_rgb, w, h, param, &out));
+          SJPEG_CHECK(HasSize(out, w, h));
+          if (restart > 0) {
+            SJPEG_CHECK(HasMarker(out, kMarkerByteDRI));
+            SJPEG_CHECK(ExtractDRI(out) == restart * MCUsPerRow(w, yuv_modes[y]));
+          } else {
+            SJPEG_CHECK(!HasMarker(out, kMarkerByteDRI));
+          }
+        }
+      }
+    }
+  }
+
+  // Test 5: the multi-pass target-size/PSNR search path writes its own
+  // headers and stores DC deltas ahead of the final scan, so it needs DRI
+  // and the interval DC resets wired up independently of the single-pass one.
+  {
+    const int w = 320, h = 240;
+    const std::vector<uint8_t> test_rgb = MakeRGB(w, h);
+    const struct {
+      sjpeg::EncoderParam::TargetMode mode;
+      float value;
+    } kTargets[] = {{sjpeg::EncoderParam::TARGET_SIZE, 8000.f},
+                    {sjpeg::EncoderParam::TARGET_PSNR, 38.f}};
+    for (size_t t = 0; t < ARRAY_SIZE(kTargets); ++t) {
+      for (size_t i = 0; i < ARRAY_SIZE(intervals); ++i) {
+        const int restart = intervals[i];
+        sjpeg::EncoderParam param(80.0f);
+        param.yuv_mode = SJPEG_YUV_420;
+        param.target_mode = kTargets[t].mode;
+        param.target_value = kTargets[t].value;
+        param.passes = 5;
+        param.restart_interval_rows = restart;
+        std::string out;
+        SJPEG_CHECK(EncodeRGB(test_rgb, w, h, param, &out));
+        SJPEG_CHECK(HasSize(out, w, h));
+        SJPEG_CHECK(HasMarker(out, kMarkerByteDRI) == (restart > 0));
+        if (restart > 0) {
+          SJPEG_CHECK(ExtractDRI(out) == restart * MCUsPerRow(w, SJPEG_YUV_420));
+        }
+      }
+    }
+  }
+
+  // Test 6: DRI's interval field is 16 bits, so a row-based interval that
+  // would exceed 0xffff MCUs is clamped down to whole rows. It must never
+  // wrap (which silently desynchronizes the decoder) nor reach zero (which
+  // means 'no restarts' while markers are still being emitted). The image is
+  // sized so that the clamped interval is still shorter than the picture,
+  // hence markers really are emitted and the clamp has to reach the scan
+  // loops, not merely the header.
+  {
+    const int w = 2048, h = 2048;  // 4:0:0 -> 256 MCUs/row, 256 MCU rows
+    const int mcus_per_row = MCUsPerRow(w, SJPEG_YUV_400);
+    const int max_rows = 0xffff / mcus_per_row;  // 255, i.e. under 256 rows
+    const std::vector<uint8_t> test_rgb = MakeRGB(w, h);
+    const int requested[] = {max_rows - 1, max_rows, max_rows + 1,
+                             4 * max_rows};
+    for (size_t i = 0; i < ARRAY_SIZE(requested); ++i) {
+      sjpeg::EncoderParam param(80.0f);
+      param.yuv_mode = SJPEG_YUV_400;
+      param.restart_interval_rows = requested[i];
+      std::string out;
+      SJPEG_CHECK(EncodeRGB(test_rgb, w, h, param, &out));
+      SJPEG_CHECK(HasSize(out, w, h));
+      const int expected_rows =
+          (requested[i] < max_rows) ? requested[i] : max_rows;
+      const int dri = ExtractDRI(out);
+      SJPEG_CHECK(dri == expected_rows * mcus_per_row);
+      SJPEG_CHECK(dri > 0 && dri <= 0xffff);
+      // The clamped interval really does restart, so the clamp must have
+      // reached the scan loops and not just the header.
+      SJPEG_CHECK(HasMarker(out, kMarkerByteRST0));
+    }
+  }
+
+  // Test 7: trellis-based quantization (methods 7 and 8) substitutes its own
+  // quantizer but reaches the very same scan loops, through either
+  // SinglePassScan() or SinglePassScanOptimized()/FinalPassScan() depending on
+  // Huffman_compress. Restart markers must survive both.
+  {
+    const int w = 160, h = 120;
+    const std::vector<uint8_t> test_rgb = MakeRGB(w, h);
+    for (size_t i = 0; i < ARRAY_SIZE(intervals); ++i) {
+      const int restart = intervals[i];
+      for (int adapt = 0; adapt <= 1; ++adapt) {
+        for (int opt = 0; opt <= 1; ++opt) {
+          sjpeg::EncoderParam param(80.0f);
+          param.yuv_mode = SJPEG_YUV_420;
+          param.use_trellis = true;
+          param.adaptive_quantization = (adapt == 1);
+          param.Huffman_compress = (opt == 1);
+          param.restart_interval_rows = restart;
+          std::string out;
+          SJPEG_CHECK(EncodeRGB(test_rgb, w, h, param, &out));
+          SJPEG_CHECK(HasSize(out, w, h));
+          SJPEG_CHECK(HasMarker(out, kMarkerByteDRI) == (restart > 0));
+          if (restart > 0) {
+            SJPEG_CHECK(ExtractDRI(out) == restart * MCUsPerRow(w, SJPEG_YUV_420));
+          }
+        }
+      }
+    }
+  }
+
+  // Test 8: a negative interval is meaningless; every consumer guards on
+  // '> 0', so it must behave exactly like 'disabled'.
+  {
+    const int w = 64, h = 64;
+    const std::vector<uint8_t> test_rgb = MakeRGB(w, h);
+    const int negatives[] = {-1, -7, -1000};
+    for (size_t i = 0; i < ARRAY_SIZE(negatives); ++i) {
+      sjpeg::EncoderParam param(80.0f);
+      param.yuv_mode = SJPEG_YUV_420;
+      param.restart_interval_rows = negatives[i];
+      std::string out;
+      SJPEG_CHECK(EncodeRGB(test_rgb, w, h, param, &out));
+      SJPEG_CHECK(HasSize(out, w, h));
+      SJPEG_CHECK(!HasMarker(out, kMarkerByteDRI));
+      SJPEG_CHECK(ExtractDRI(out) == 0);
+    }
+  }
+
+  // Test 9: the extremes of the format. kMaxDimension is 0xffff, so 65535 is
+  // the largest side Encode() accepts.
+  {
+    // Count the RST markers. Unambiguous: 0xff in entropy-coded data is always
+    // followed by a stuffed 0x00, and no header marker falls in 0xd0..0xd7.
+    auto CountRestarts = [](const std::string& jpeg) {
+      const uint8_t* data = reinterpret_cast<const uint8_t*>(jpeg.data());
+      size_t count = 0;
+      for (size_t i = 0; i + 1 < jpeg.size(); ++i) {
+        if (data[i] == 0xff && (data[i + 1] & 0xf8) == 0xd0) ++count;
+      }
+      return count;
+    };
+
+    // Tallest picture, restarting on every MCU row: 8192 intervals, the most
+    // the format can hold, cycling RST0..RST7 1024 times over.
+    {
+      const int w = 16, h = 65535;
+      const std::vector<uint8_t> test_rgb = MakeRGB(w, h);
+      sjpeg::EncoderParam param(80.0f);
+      param.yuv_mode = SJPEG_YUV_400;
+      param.restart_interval_rows = 1;
+      std::string out;
+      SJPEG_CHECK(EncodeRGB(test_rgb, w, h, param, &out));
+      SJPEG_CHECK(HasSize(out, w, h));
+      SJPEG_CHECK(ExtractDRI(out) == MCUsPerRow(w, SJPEG_YUV_400));
+      // 8192 MCU rows, and a scan never ends on a restart marker.
+      SJPEG_CHECK(CountRestarts(out) == 8191);
+    }
+
+    // Widest picture: 8192 MCUs per row, so 7 rows is the largest interval
+    // that still fits DRI's 16 bits. 8 rows would need 65536 and clamps back
+    // to 7, landing exactly on the boundary.
+    {
+      const int w = 65535, h = 64;
+      const int mcus_per_row = MCUsPerRow(w, SJPEG_YUV_400);  // 8192
+      const std::vector<uint8_t> test_rgb = MakeRGB(w, h);
+      const int requested[] = {7, 8};
+      for (size_t i = 0; i < ARRAY_SIZE(requested); ++i) {
+        sjpeg::EncoderParam param(80.0f);
+        param.yuv_mode = SJPEG_YUV_400;
+        param.restart_interval_rows = requested[i];
+        std::string out;
+        SJPEG_CHECK(EncodeRGB(test_rgb, w, h, param, &out));
+        SJPEG_CHECK(HasSize(out, w, h));
+        const int dri = ExtractDRI(out);
+        SJPEG_CHECK(dri == 7 * mcus_per_row);  // 57344
+        SJPEG_CHECK(dri > 0 && dri <= 0xffff);
+        // 8 MCU rows at an interval of 7 leaves exactly one marker.
+        SJPEG_CHECK(CountRestarts(out) == 1);
+      }
+    }
+  }
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {

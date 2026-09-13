@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>  // for memcpy / memset
 
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
 #include <mutex>  // NOLINT
@@ -328,6 +329,21 @@ void Encoder::CollectCoeffs() {
 ////////////////////////////////////////////////////////////////////////////////
 // 1-pass Scan
 
+void Encoder::EmitRestartMarker(int interval_idx) {
+  // No Reserve() is needed here: callers emit at the top of a scan iteration,
+  // and the CheckBuffers() of the preceding MCU reserves more room than the
+  // largest possible MCU can consume, leaving ample slack for these 2 bytes.
+  bw_.Flush();
+  const uint8_t rst_marker[2] = {
+      0xff, static_cast<uint8_t>(0xd0 + (interval_idx & 7))};
+  bw_.PutBytes(rst_marker, 2);
+  // Required by SinglePassScan(), which codes DC differentially off DCs_[].
+  // On the FinalPassScan() path the DC codes are already baked into
+  // DCTCoeffs::dc_code_ (see StoreRunLevels(), which performs its own reset),
+  // so this is a no-op there.
+  ResetDCs();
+}
+
 void Encoder::SinglePassScan() {
   ResetDCs();
 
@@ -336,6 +352,10 @@ void Encoder::SinglePassScan() {
   const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
                                                         : quantize_block_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
+    if (restart_interval_rows_ > 0 && mb_y > 0 &&
+        mb_y % restart_interval_rows_ == 0) {
+      EmitRestartMarker(mb_y / restart_interval_rows_ - 1);
+    }
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
       if (!CheckBuffers()) return;
       MaybeTransformMCU(mb_x, mb_y, &in);
@@ -358,7 +378,15 @@ void Encoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
   if (!CheckBuffers()) return;  // call needed to finalize all_run_levels_
   assert(reuse_run_levels_);
   const RunLevel* run_levels = all_run_levels_;
+  const size_t blocks_per_interval =
+      (restart_interval_rows_ > 0)
+          ? static_cast<size_t>(restart_interval_rows_) * mb_w_ * mcu_blocks_
+          : 0;
+  int interval_idx = 0;
   for (size_t n = 0; n < nb_mbs; ++n) {
+    if (blocks_per_interval > 0 && n > 0 && n % blocks_per_interval == 0) {
+      EmitRestartMarker(interval_idx++);
+    }
     if (!CheckBuffers()) return;
     CodeBlock(&coeffs[n], run_levels);
     run_levels += coeffs[n].nb_coeffs_;
@@ -386,6 +414,10 @@ void Encoder::SinglePassScanOptimized() {
   int16_t* in = in_blocks_;
   const bool reuse_run_levels = reuse_run_levels_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
+    if (restart_interval_rows_ > 0 && mb_y > 0 &&
+        mb_y % restart_interval_rows_ == 0) {
+      ResetDCs();
+    }
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
       MaybeTransformMCU(mb_x, mb_y, &in);
       if (!CheckBuffers()) goto End;
@@ -451,6 +483,14 @@ bool Encoder::Encode() {
   mb_h_ = (H_ + (block_h_ - 1)) / block_h_;
   mb_x_max_ = W_ / block_w_;
   mb_y_max_ = H_ / block_h_;
+  // DRI stores the interval as a 16-bit count of MCUs, so a row-based interval
+  // can't exceed 0xffff MCUs. Clamp to the coarsest whole number of MCU rows
+  // that fits: restarts become more frequent than asked for, never less, and
+  // stay row-aligned as the scan loops and the DC resets require. Dimensions
+  // are capped at kMaxDimension, so mb_w_ <= 8192 and this is always >= 7.
+  if (restart_interval_rows_ > 0) {
+    restart_interval_rows_ = std::min(restart_interval_rows_, 0xffff / mb_w_);
+  }
   const size_t nb_blocks = use_extra_memory_ ? mb_w_ * mb_h_ : 1;
   if (!AllocateBlocks(nb_blocks * mcu_blocks_)) return false;
 
@@ -496,6 +536,7 @@ void Encoder::SinglePassEncode() {
 
   // baseline coding
   WriteSOF();
+  WriteDRI();
 
   if (optimize_size_) {
     SinglePassScanOptimized();
