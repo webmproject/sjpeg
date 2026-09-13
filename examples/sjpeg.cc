@@ -284,6 +284,16 @@ int main(int argc, char * argv[]) {
   if (use_search && param.passes <= 1) {
     param.passes = 10;
   }
+  const bool use_progressive =
+      (param.progressive_luma_split < 64) && param.passes <= 1;
+  if (param.restart_interval_rows > 0 && use_progressive) {
+    if (!quiet && !short_output) {
+      fprintf(stdout, "Warning! -restart is ignored with progressive"
+                      " encoding (-progressive / -prog).\n");
+      fprintf(stdout, "         Restart markers are not currently supported"
+                      " for progressive JPEGs.\n\n");
+    }
+  }
   // Read input file into the buffer in_bytes[]
   const std::string input = ReadFile(input_file);
   if (input.size() == 0) return 1;
