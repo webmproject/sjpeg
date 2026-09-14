@@ -143,6 +143,7 @@ int main(int argc, char * argv[]) {
     "  -qmin <float> ...... minimum acceptable quality factor during search\n"
     "  -qmax <float> ...... maximum acceptable quality factor during search\n"
     "  -tolerance <float> . tolerance for convergence during search\n"
+    "  -restart <int> ..... restart interval in MCU rows (default: 0 = off)\n"
     "\n"
     "  -gray .............. shortcut for '-yuv_mode 4'\n"
     "  -444 ............... shortcut for '-yuv_mode 3'\n"
@@ -232,6 +233,8 @@ int main(int argc, char * argv[]) {
       param.target_value = atof(argv[++c]);
     } else if (!strcmp(argv[c], "-pass") && c + 1 < argc) {
       param.passes = atoi(argv[++c]);
+    } else if (!strcmp(argv[c], "-restart") && c + 1 < argc) {
+      param.restart_interval_rows = atoi(argv[++c]);
     } else if (!strcmp(argv[c], "-no_metadata")) {
       no_metadata = true;
     } else if (!strcmp(argv[c], "-yuv_mode") && c + 1 < argc) {
@@ -280,6 +283,16 @@ int main(int argc, char * argv[]) {
   const bool use_search = (param.target_mode != EncoderParam::TARGET_NONE);
   if (use_search && param.passes <= 1) {
     param.passes = 10;
+  }
+  const bool use_progressive =
+      (param.progressive_luma_split < 64) && param.passes <= 1;
+  if (param.restart_interval_rows > 0 && use_progressive) {
+    if (!quiet && !short_output) {
+      fprintf(stdout, "Warning! -restart is ignored with progressive"
+                      " encoding (-progressive / -prog).\n");
+      fprintf(stdout, "         Restart markers are not currently supported"
+                      " for progressive JPEGs.\n\n");
+    }
   }
   // Read input file into the buffer in_bytes[]
   const std::string input = ReadFile(input_file);

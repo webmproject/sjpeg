@@ -377,6 +377,7 @@ struct Encoder {
   void WriteDQT();
   void WriteSOF(bool progressive = false);
   void WriteDHT();
+  void WriteDRI();
   void WriteSOS();
   void WriteEOI();
 
@@ -416,6 +417,7 @@ struct Encoder {
 #endif  // !SJPEG_NO_PROGRESSIVE
 
   void ResetDCs();
+  void EmitRestartMarker(int interval_idx);
 
   // GetSamples() + fDCT_() for one MCU, into 'out'. Shared by the baseline
   // and progressive quantize loops.
@@ -551,6 +553,7 @@ struct Encoder {
   bool use_extra_memory_;     // save the unquantized coeffs (method 3, 4)
   bool reuse_run_levels_;     // save quantized run/levels   (method 1, 4, 5)
   bool use_trellis_;          // use trellis-quantization    (method 7, 8)
+  int restart_interval_rows_ = 0;  // MCU rows per restart interval (0 = off)
 
   int q_bias_;           // [0..255]: rounding bias for quant. of AC coeffs.
   Quantizer quants_[2];  // quant matrices

@@ -1,5 +1,5 @@
 .\"                                      Hey, EMACS: -*- nroff -*-
-.TH SJPEG 1 "Aug 21, 2026"
+.TH SJPEG 1 "Sep 13, 2026"
 .SH NAME
 sjpeg \- compress a PNG, JPEG or PPM image file to a JPEG file
 .SH SYNOPSIS
@@ -176,6 +176,17 @@ optimized for rate-distortion).
 .TP
 .B \-no_optim
 Disable Huffman code optimization (faster processing, larger file).
+.TP
+.BI \-restart " int
+Emit JPEG restart markers (\fBRST0\fP..\fBRST7\fP) every \fIint\fP rows of
+MCUs, along with the corresponding \fBDRI\fP header. Restart markers reset
+the entropy coder at regular intervals, which limits the damage a corrupted
+bitstream can do and allows a decoder to process intervals independently, at
+the cost of a slightly larger file. The default is \fB0\fP, which disables
+them. Note the interval is expressed in MCU \fIrows\fP. Ineffective when
+combined with progressive encoding (\fB\-progressive\fP/\fB\-prog\fP):
+restart markers are not currently supported for progressive JPEGs, and
+\fB\-restart\fP is silently ignored in that case (with a warning).
 
 .SH BUGS
 Please report any bugs to the SJPEG discussion list:
