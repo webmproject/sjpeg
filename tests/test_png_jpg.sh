@@ -16,9 +16,36 @@
 
 # tests for JPEG/PNG/PPM -> JPEG -> JPEG chain
 
-SJPEG=../examples/sjpeg
-TMP_JPEG1=/tmp/test1.jpg
-TMP_JPEG2=/tmp/test2.jpg
+TEST_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "${TEST_DIR}/.." && pwd)"
+
+if [ -n "$1" ]; then
+  SJPEG="$1"
+elif [ -z "${SJPEG}" ]; then
+  if [ -x "${ROOT_DIR}/build/sjpeg" ]; then
+    SJPEG="${ROOT_DIR}/build/sjpeg"
+  elif [ -x "${ROOT_DIR}/examples/sjpeg" ]; then
+    SJPEG="${ROOT_DIR}/examples/sjpeg"
+  elif [ -x "${TEST_DIR}/../examples/sjpeg" ]; then
+    SJPEG="${TEST_DIR}/../examples/sjpeg"
+  elif command -v sjpeg > /dev/null 2>&1; then
+    SJPEG="sjpeg"
+  else
+    echo "Error: sjpeg executable not found. Specify via \$1 or SJPEG=..." >&2
+    exit 1
+  fi
+fi
+
+if ! command -v "${SJPEG}" > /dev/null 2>&1 && [ ! -x "${SJPEG}" ]; then
+  echo "Error: cannot execute sjpeg at '${SJPEG}'." >&2
+  exit 1
+fi
+
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sjpeg_test_png_jpg.XXXXXX")"
+trap 'rm -rf "${TMP_DIR}"' EXIT INT TERM
+
+TMP_JPEG1="${TMP_DIR}/test1.jpg"
+TMP_JPEG2="${TMP_DIR}/test2.jpg"
 
 LIST="source1.png \
       source1.itl.png \
@@ -30,18 +57,18 @@ LIST="source1.png \
 
 set -e
 for f in ${LIST}; do
-  ${SJPEG} testdata/${f} -o ${TMP_JPEG2} -info -q 56.7 -no_limit
-  ${SJPEG} testdata/${f} -o ${TMP_JPEG2} -size 16000 -pass 3 -yuv_mode 4
+  ${SJPEG} "${TEST_DIR}/testdata/${f}" -o "${TMP_JPEG2}" -info -q 56.7 -no_limit
+  ${SJPEG} "${TEST_DIR}/testdata/${f}" -o "${TMP_JPEG2}" -size 16000 -pass 3 -yuv_mode 4
 done
 
 for f in ${LIST}; do
-  ${SJPEG} testdata/${f} -o ${TMP_JPEG1} -quiet -psnr 39
-  ${SJPEG} ${TMP_JPEG1} -o ${TMP_JPEG2} -r 88.7 -short -info -size 20000
+  ${SJPEG} "${TEST_DIR}/testdata/${f}" -o "${TMP_JPEG1}" -quiet -psnr 39
+  ${SJPEG} "${TMP_JPEG1}" -o "${TMP_JPEG2}" -r 88.7 -short -info -size 20000
 done
 
 for f in ${LIST}; do
-  ${SJPEG} testdata/${f} -o ${TMP_JPEG1} -quiet -no_metadata
-  ${SJPEG} ${TMP_JPEG1} -r 76.6542 -o ${TMP_JPEG2} -short
+  ${SJPEG} "${TEST_DIR}/testdata/${f}" -o "${TMP_JPEG1}" -quiet -no_metadata
+  ${SJPEG} "${TMP_JPEG1}" -r 76.6542 -o "${TMP_JPEG2}" -short
 done
 
 echo "OK!"
