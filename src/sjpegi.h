@@ -468,6 +468,13 @@ struct Encoder {
                                   DCTCoeffs* const out,
                                   RunLevel* const rl);
 
+  static int RDOQuantizeBlock(const int16_t in[64], int idx,
+                              const Quantizer* const Q, DCTCoeffs* const out,
+                              RunLevel* const rl);
+
+  // Picks quantize_block_ / TrellisQuantizeBlock / RDOQuantizeBlock.
+  QuantizeBlockFunc GetActiveQuantizeBlockFunc() const;
+
   typedef uint32_t (*QuantizeErrorFunc)(const int16_t in[64],
                                         const Quantizer* const Q);
   static QuantizeErrorFunc quantize_error_;
@@ -522,6 +529,7 @@ struct Encoder {
 
   sjpeg::RGBToYUVBlockFunc get_yuv_block_;  // set by GetBlockFunc()
   bool adaptive_bias_;   // if true, use per-block perceptual bias modulation
+  bool use_rdo_ = false; // if true, use fast rate-distortion optimization
 
   // Memory management
   template<class T> T* Alloc(size_t num) {

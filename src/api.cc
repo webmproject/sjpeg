@@ -91,6 +91,7 @@ void EncoderParam::Init(float quality_factor) {
   progressive_luma_split = 64;    // = "no progressive"
   progressive_chroma_split = 8;
   adaptive_bias = false;
+  use_rdo = false;
   SetLimitQuantization(false);
   min_quant_tolerance_ = 0;
   SetQuality(quality_factor);
@@ -160,6 +161,7 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   }
 
   SetCompressionMethod(method);
+  use_rdo_ = param.use_rdo;
   SetQuantizationBias(param.quantization_bias, param.adaptive_bias);
   SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);
   SetProgressive(param.progressive_luma_split, param.progressive_chroma_split);

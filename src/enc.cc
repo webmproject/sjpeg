@@ -81,7 +81,8 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink,
     prog_planes_(nullptr),
     passes_(1),
     search_hook_(nullptr),
-    memory_hook_((memory == nullptr) ? &kDefaultMemory : memory) {
+    memory_hook_((memory == nullptr) ? &kDefaultMemory : memory),
+    use_rdo_(false) {
   SetCompressionMethod(kDefaultMethod);
   SetQuality(kDefaultQuality);
   get_yuv_block_ = GetBlockFunc(yuv_mode_);
@@ -349,8 +350,7 @@ void Encoder::SinglePassScan() {
 
   RunLevel base_run_levels[64];
   int16_t* in = in_blocks_;
-  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
-                                                        : quantize_block_;
+  const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     if (restart_interval_rows_ > 0 && mb_y > 0 &&
         mb_y % restart_interval_rows_ == 0) {
@@ -402,11 +402,10 @@ void Encoder::SinglePassScanOptimized() {
   if (base_coeffs == nullptr) return;
   DCTCoeffs* coeffs = base_coeffs;
   RunLevel base_run_levels[64];
-  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
-                                                        : quantize_block_;
+  const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
 
   // We use the default Huffman tables as basis for bit-rate evaluation
-  if (use_trellis_) InitCodes(true);
+  if (use_trellis_ || use_rdo_) InitCodes(true);
 
   ResetEntropyStats();
   ResetDCs();
@@ -473,6 +472,7 @@ bool Encoder::Encode() {
   SetCostCodes(1);
 
   SetDefaultHuffmanTables();
+  if (use_trellis_ || use_rdo_) InitCodes(true);
 
   // colorspace init
   InitComponents();

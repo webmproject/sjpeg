@@ -131,7 +131,8 @@ int main(int argc, char * argv[]) {
     "                       than the original (JPEG input only)\n"
     "  -no_optim .......... Don't use Huffman optimization (=faster)\n"
     "  -no_adapt .......... Don't use adaptive quantization (=faster)\n"
-    "  -trellis ........... use trellis-based quantization (=slower)\n"
+    "  -rdo ............... Use rate-distortion optimization\n"
+    "  -trellis ........... use trellis-based quantization (=slower, overrides -rdo)\n"
     "  -progressive ....... shortcut for '-prog 2,8'\n"
     "  -prog <int>[,<int>]. Progressive encoding: AC spectral split point for\n"
     "                       luma (1..63), and optionally for chroma\n"
@@ -201,6 +202,8 @@ int main(int argc, char * argv[]) {
       param.Huffman_compress = false;
     } else if (!strcmp(argv[c], "-adapt_bias")) {
       param.adaptive_bias = true;
+    } else if (!strcmp(argv[c], "-rdo")) {
+      param.use_rdo = true;
     } else if (!strcmp(argv[c], "-trellis")) {
       param.use_trellis = true;
     } else if (!strcmp(argv[c], "-progressive")) {
