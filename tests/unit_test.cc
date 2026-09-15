@@ -1323,6 +1323,110 @@ SJPEG_TEST(MultiThreaded) {
   }
 }
 
+SJPEG_TEST(MultiThreadedMultiPass) {
+  // 52x52 = 2704 MCUs in 4:2:0 (103x103 = 10609 in 4:4:4), exceeding the
+  // ScaledThreadLimit threshold for multi-threaded dichotomy search.
+  const int kWidth = 821, kHeight = 819;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+
+  enum QuantMode { kBaseline, kRDO, kTrellis };
+  for (sjpeg::EncoderParam::TargetMode mode :
+       {sjpeg::EncoderParam::TARGET_SIZE, sjpeg::EncoderParam::TARGET_PSNR}) {
+    for (QuantMode quant : {kBaseline, kRDO, kTrellis}) {
+      for (int huffman : {0, 1}) {
+        for (int adaptive : {0, 1}) {
+          for (SjpegYUVMode yuv :
+               {SJPEG_YUV_420, SJPEG_YUV_444, SJPEG_YUV_400}) {
+            sjpeg::EncoderParam param(80.0f);
+            param.yuv_mode = yuv;
+            param.Huffman_compress = (huffman == 1);
+            param.adaptive_quantization = (adaptive == 1);
+            param.use_trellis = (quant == kTrellis);
+            param.use_rdo = (quant == kRDO);
+            param.restart_interval_rows = 1;
+            param.passes = 3;
+            param.target_mode = mode;
+            param.target_value =
+                (mode == sjpeg::EncoderParam::TARGET_SIZE) ? 80000.0f : 38.0f;
+
+            param.num_threads = 1;
+            std::string expected;
+            SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &expected));
+            SJPEG_CHECK(HasSize(expected, kWidth, kHeight));
+
+            for (int threads : {2, 4, 8}) {
+              param.num_threads = threads;
+              std::string out;
+              SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+              SJPEG_CHECK(out == expected);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Explicitly exercise the !last_is_best path (where the final search pass is
+  // further from target than an earlier pass) across Huffman and trellis modes.
+  for (int huffman : {0, 1}) {
+    for (QuantMode quant : {kBaseline, kRDO, kTrellis}) {
+      sjpeg::EncoderParam base_param(80.0f);
+      base_param.yuv_mode = SJPEG_YUV_420;
+      base_param.Huffman_compress = (huffman == 1);
+      base_param.use_trellis = (quant == kTrellis);
+      base_param.use_rdo = (quant == kRDO);
+      base_param.restart_interval_rows = 1;
+      std::string pass0_jpg;
+      SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, base_param, &pass0_jpg));
+
+      sjpeg::EncoderParam param = base_param;
+      param.passes = 2;
+      param.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
+      // Target slightly above pass-0 size with zero tolerance so pass 0 is best
+      // and pass 1 (at q=90) overshoots, triggering !last_is_best.
+      param.target_value = static_cast<float>(pass0_jpg.size() + 10);
+      param.tolerance = 0.0f;
+
+      param.num_threads = 1;
+      std::string expected;
+      SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &expected));
+
+      for (int threads : {2, 4}) {
+        param.num_threads = threads;
+        std::string out;
+        SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+        SJPEG_CHECK(out == expected);
+      }
+    }
+  }
+
+  // Test total_intervals == 1 (restart_interval_rows >= mb_h_) where row-based
+  // stages (prologue and PSNR search) run multi-threaded while interval-based
+  // scan emission falls back to 1 thread without spawning idle workers.
+  for (sjpeg::EncoderParam::TargetMode mode :
+       {sjpeg::EncoderParam::TARGET_SIZE, sjpeg::EncoderParam::TARGET_PSNR}) {
+    for (int huffman : {0, 1}) {
+      sjpeg::EncoderParam param(80.0f);
+      param.yuv_mode = SJPEG_YUV_420;
+      param.Huffman_compress = (huffman == 1);
+      param.restart_interval_rows = 100;
+      param.passes = 3;
+      param.target_mode = mode;
+      param.target_value =
+          (mode == sjpeg::EncoderParam::TARGET_SIZE) ? 80000.0f : 38.0f;
+
+      param.num_threads = 1;
+      std::string expected;
+      SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &expected));
+
+      param.num_threads = 4;
+      std::string out;
+      SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+      SJPEG_CHECK(out == expected);
+    }
+  }
+}
+
 SJPEG_TEST(MultiThreadedIntervalDefaults) {
   const int kWidth = 64, kHeight = 48;   // 4x3 MCUs in 4:2:0
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);

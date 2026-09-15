@@ -195,11 +195,11 @@ restart markers are not currently supported for progressive JPEGs, and
 .TP
 .BI \-threads " int
 Number of threads to use (default: \fB1\fP; \fB\-1\fP uses all available cores).
-Multi-threaded encoding is supported for single-pass baseline JPEG only; it is
-ignored when combined with progressive encoding (\fB\-progressive\fP/\fB\-prog\fP)
-or multi-pass search (\fB\-passes\fP > 1). Parallel coding requires restart
-markers to slice the scan into independent tasks; if \fB\-restart\fP is unset
-or <= 0, multi-threading automatically uses 1 MCU row per interval.
+Multi-threaded encoding is supported for baseline JPEG only (both single-pass
+and multi-pass search); it is ignored when combined with progressive encoding
+(\fB\-progressive\fP/\fB\-prog\fP). Parallel coding requires restart markers to
+slice the scan into independent tasks; if \fB\-restart\fP is unset or <= 0,
+multi-threading automatically uses 1 MCU row per interval.
 
 .SH BUGS
 Please report any bugs to the SJPEG discussion list:

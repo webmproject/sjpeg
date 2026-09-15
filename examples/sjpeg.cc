@@ -147,7 +147,7 @@ int main(int argc, char * argv[]) {
     "  -restart <int> ..... restart interval in MCU rows (default: 0; <= 0 means\n"
     "                       off if single-threaded, automatic if multi-threaded)\n"
     "  -threads <int> ..... number of threads to use (default: 1; -1 for all\n"
-    "                       available cores; single-pass baseline only)\n"
+    "                       available cores; baseline encoding only)\n"
     "\n"
     "  -gray .............. shortcut for '-yuv_mode 4'\n"
     "  -444 ............... shortcut for '-yuv_mode 3'\n"

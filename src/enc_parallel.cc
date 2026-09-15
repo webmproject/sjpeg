@@ -194,7 +194,7 @@ void Encoder::MergeChunkStats(const ThreadChunk* chunks, int num_chunks) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Parallel histogram pass (CollectHistograms)
+// Parallel histogram pass (CollectHistograms) and coefficient collection
 
 void Encoder::CollectHistogramsMultiThreaded(int num_threads) {
   assert(num_threads > 1);
@@ -232,6 +232,15 @@ void Encoder::CollectHistogramsMultiThreaded(int num_threads) {
     }
   }
   have_coeffs_ = use_extra_memory_;
+}
+
+void Encoder::CollectCoeffsMultiThreaded(int num_threads) {
+  assert(use_extra_memory_);
+  RunParallel(num_threads, mb_h_, [&](int /*t*/, int y_start, int y_end) {
+    uint8_t rep_buf[4 * 16 * 16];
+    CollectCoeffsSlice(y_start, y_end, rep_buf);
+  });
+  have_coeffs_ = true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -344,6 +353,40 @@ void Encoder::SinglePassScanOptimizedMultiThreaded(int num_threads,
   WriteDHT();
   WriteSOS();
   ReplaySlicesMultiThreaded(num_threads, total_intervals, &chunks);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Multi-pass dichotomy search helpers
+
+float Encoder::ComputePSNRMultiThreaded(int num_threads) const {
+  std::vector<uint64_t> errors(num_threads, 0);
+  RunParallel(num_threads, mb_h_,
+              [&](int t, int y_start, int y_end) {
+                errors[t] = ComputePSNRSlice(y_start, y_end);
+              });
+  uint64_t total_error = 0;
+  for (int t = 0; t < num_threads; ++t) {
+    total_error += errors[t];
+  }
+  const size_t nb_mbs = static_cast<size_t>(mb_w_) * mb_h_;
+  return GetPSNR(total_error, 64ull * nb_mbs * mcu_blocks_);
+}
+
+float Encoder::EvaluateSizeMultiThreaded(int num_threads, int total_intervals,
+                                         std::vector<ThreadChunk>* chunks) {
+  QuantizeSlicesMultiThreaded(num_threads, total_intervals, chunks);
+  if (optimize_size_) {
+    CompileEntropyStats();
+    if (use_trellis_ || use_rdo_) InitCodes(true);
+    return ComputeSize(nullptr);
+  }
+  InitCodes(false);
+  BitCounter bc;
+  for (int t = 0; t < num_threads; ++t) {
+    BlocksSize(static_cast<int>((*chunks)[t].coeffs.size()),
+               (*chunks)[t].coeffs.data(), (*chunks)[t].run_levels.data(), &bc);
+  }
+  return ComputeSize(bc.Size());
 }
 
 }    // namespace sjpeg

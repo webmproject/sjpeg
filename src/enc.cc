@@ -348,15 +348,20 @@ const int16_t* Encoder::GetMCUCoeffs(int mb_x, int mb_y, int16_t* scratch,
   return scratch;
 }
 
-void Encoder::CollectCoeffs() {
+void Encoder::CollectCoeffsSlice(int y_start, int y_end, uint8_t* rep_buf) {
   assert(use_extra_memory_);
-  int16_t* in = in_blocks_;
-  for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
+  int16_t* in =
+      in_blocks_ + static_cast<size_t>(y_start) * mb_w_ * 64 * mcu_blocks_;
+  for (int mb_y = y_start; mb_y < y_end; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      TransformMCU(mb_x, mb_y, in);
+      TransformMCU(mb_x, mb_y, in, rep_buf);
       in += 64 * mcu_blocks_;
     }
   }
+}
+
+void Encoder::CollectCoeffs() {
+  CollectCoeffsSlice(0, mb_h_, replicated_buffer_);
   have_coeffs_ = true;
 }
 

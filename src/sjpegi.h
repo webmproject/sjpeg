@@ -475,6 +475,7 @@ struct Encoder {
 
   // collect transformed coeffs (unquantized) only
   void CollectCoeffs();
+  void CollectCoeffsSlice(int y_start, int y_end, uint8_t* rep_buf);
 
   // points Huffman_tables_[] at the standard tables of JPEG section K.3
   void SetDefaultHuffmanTables();
@@ -530,9 +531,14 @@ struct Encoder {
     bool ok = true;
   };
 
-  // Parallel equivalents of the histogram pass and baseline scans. They emit
-  // the same bitstream, byte for byte.
+  // Parallel equivalents of the histogram pass, coefficient collection,
+  // dichotomy search evaluation, and baseline scans. They emit the same
+  // bitstream, byte for byte.
   void CollectHistogramsMultiThreaded(int num_threads);
+  void CollectCoeffsMultiThreaded(int num_threads);
+  float ComputePSNRMultiThreaded(int num_threads) const;
+  float EvaluateSizeMultiThreaded(int num_threads, int total_intervals,
+                                  std::vector<ThreadChunk>* chunks);
   void QuantizeSlicesMultiThreaded(int num_threads, int total_intervals,
                                    std::vector<ThreadChunk>* chunks);
   void ReplaySlicesMultiThreaded(int num_threads, int total_intervals,
@@ -597,8 +603,11 @@ struct Encoder {
   size_t HeaderSize() const;
   void BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
                   const RunLevel* rl, sjpeg::BitCounter* const bc) const;
+  float ComputeSize(size_t entropy_bits) const;
   float ComputeSize(const DCTCoeffs* coeffs);
+  uint64_t ComputePSNRSlice(int y_start, int y_end) const;
   float ComputePSNR() const;
+  static float GetPSNR(uint64_t err, uint64_t size);
 
  protected:
   bool SetError() const;   // sets ok_ to false, and returns false
