@@ -156,6 +156,49 @@ void Encoder::SetCostCodes(int idx) {
 ////////////////////////////////////////////////////////////////////////////////
 // various implementation of histogram collection
 
+#if defined(SJPEG_USE_SSE2) || defined(SJPEG_USE_NEON)
+// Emit run/level entries from natural-order non-zero bitmask (nzn), tmp and
+// masked values. Remap the non-zero AC set (drop DC = bit 0) from natural to
+// zig-zag order, then iterate set bits with 'ctz' so we touch only the (few)
+// non-zero coefficients.
+template <typename T>
+static inline int EmitRunLevels(const int16_t in0, const T tmp[64],
+                                const T masked[64], uint64_t nzn, int idx,
+                                DCTCoeffs* const out, RunLevel* const rl) {
+  const int dc = (in0 < 0) ? -tmp[0] : tmp[0];
+  out->idx_ = idx;
+  const uint64_t ac_mask = nzn & ~1ull;
+  if (ac_mask == 0) {
+    out->last_ = 0;
+    out->nb_coeffs_ = 0;
+    return dc;
+  }
+
+  // Remap non-zero AC set from natural to zig-zag order and compute levels.
+  uint64_t zz = 0;
+  uint16_t levels[64];
+  for (uint64_t b = ac_mask; b != 0; b &= b - 1) {
+    const int j = static_cast<int>(TrailingZeros64(b));
+    const int i = kInvZigzag[j];
+    zz |= 1ull << i;
+    const int n = CalcLog2(tmp[j]);
+    levels[i] = ((masked[j] & ((1 << n) - 1)) << 4) | n;
+  }
+  int prev = 1;
+  int nb = 0;
+  for (uint64_t b = zz; b != 0; b &= b - 1) {
+    const int i = static_cast<int>(TrailingZeros64(b));
+    rl[nb].level_ = levels[i];
+    rl[nb].run_ = i - prev;
+    prev = i + 1;
+    ++nb;
+  }
+  out->last_ = prev - 1;
+  out->nb_coeffs_ = nb;
+  return dc;
+}
+#endif  // SJPEG_USE_SSE2 || SJPEG_USE_NEON
+
 #if defined(SJPEG_USE_SSE2)
 // Load eight 16b-words from *src.
 #define LOAD_16(src) _mm_loadu_si128(reinterpret_cast<const __m128i*>(src))
@@ -167,8 +210,6 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
                              DCTCoeffs* const out, RunLevel* const rl) {
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
-  int prev = 1;
-  int nb = 0;
   int16_t tmp[64], masked[64];
   const __m128i zero = _mm_setzero_si128();
   uint64_t nzn = 0;  // natural-order non-zero mask: bit j set iff tmp[j] != 0.
@@ -191,29 +232,7 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
     const int m8 = _mm_movemask_epi8(_mm_packs_epi16(cmp, cmp)) & 0xff;
     nzn |= static_cast<uint64_t>(m8) << i;
   }
-  // Emit run/level entries. Remap the non-zero AC set (drop DC = bit 0) from
-  // natural to zig-zag order, then iterate set bits with 'ctz' so we touch only
-  // the (few) non-zero coefficients: the classic zig-zag scan without the
-  // data-dependent per-coefficient branch. Output is bit-identical.
-  uint64_t zz = 0;
-  for (uint64_t b = nzn & ~1ull; b != 0; b &= b - 1) {
-    zz |= 1ull << kInvZigzag[TrailingZeros64(b)];
-  }
-  for (uint64_t b = zz; b != 0; b &= b - 1) {
-    const int i = static_cast<int>(TrailingZeros64(b));
-    const int j = kZigzag[i];
-    const int n = CalcLog2(tmp[j]);
-    const uint16_t code = masked[j] & ((1 << n) - 1);
-    rl[nb].level_ = (code << 4) | n;
-    rl[nb].run_ = i - prev;
-    prev = i + 1;
-    ++nb;
-  }
-  const int dc = (in[0] < 0) ? -tmp[0] : tmp[0];
-  out->idx_ = idx;
-  out->last_ = prev - 1;
-  out->nb_coeffs_ = nb;
-  return dc;
+  return EmitRunLevels(in[0], tmp, masked, nzn, idx, out, rl);
 }
 #undef LOAD_16
 #undef STORE_16
@@ -224,66 +243,50 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
                              DCTCoeffs* const out, RunLevel* const rl) {
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
-  int prev = 1;
-  int nb = 0;
   uint16_t tmp[64], masked[64];
   uint64_t nzn = 0;  // natural-order non-zero mask: bit j set iff tmp[j] != 0.
-  // Per-lane bit weights, used to turn a NEON compare result into a bitmask
+  // Per-lane bit weights, used to turn NEON compare results into a 16-bit mask
   // (NEON has no movemask instruction).
-  static const uint16_t kBitWeights[8] = {1, 2, 4, 8, 16, 32, 64, 128};
-  const uint16x8_t weights = vld1q_u16(kBitWeights);
-  for (int i = 0; i < 64; i += 8) {
-    const uint16x8_t m_bias = vld1q_u16(bias + i);
-    const uint16x8_t m_mult = vld1q_u16(iquant + i);
-    const int16x8_t A = vld1q_s16(in + i);                           // in[i]
-    const uint16x8_t B = vreinterpretq_u16_s16(vabsq_s16(A));        // abs(in)
-    const int16x8_t sign = vshrq_n_s16(A, 15);                       // sign
-    const uint16x8_t C = vaddq_u16(B, m_bias);                       // + bias
+  static const uint16_t kBitWeights0[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+  static const uint16_t kBitWeights1[8] = {256,  512,  1024,  2048,
+                                           4096, 8192, 16384, 32768};
+  const uint16x8_t weights0 = vld1q_u16(kBitWeights0);
+  const uint16x8_t weights1 = vld1q_u16(kBitWeights1);
+
+  auto quant8 = [&](int offset, uint16x8_t w) {
+    const uint16x8_t m_bias = vld1q_u16(bias + offset);
+    const uint16x8_t m_mult = vld1q_u16(iquant + offset);
+    const int16x8_t A = vld1q_s16(in + offset);
+    const uint16x8_t B = vreinterpretq_u16_s16(vabsq_s16(A));
+    const int16x8_t sign = vshrq_n_s16(A, 15);
+    const uint16x8_t C = vaddq_u16(B, m_bias);
     const uint32x4_t D0 = vmull_u16(vget_low_u16(C), vget_low_u16(m_mult));
     const uint32x4_t D1 = vmull_u16(vget_high_u16(C), vget_high_u16(m_mult));
     // collect hi-words of the 32b mult result using 'unzip'
-    const uint16x8x2_t E = vuzpq_u16(vreinterpretq_u16_u32(D0),
-                                     vreinterpretq_u16_u32(D1));
+    const uint16x8x2_t E =
+        vuzpq_u16(vreinterpretq_u16_u32(D0), vreinterpretq_u16_u32(D1));
     const uint16x8_t F = vshrq_n_u16(E.val[1], AC_BITS);
     const uint16x8_t G = veorq_u16(F, vreinterpretq_u16_s16(sign));  // v ^ mask
-    vst1q_u16(tmp + i, F);
-    vst1q_u16(masked + i, G);
-    // Record which lanes are non-zero. vtstq(F, F) gives 0xFFFF where F != 0;
-    // AND with the bit weights and horizontally add to an 8-bit chunk.
-    const uint16x8_t nz = vandq_u16(vtstq_u16(F, F), weights);
+    vst1q_u16(tmp + offset, F);
+    vst1q_u16(masked + offset, G);
+    return vandq_u16(vtstq_u16(F, F), w);
+  };
+
+  for (int i = 0; i < 64; i += 16) {
+    const uint16x8_t nz =
+        vorrq_u16(quant8(i, weights0), quant8(i + 8, weights1));
 #if defined(__aarch64__)
-    const int m8 = vaddvq_u16(nz);
+    const int m16 = vaddvq_u16(nz);
 #else
     uint16x4_t s = vadd_u16(vget_low_u16(nz), vget_high_u16(nz));
     s = vpadd_u16(s, s);
     s = vpadd_u16(s, s);
-    const int m8 = vget_lane_u16(s, 0);
+    const int m16 = vget_lane_u16(s, 0);
 #endif
-    nzn |= static_cast<uint64_t>(m8) << i;
+    nzn |= static_cast<uint64_t>(m16) << i;
   }
-  // Emit run/level entries. Remap the non-zero AC set (drop DC = bit 0) from
-  // natural to zig-zag order, then iterate set bits with 'ctz' so we touch only
-  // the (few) non-zero coefficients: the classic zig-zag scan without the
-  // data-dependent per-coefficient branch. Output is bit-identical.
-  uint64_t zz = 0;
-  for (uint64_t b = nzn & ~1ull; b != 0; b &= b - 1) {
-    zz |= 1ull << kInvZigzag[TrailingZeros64(b)];
-  }
-  for (uint64_t b = zz; b != 0; b &= b - 1) {
-    const int i = static_cast<int>(TrailingZeros64(b));
-    const int j = kZigzag[i];
-    const int n = CalcLog2(tmp[j]);
-    const uint16_t code = masked[j] & ((1 << n) - 1);
-    rl[nb].level_ = (code << 4) | n;
-    rl[nb].run_ = i - prev;
-    prev = i + 1;
-    ++nb;
-  }
-  const int dc = (in[0] < 0) ? -tmp[0] : tmp[0];
-  out->idx_ = idx;
-  out->last_ = prev - 1;
-  out->nb_coeffs_ = nb;
-  return dc;
+
+  return EmitRunLevels(in[0], tmp, masked, nzn, idx, out, rl);
 }
 #endif    // SJPEG_USE_NEON
 
