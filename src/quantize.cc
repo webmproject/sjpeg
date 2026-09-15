@@ -228,53 +228,82 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
   int nb = 0;
   uint16_t tmp[64], masked[64];
   uint64_t nzn = 0;  // natural-order non-zero mask: bit j set iff tmp[j] != 0.
-  // Per-lane bit weights, used to turn a NEON compare result into a bitmask
+  // Per-lane bit weights, used to turn NEON compare results into a 16-bit mask
   // (NEON has no movemask instruction).
-  static const uint16_t kBitWeights[8] = {1, 2, 4, 8, 16, 32, 64, 128};
-  const uint16x8_t weights = vld1q_u16(kBitWeights);
-  for (int i = 0; i < 64; i += 8) {
-    const uint16x8_t m_bias = vld1q_u16(bias + i);
-    const uint16x8_t m_mult = vld1q_u16(iquant + i);
-    const int16x8_t A = vld1q_s16(in + i);                           // in[i]
-    const uint16x8_t B = vreinterpretq_u16_s16(vabsq_s16(A));        // abs(in)
-    const int16x8_t sign = vshrq_n_s16(A, 15);                       // sign
-    const uint16x8_t C = vaddq_u16(B, m_bias);                       // + bias
-    const uint32x4_t D0 = vmull_u16(vget_low_u16(C), vget_low_u16(m_mult));
-    const uint32x4_t D1 = vmull_u16(vget_high_u16(C), vget_high_u16(m_mult));
-    // collect hi-words of the 32b mult result using 'unzip'
-    const uint16x8x2_t E = vuzpq_u16(vreinterpretq_u16_u32(D0),
-                                     vreinterpretq_u16_u32(D1));
-    const uint16x8_t F = vshrq_n_u16(E.val[1], AC_BITS);
-    const uint16x8_t G = veorq_u16(F, vreinterpretq_u16_s16(sign));  // v ^ mask
-    vst1q_u16(tmp + i, F);
-    vst1q_u16(masked + i, G);
-    // Record which lanes are non-zero. vtstq(F, F) gives 0xFFFF where F != 0;
-    // AND with the bit weights and horizontally add to an 8-bit chunk.
-    const uint16x8_t nz = vandq_u16(vtstq_u16(F, F), weights);
+  static const uint16_t kBitWeights0[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+  static const uint16_t kBitWeights1[8] = {
+      256, 512, 1024, 2048, 4096, 8192, 16384, 32768};
+  const uint16x8_t weights0 = vld1q_u16(kBitWeights0);
+  const uint16x8_t weights1 = vld1q_u16(kBitWeights1);
+
+  for (int i = 0; i < 64; i += 16) {
+    // First 8 lanes
+    const uint16x8_t m_bias0 = vld1q_u16(bias + i);
+    const uint16x8_t m_mult0 = vld1q_u16(iquant + i);
+    const int16x8_t A0 = vld1q_s16(in + i);
+    const uint16x8_t B0 = vreinterpretq_u16_s16(vabsq_s16(A0));
+    const int16x8_t sign0 = vshrq_n_s16(A0, 15);
+    const uint16x8_t C0 = vaddq_u16(B0, m_bias0);
+    const uint32x4_t D0_0 = vmull_u16(vget_low_u16(C0), vget_low_u16(m_mult0));
+    const uint32x4_t D1_0 = vmull_u16(vget_high_u16(C0), vget_high_u16(m_mult0));
+    const uint16x8x2_t E0 =
+        vuzpq_u16(vreinterpretq_u16_u32(D0_0), vreinterpretq_u16_u32(D1_0));
+    const uint16x8_t F0 = vshrq_n_u16(E0.val[1], AC_BITS);
+    const uint16x8_t G0 = veorq_u16(F0, vreinterpretq_u16_s16(sign0));
+    vst1q_u16(tmp + i, F0);
+    vst1q_u16(masked + i, G0);
+    const uint16x8_t nz0 = vandq_u16(vtstq_u16(F0, F0), weights0);
+
+    // Second 8 lanes
+    const uint16x8_t m_bias1 = vld1q_u16(bias + i + 8);
+    const uint16x8_t m_mult1 = vld1q_u16(iquant + i + 8);
+    const int16x8_t A1 = vld1q_s16(in + i + 8);
+    const uint16x8_t B1 = vreinterpretq_u16_s16(vabsq_s16(A1));
+    const int16x8_t sign1 = vshrq_n_s16(A1, 15);
+    const uint16x8_t C1 = vaddq_u16(B1, m_bias1);
+    const uint32x4_t D0_1 = vmull_u16(vget_low_u16(C1), vget_low_u16(m_mult1));
+    const uint32x4_t D1_1 = vmull_u16(vget_high_u16(C1), vget_high_u16(m_mult1));
+    const uint16x8x2_t E1 =
+        vuzpq_u16(vreinterpretq_u16_u32(D0_1), vreinterpretq_u16_u32(D1_1));
+    const uint16x8_t F1 = vshrq_n_u16(E1.val[1], AC_BITS);
+    const uint16x8_t G1 = veorq_u16(F1, vreinterpretq_u16_s16(sign1));
+    vst1q_u16(tmp + i + 8, F1);
+    vst1q_u16(masked + i + 8, G1);
+    const uint16x8_t nz1 = vandq_u16(vtstq_u16(F1, F1), weights1);
+
 #if defined(__aarch64__)
-    const int m8 = vaddvq_u16(nz);
+    const int m16 = vaddvq_u16(vorrq_u16(nz0, nz1));
 #else
+    uint16x8_t nz = vorrq_u16(nz0, nz1);
     uint16x4_t s = vadd_u16(vget_low_u16(nz), vget_high_u16(nz));
     s = vpadd_u16(s, s);
     s = vpadd_u16(s, s);
-    const int m8 = vget_lane_u16(s, 0);
+    const int m16 = vget_lane_u16(s, 0);
 #endif
-    nzn |= static_cast<uint64_t>(m8) << i;
+    nzn |= static_cast<uint64_t>(m16) << i;
   }
-  // Emit run/level entries. Remap the non-zero AC set (drop DC = bit 0) from
-  // natural to zig-zag order, then iterate set bits with 'ctz' so we touch only
-  // the (few) non-zero coefficients: the classic zig-zag scan without the
-  // data-dependent per-coefficient branch. Output is bit-identical.
+
+  const uint64_t ac_mask = nzn & ~1ull;
+  if (ac_mask == 0) {
+    out->idx_ = idx;
+    out->last_ = 0;
+    out->nb_coeffs_ = 0;
+    return (in[0] < 0) ? -tmp[0] : tmp[0];
+  }
+
+  // Remap non-zero AC set from natural to zig-zag order and compute levels.
   uint64_t zz = 0;
-  for (uint64_t b = nzn & ~1ull; b != 0; b &= b - 1) {
-    zz |= 1ull << kInvZigzag[TrailingZeros64(b)];
+  uint16_t levels[64];
+  for (uint64_t b = ac_mask; b != 0; b &= b - 1) {
+    const int j = static_cast<int>(TrailingZeros64(b));
+    const int i = kInvZigzag[j];
+    zz |= 1ull << i;
+    const int n = CalcLog2(tmp[j]);
+    levels[i] = ((masked[j] & ((1 << n) - 1)) << 4) | n;
   }
   for (uint64_t b = zz; b != 0; b &= b - 1) {
     const int i = static_cast<int>(TrailingZeros64(b));
-    const int j = kZigzag[i];
-    const int n = CalcLog2(tmp[j]);
-    const uint16_t code = masked[j] & ((1 << n) - 1);
-    rl[nb].level_ = (code << 4) | n;
+    rl[nb].level_ = levels[i];
     rl[nb].run_ = i - prev;
     prev = i + 1;
     ++nb;
