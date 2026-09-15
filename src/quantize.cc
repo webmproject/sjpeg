@@ -322,6 +322,133 @@ static int QuantizeBlock(const int16_t in[64], int idx,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Rate-distortion optimization (trailing EOB trimming and interior run-merging)
+//
+// Drops isolated trailing level-1 coefficients and merges adjacent zero-runs
+// when Huffman bit savings outweigh delta distortion.
+
+static constexpr uint32_t AC_BITS_ROUNDING = 1 << (AC_BITS + 1);
+
+struct RunCost {
+  uint32_t cost;
+  int run;
+  int pos;
+
+  static inline uint32_t Get(const uint32_t codes[], uint32_t zrl_len,
+                             int run, int n) {
+    return (run >> 4) * zrl_len + (codes[((run & 15) << 4) | n] & 0xff);
+  }
+};
+
+// Drops trailing level-1 coefficients saving the (run, 1) symbol.
+// Delta_D < lambda * bits <=> 4 * V < quant * (bits + AC_BITS_ROUNDING).
+static void TrimTrailingEOB(const int16_t in[64], const Quantizer* const Q,
+                            DCTCoeffs* const out, RunLevel* const rl) {
+  int nb = out->nb_coeffs_;
+  const uint32_t* const codes = Q->codes_;
+  if (nb == 0 || codes == nullptr) return;
+
+  int last_pos = out->last_;
+  const uint32_t zrl_len = codes[0xf0] & 0xff;
+  while (nb > 0) {
+    const RunLevel& r = rl[nb - 1];
+    if ((r.level_ & 0x0f) != 1) break;
+
+    const int j = kZigzag[last_pos];
+    const int quant = Q->quant_[j];
+    const int V = std::abs(in[j]);
+    if (V <= 8 * quant || V >= 16 * quant) break;
+
+    const uint32_t bits =
+        1 + AC_BITS_ROUNDING + RunCost::Get(codes, zrl_len, r.run_, 1);
+    if (4 * V >= (int)(quant * bits)) break;
+
+    --nb;
+    last_pos -= r.run_ + 1;
+  }
+
+  out->last_ = (nb > 0) ? last_pos : 0;
+  out->nb_coeffs_ = nb;
+}
+
+// Drops interior level-1 coefficients and merges adjacent zero runs.
+static void MergeRuns(const int16_t in[64], const Quantizer* const Q,
+                      DCTCoeffs* const out, RunLevel* const rl) {
+  int nb = out->nb_coeffs_;
+  const uint32_t* const codes = Q->codes_;
+  if (nb <= 1 || codes == nullptr) return;
+
+  const uint32_t zrl_len = codes[0xf0] & 0xff;
+  RunCost after = {~0u, rl[nb - 1].run_, out->last_};
+  for (int k = nb - 2; k >= 0; --k) {
+    RunCost before = {~0u, rl[k].run_, after.pos - after.run - 1};
+
+    if ((rl[k].level_ & 0x0f) != 1) {
+      after = before;
+      continue;
+    }
+
+    const int j = kZigzag[before.pos];
+    const int quant = Q->quant_[j];
+    const int V = std::abs(in[j]);
+    if (V <= 8 * quant || V >= 16 * quant) {
+      after = before;
+      continue;
+    }
+
+    const int n_after = rl[k + 1].level_ & 0x0f;
+    const int new_run = before.run + 1 + after.run;
+
+    if (after.cost == ~0u) {
+      after.cost = RunCost::Get(codes, zrl_len, after.run, n_after);
+    }
+    before.cost = RunCost::Get(codes, zrl_len, before.run, 1);
+
+    const uint32_t saved = 1 + before.cost + after.cost;
+    // Fast reject: bit_savings < saved, so if distortion delta already exceeds
+    // lambda * saved, it cannot satisfy lambda * bit_savings.
+    if (4 * V >= (int)(quant * (saved + AC_BITS_ROUNDING))) {
+      after = before;
+      continue;
+    }
+
+    const uint32_t cost_merged = RunCost::Get(codes, zrl_len, new_run, n_after);
+    if (saved <= cost_merged) {
+      after = before;
+      continue;
+    }
+
+    const uint32_t bit_savings = saved - cost_merged;
+    if (4 * V >= (int)(quant * (bit_savings + AC_BITS_ROUNDING))) {
+      after = before;
+      continue;
+    }
+
+    // remove/update the entry in rl[]
+    memmove(&rl[k], &rl[k + 1], (nb - 1 - k) * sizeof(*rl));
+    rl[k].run_ = new_run;
+    --nb;
+    after = {cost_merged, new_run, after.pos};
+  }
+  out->nb_coeffs_ = nb;
+}
+
+int Encoder::RDOQuantizeBlock(const int16_t in[64], int idx,
+                              const Quantizer* const Q, DCTCoeffs* const out,
+                              RunLevel* const rl) {
+  const int dc = quantize_block_(in, idx, Q, out, rl);
+  TrimTrailingEOB(in, Q, out, rl);
+  MergeRuns(in, Q, out, rl);
+  return dc;
+}
+
+Encoder::QuantizeBlockFunc Encoder::GetActiveQuantizeBlockFunc() const {
+  if (use_trellis_) return TrellisQuantizeBlock;
+  if (use_rdo_) return RDOQuantizeBlock;
+  return quantize_block_;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Trellis-based quantization
 
 typedef uint32_t score_t;

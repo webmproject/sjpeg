@@ -168,10 +168,9 @@ bool Encoder::EncodeProgressive() {
 
   // 1. Quantize every block once, gathering DC entropy stats along the way.
   // Same mb_y/mb_x/c/i nest as the DC-code pass below -- keep them in sync.
-  const QuantizeBlockFunc quantize_block =
-      use_trellis_ ? TrellisQuantizeBlock : quantize_block_;
-  // trellis needs ac_codes_[] seeded, like the baseline path does
-  if (use_trellis_) InitCodes(true);
+  const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
+  // trellis/rdo need ac_codes_[] seeded, like the baseline path does
+  if (use_trellis_ || use_rdo_) InitCodes(true);
   memset(freq_dc_, 0, sizeof(freq_dc_));
   int16_t* in = in_blocks_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
