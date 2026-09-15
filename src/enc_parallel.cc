@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <condition_variable>  // NOLINT
 #include <functional>
+#include <memory>
 #include <mutex>  // NOLINT
 #include <new>
 #include <string>
@@ -190,6 +191,47 @@ void Encoder::MergeChunkStats(const ThreadChunk* chunks, int num_chunks) {
       for (int i = 0; i <= 12; ++i) freq_dc_[q][i] += chunks[t].freq_dc[q][i];
     }
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Parallel histogram pass (CollectHistograms)
+
+void Encoder::CollectHistogramsMultiThreaded(int num_threads) {
+  assert(num_threads > 1);
+  struct alignas(64) HistoWorker {
+    Histo histos[2];
+  };
+  std::unique_ptr<HistoWorker[]> workers(
+      new (std::nothrow) HistoWorker[num_threads - 1]);
+  if (workers == nullptr) {
+    CollectHistograms();
+    return;
+  }
+
+  const int num_histos = (nb_comps_ > 1) ? 2 : 1;
+
+  RunParallel(num_threads, mb_h_, [&](int t, int y_start, int y_end) {
+    Histo* const dst_histos = (t == 0) ? histos_ : workers[t - 1].histos;
+    if (t == 0) {
+      ResetHisto();
+    } else {
+      memset(dst_histos, 0, sizeof(Histo) * num_histos);
+    }
+    alignas(32) int16_t mcu_scratch[6 * 64];
+    uint8_t rep_buf[4 * 16 * 16];
+    CollectHistogramsSlice(y_start, y_end, dst_histos, mcu_scratch, rep_buf);
+  });
+
+  for (int q = 0; q < num_histos; ++q) {
+    int* const dst = &histos_[q].counts_[0][0];
+    for (int w = 0; w < num_threads - 1; ++w) {
+      const int* const src = &workers[w].histos[q].counts_[0][0];
+      for (int i = 0; i < 64 * (MAX_HISTO_DCT_COEFF + 1); ++i) {
+        dst[i] += src[i];
+      }
+    }
+  }
+  have_coeffs_ = use_extra_memory_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

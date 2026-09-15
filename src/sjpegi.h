@@ -507,6 +507,16 @@ struct Encoder {
   void RunParallel(int num_threads, int total,
                    const std::function<void(int, int, int)>& fn) const;
 
+  // Returns the optimal thread count when serial post-processing overhead grows
+  // linearly with thread count T, requiring O(T * grain) MCUs per thread.
+  static int ScaledThreadLimit(int num_mcus, int grain = 64) {
+    int threads = 1;
+    while (threads < 16 && threads * (threads + 1) * grain <= num_mcus) {
+      ++threads;
+    }
+    return threads;
+  }
+
   // Per-worker output and scratch. Cache-line aligned: the histogram pass hits
   // freq_ac[] once per coefficient, and neighbouring slices would otherwise
   // share lines.
@@ -520,8 +530,9 @@ struct Encoder {
     bool ok = true;
   };
 
-  // Parallel equivalents of the two scans above, slicing the image at restart
-  // interval boundaries. They emit the same bitstream, byte for byte.
+  // Parallel equivalents of the histogram pass and baseline scans. They emit
+  // the same bitstream, byte for byte.
+  void CollectHistogramsMultiThreaded(int num_threads);
   void QuantizeSlicesMultiThreaded(int num_threads, int total_intervals,
                                    std::vector<ThreadChunk>* chunks);
   void ReplaySlicesMultiThreaded(int num_threads, int total_intervals,
@@ -545,6 +556,8 @@ struct Encoder {
 
   // Histogram pass
   void CollectHistograms();
+  void CollectHistogramsSlice(int y_start, int y_end, Histo histos[2],
+                              int16_t* scratch, uint8_t* rep_buf);
 
   typedef int (*QuantizeBlockFunc)(const int16_t in[64], int idx,
                                    const Quantizer* const Q,

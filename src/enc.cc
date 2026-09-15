@@ -619,7 +619,18 @@ void Encoder::SinglePassEncode() {
 
   if (use_adaptive_quant_) {
     // Histogram analysis + derive optimal quant matrices
-    CollectHistograms();
+#if !defined(SJPEG_NO_MULTITHREADING)
+    const int aq_threads =
+        (prog_luma_split_ != 64)
+            ? 1
+            : std::min({num_threads_, mb_h_, ScaledThreadLimit(num_mcus)});
+    if (aq_threads > 1) {
+      CollectHistogramsMultiThreaded(aq_threads);
+    } else
+#endif
+    {
+      CollectHistograms();
+    }
     AnalyseHisto();
   }
 
@@ -640,8 +651,10 @@ void Encoder::SinglePassEncode() {
 
 #if !defined(SJPEG_NO_MULTITHREADING)
   const int total_intervals = TotalRestartIntervals();
+  const int scan_worthwhile =
+      have_coeffs_ ? ScaledThreadLimit(num_mcus) : worthwhile;
   const int num_threads =
-      std::min({num_threads_, total_intervals, worthwhile});
+      std::min({num_threads_, total_intervals, scan_worthwhile});
   if (num_threads > 1) {
     if (optimize_size_) {
       SinglePassScanOptimizedMultiThreaded(num_threads, total_intervals);
