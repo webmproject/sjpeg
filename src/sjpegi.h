@@ -269,6 +269,7 @@ struct Quantizer {
   uint8_t min_quant_[64];  // min quantizer value allowed
   uint16_t iquant_[64];    // precalc'd reciprocal for divisor
   uint16_t qthresh_[64];   // minimal absolute value that produce non-zero coeff
+  uint32_t qthresh2_[64];  // qthresh_[]^2 for fast comparison against coeff^2
   uint16_t bias_[64];      // bias, for coring
   const uint32_t* codes_;  // codes for bit-cost calculation
 };

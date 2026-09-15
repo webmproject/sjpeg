@@ -143,6 +143,7 @@ void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
     q->bias_[i] = ibias;
     q->iquant_[i] = iquant;
     q->qthresh_[i] = qthresh;
+    q->qthresh2_[i] = (uint32_t)qthresh * qthresh;
     assert(QUANTIZE(qthresh, iquant, ibias) > 0);
     assert(QUANTIZE(qthresh - 1, iquant, ibias) == 0);
   }
@@ -393,13 +394,33 @@ int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
                                   RunLevel* const rl) {
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
+  const int dc = (in[0] < 0) ? -QUANTIZE(-in[0], iquant[0], bias[0])
+                             : QUANTIZE(in[0], iquant[0], bias[0]);
+  // Find the last zigzag nz_idx position that is non-zero quantized. It helps
+  // bound the main loop below (which has a heavier body) using a cheaper scan.
+  const uint32_t* const qthresh2 = Q->qthresh2_;
+  int nz_idx = 0;
+  for (int i = 63; i >= 1; --i) {
+    const int j = kZigzag[i];
+    const int V = in[j];
+    if ((uint32_t)(V * V) >= qthresh2[j]) {
+      nz_idx = i;
+      break;
+    }
+  }
+  if (nz_idx == 0) {  // early exit for fully empty block
+    out->idx_ = idx;
+    out->last_ = 0;
+    out->nb_coeffs_ = 0;
+    return dc;
+  }
   TrellisNode nodes[1 + NUM_TRELLIS_NODES * 63];  // 1 sink + n channels
   nodes[0].InitSink();
   const uint32_t* const codes = Q->codes_;
   TrellisNode* cur_node = &nodes[1];
   uint32_t disto0[64];   // disto0[i] = sum of distortions up to i (inclusive)
   disto0[0] = 0;
-  for (int i = 1; i < 64; ++i) {
+  for (int i = 1; i <= nz_idx; ++i) {
     const int j = kZigzag[i];
     const uint32_t q = Q->quant_[j] << AC_BITS;
     const uint32_t lambda = q * q / 32u;
@@ -429,8 +450,9 @@ int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
   const TrellisNode* nz = &nodes[0];
   if (cur_node != nz) {
     score_t best_score = kMaxScore;
+    const uint32_t disto0_end = disto0[nz_idx];
     while (cur_node-- != &nodes[0]) {
-      const uint32_t disto = disto0[63] - disto0[cur_node->pos];
+      const uint32_t disto = disto0_end - disto0[cur_node->pos];
       // No need to incorporate EOB's bit cost (codes[0x00]), since
       // it's the same for all coeff except the last one #63.
       cur_node->disto += disto;
@@ -453,8 +475,6 @@ int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
     rl[nb].run_ = nz->run;
     nz = nz->best_prev;
   }
-  const int dc = (in[0] < 0) ? -QUANTIZE(-in[0], iquant[0], bias[0])
-                             : QUANTIZE(in[0], iquant[0], bias[0]);
   return dc;
 }
 
