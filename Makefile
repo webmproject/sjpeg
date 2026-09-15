@@ -13,10 +13,17 @@ ARCHIVE_FILE=sjpeg-$(VERSION).tar.gz
 
 # Set to 0 to build without progressive JPEG encoding support.
 SJPEG_HAVE_PROGRESSIVE ?= 1
+# Set to 0 to build without multi-threaded encoding support.
+SJPEG_HAVE_MULTITHREADING ?= 1
 
 EXTRA_FLAGS= -DSJPEG_HAVE_PNG -DSJPEG_HAVE_JPEG
 ifeq ($(SJPEG_HAVE_PROGRESSIVE), 0)
   EXTRA_FLAGS += -DSJPEG_NO_PROGRESSIVE
+endif
+ifeq ($(SJPEG_HAVE_MULTITHREADING), 0)
+  EXTRA_FLAGS += -DSJPEG_NO_MULTITHREADING
+else
+  EXTRA_FLAGS += -pthread
 endif
 UTILS_LIBS= -lpng -ljpeg
 
@@ -101,6 +108,9 @@ SJPEG_OBJS = \
 
 ifeq ($(SJPEG_HAVE_PROGRESSIVE), 1)
   SJPEG_OBJS += src/prog.o
+endif
+ifeq ($(SJPEG_HAVE_MULTITHREADING), 1)
+  SJPEG_OBJS += src/enc_parallel.o
 endif
 
 
@@ -226,6 +236,7 @@ DIST_FILES= \
          src/colors_rgb.cc  \
          src/dichotomy.cc  \
          src/enc.cc  \
+         src/enc_parallel.cc  \
          src/encoders.cc  \
          src/entropy.cc  \
          src/fdct.cc  \

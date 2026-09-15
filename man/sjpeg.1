@@ -186,11 +186,20 @@ Emit JPEG restart markers (\fBRST0\fP..\fBRST7\fP) every \fIint\fP rows of
 MCUs, along with the corresponding \fBDRI\fP header. Restart markers reset
 the entropy coder at regular intervals, which limits the damage a corrupted
 bitstream can do and allows a decoder to process intervals independently, at
-the cost of a slightly larger file. The default is \fB0\fP, which disables
-them. Note the interval is expressed in MCU \fIrows\fP. Ineffective when
-combined with progressive encoding (\fB\-progressive\fP/\fB\-prog\fP):
+the cost of a slightly larger file. The default is \fB0\fP. Values <= 0
+disable restart markers when single-threaded, or choose an automatic interval
+(1 row) when multi-threaded. Note the interval is expressed in MCU \fIrows\fP.
+Ineffective when combined with progressive encoding (\fB\-progressive\fP/\fB\-prog\fP):
 restart markers are not currently supported for progressive JPEGs, and
 \fB\-restart\fP is silently ignored in that case (with a warning).
+.TP
+.BI \-threads " int
+Number of threads to use (default: \fB1\fP; \fB\-1\fP uses all available cores).
+Multi-threaded encoding is supported for single-pass baseline JPEG only; it is
+ignored when combined with progressive encoding (\fB\-progressive\fP/\fB\-prog\fP)
+or multi-pass search (\fB\-passes\fP > 1). Parallel coding requires restart
+markers to slice the scan into independent tasks; if \fB\-restart\fP is unset
+or <= 0, multi-threading automatically uses 1 MCU row per interval.
 
 .SH BUGS
 Please report any bugs to the SJPEG discussion list:

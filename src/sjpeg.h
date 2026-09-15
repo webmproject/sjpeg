@@ -218,9 +218,16 @@ struct EncoderParam {
   bool use_rdo;                 // if true, use fast rate-distortion optimization
 
   // Emit restart markers (RST0-RST7) every 'restart_interval_rows' MCU rows.
-  // Any value <= 0 (the default) disables them.
+  // The default is 0. Values <= 0 disable them when single-threaded, or use an
+  // automatic interval (1 row) when multi-threaded.
   // Ignored for progressive encoding.
   int restart_interval_rows;
+  // Number of threads to use (default: 1; single-pass baseline mode only).
+  // Values < 0 (e.g. -1) use all available hardware threads.
+  // Ignored for progressive encoding (progressive_luma_split < 64) and
+  // multi-pass search (passes > 1). Multi-threaded encoding requires restart
+  // markers to slice the scan into independent segments.
+  int num_threads;
 
   // target size or distortion
   typedef enum {

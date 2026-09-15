@@ -19,6 +19,9 @@
 #include <assert.h>
 #include <stdint.h>
 
+#if !defined(SJPEG_NO_MULTITHREADING)
+#include <algorithm>
+#endif
 #include <cstdlib>
 #include <memory>
 #include <new>
@@ -102,6 +105,7 @@ void EncoderParam::Init(float quality_factor) {
   qmin = 0.;
   qmax = 100.;
   restart_interval_rows = 0;
+  num_threads = 1;
 }
 
 void EncoderParam::SetQuality(float quality_factor) {
@@ -182,6 +186,20 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   }
 
   restart_interval_rows_ = param.restart_interval_rows;
+#if defined(SJPEG_NO_MULTITHREADING)
+  num_threads_ = 1;
+#else
+  if (param.num_threads < 0) {
+    num_threads_ = HardwareConcurrency();
+  } else {
+    num_threads_ = std::max(1, param.num_threads);
+  }
+  // Parallel coding needs somewhere to slice the scan, so ask for the finest
+  // granularity unless the caller picked one.
+  if (num_threads_ > 1) {
+    restart_interval_rows_ = std::max(restart_interval_rows_, 1);
+  }
+#endif
 
   assert(memory_hook_ == (param.memory == nullptr ? GetDefaultMemoryManager()
                                                   : param.memory));

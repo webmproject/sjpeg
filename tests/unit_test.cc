@@ -1234,7 +1234,152 @@ SJPEG_TEST(RateDistortionOptimization) {
     SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out_rdo));
     SJPEG_CHECK(out_rdo != out_default);
   }
+
+#if !defined(SJPEG_NO_MULTITHREADING)
+  // 8. Multi-threaded encoding with RDO is bit-exact with serial encoding.
+  {
+    sjpeg::EncoderParam param(75.0f);
+    param.use_rdo = true;
+    param.restart_interval_rows = 1;
+    param.num_threads = 1;
+    std::string expected;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &expected));
+    for (int threads : {2, 4, 8}) {
+      param.num_threads = threads;
+      std::string out;
+      SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+      SJPEG_CHECK(out == expected);
+    }
+  }
+#endif
 }
+
+#if !defined(SJPEG_NO_MULTITHREADING)
+// Restart intervals are independent by construction, so slicing the scan
+// across threads must not change the bitstream at all.
+SJPEG_TEST(MultiThreaded) {
+  // Deliberately not a multiple of the MCU size, so the last row and column
+  // are clipped and go through the sample-replication path.
+  const int kWidth = 157, kHeight = 101;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+
+  enum QuantMode { kBaseline, kRDO, kTrellis };
+  for (QuantMode quant : {kBaseline, kRDO, kTrellis}) {
+    for (int huffman = 0; huffman <= 1; ++huffman) {
+      for (int adaptive = 0; adaptive <= 1; ++adaptive) {
+        for (SjpegYUVMode yuv : {SJPEG_YUV_420, SJPEG_YUV_444, SJPEG_YUV_400}) {
+          for (int rows : {1, 2, 3}) {
+            sjpeg::EncoderParam param(80.0f);
+            param.yuv_mode = yuv;
+            param.Huffman_compress = (huffman == 1);
+            param.adaptive_quantization = (adaptive == 1);
+            param.use_trellis = (quant == kTrellis);
+            param.use_rdo = (quant == kRDO);
+            param.restart_interval_rows = rows;
+
+            param.num_threads = 1;
+            std::string expected;
+            SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &expected));
+            SJPEG_CHECK(HasSize(expected, kWidth, kHeight));
+
+            for (int threads : {2, 3, 4, 8}) {
+              param.num_threads = threads;
+              std::string out;
+              SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+              // Byte for byte, not merely 'it decodes': every interval resets
+              // the DC predictors, and the per-thread histograms sum to the
+              // same totals in any order, so the slicing must be invisible.
+              SJPEG_CHECK(out == expected);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Also test an image large enough (95x88 = 8360 MCUs in 4:2:0) that
+  // worthwhile >= 8, ensuring 8 worker threads are spawned.
+  const int kLargeW = 1509, kLargeH = 1403;
+  const std::vector<uint8_t> large_rgb = MakeRGB(kLargeW, kLargeH);
+  for (int huffman : {0, 1}) {
+    for (int adaptive : {0, 1}) {
+      for (SjpegYUVMode yuv : {SJPEG_YUV_420, SJPEG_YUV_444, SJPEG_YUV_400}) {
+        sjpeg::EncoderParam param(80.0f);
+        param.yuv_mode = yuv;
+        param.Huffman_compress = (huffman == 1);
+        param.adaptive_quantization = (adaptive == 1);
+        param.restart_interval_rows = 1;
+        param.num_threads = 1;
+        std::string expected;
+        SJPEG_CHECK(EncodeRGB(large_rgb, kLargeW, kLargeH, param, &expected));
+        for (int threads : {2, 4, 8}) {
+          param.num_threads = threads;
+          std::string out;
+          SJPEG_CHECK(EncodeRGB(large_rgb, kLargeW, kLargeH, param, &out));
+          SJPEG_CHECK(out == expected);
+        }
+      }
+    }
+  }
+}
+
+SJPEG_TEST(MultiThreadedIntervalDefaults) {
+  const int kWidth = 64, kHeight = 48;   // 4x3 MCUs in 4:2:0
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+
+  // The reference: one MCU row per interval, coded serially.
+  sjpeg::EncoderParam param(75.0f);
+  param.yuv_mode = SJPEG_YUV_420;
+  param.restart_interval_rows = 1;
+  std::string expected;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &expected));
+
+  // Asking for threads without an interval picks the finest slicing (1 MCU row
+  // per interval).
+  param.restart_interval_rows = 0;
+  param.num_threads = 4;
+  std::string implied;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &implied));
+  SJPEG_CHECK(implied == expected);
+
+  // Negative values for restart interval also default to 1 MCU row.
+  param.restart_interval_rows = -1;
+  std::string negative_interval;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &negative_interval));
+  SJPEG_CHECK(negative_interval == expected);
+
+  // Zero thread count defaults to 1 (single-threaded).
+  param.restart_interval_rows = 1;
+  param.num_threads = 0;
+  std::string zero_threads;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &zero_threads));
+  SJPEG_CHECK(zero_threads == expected);
+
+  // Negative thread count (-1) uses all available cores.
+  param.num_threads = -1;
+  std::string auto_threads;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &auto_threads));
+  SJPEG_CHECK(auto_threads == expected);
+
+  // More threads than there are intervals to hand out is harmless.
+  param.num_threads = 64;
+  std::string oversubscribed;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &oversubscribed));
+  SJPEG_CHECK(oversubscribed == expected);
+
+  // An interval spanning the whole image (total_intervals == 1) with
+  // num_threads > 1 bypasses parallel slice allocation and matches 1 thread.
+  param.restart_interval_rows = 3;
+  param.num_threads = 1;
+  std::string single_interval_serial;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &single_interval_serial));
+
+  param.num_threads = 4;
+  std::string single_interval_mt;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &single_interval_mt));
+  SJPEG_CHECK(single_interval_mt == single_interval_serial);
+}
+#endif  // !SJPEG_NO_MULTITHREADING
 
 }  // namespace
 

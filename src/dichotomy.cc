@@ -81,7 +81,6 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   assert(use_extra_memory_);
   assert(reuse_run_levels_);
 
-  const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
   if (use_trellis_ || use_rdo_) InitCodes(true);
 
   // run/levels are in registers here, so frequencies come for free. Whoever
@@ -89,31 +88,14 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   const bool collect_stats = optimize_size_;
   if (collect_stats) ResetEntropyStats();
 
-  ResetDCs();
   nb_run_levels_ = 0;
-  int16_t* in = in_blocks_;
-  // Restart markers reset the decoder's DC predictors, so the dc_code_ deltas
-  // stored here must be relative to the very same boundaries that
-  // FinalPassScan() will later emit the markers at.
-  const int mcus_per_interval =
-      (restart_interval_rows_ > 0) ? restart_interval_rows_ * mb_w_ : 0;
-  for (int n = 0; n < mb_w_ * mb_h_; ++n) {
-    if (mcus_per_interval > 0 && n > 0 && n % mcus_per_interval == 0) {
-      ResetDCs();
-    }
-    if (!CheckBuffers()) return;
-    for (int c = 0; c < nb_comps_; ++c) {
-      for (int i = 0; i < nb_blocks_[c]; ++i) {
-        RunLevel* const run_levels = all_run_levels_ + nb_run_levels_;
-        const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
-                                      coeffs, run_levels);
-        coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
-        if (collect_stats) AddEntropyStats(coeffs, run_levels);
-        nb_run_levels_ += coeffs->nb_coeffs_;
-        ++coeffs;
-        in += 64;
-      }
-    }
+  const int total_intervals = TotalRestartIntervals();
+  if (!QuantizeScanSlice(0, total_intervals, coeffs, /*rl_vec=*/nullptr,
+                         &nb_run_levels_,
+                         collect_stats ? freq_ac_ : nullptr,
+                         collect_stats ? freq_dc_ : nullptr,
+                         in_blocks_, replicated_buffer_)) {
+    return;
   }
 }
 

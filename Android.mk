@@ -9,6 +9,12 @@ ifeq ($(SJPEG_HAVE_PROGRESSIVE),0)
 SJPEG_CFLAGS += -DSJPEG_NO_PROGRESSIVE
 endif
 
+# Set to 0 to build without multi-threaded encoding support.
+SJPEG_HAVE_MULTITHREADING := 1
+ifeq ($(SJPEG_HAVE_MULTITHREADING),0)
+SJPEG_CFLAGS += -DSJPEG_NO_MULTITHREADING
+endif
+
 ifeq ($(APP_OPTIM),release)
   SJPEG_CFLAGS += -finline-functions -ffast-math \
                   -ffunction-sections -fdata-sections
@@ -45,6 +51,10 @@ enc_srcs := \
 
 ifeq ($(SJPEG_HAVE_PROGRESSIVE),1)
 enc_srcs += src/prog.cc
+endif
+
+ifeq ($(SJPEG_HAVE_MULTITHREADING),1)
+enc_srcs += src/enc_parallel.cc
 endif
 
 # AVX2 kernel variants (x86 only, opt-in: 'ndk-build SJPEG_HAVE_AVX2=1').
