@@ -1,5 +1,5 @@
 .\"                                      Hey, EMACS: -*- nroff -*-
-.TH SJPEG 1 "Sep 13, 2026"
+.TH SJPEG 1 "Sep 15, 2026"
 .SH NAME
 sjpeg \- compress a PNG, JPEG or PPM image file to a JPEG file
 .SH SYNOPSIS
@@ -170,9 +170,13 @@ Disable adaptive quantization optimization (faster processing, larger file).
 Enable the adaptive quantization-bias optimization (slower processing,
 usually smaller file). Disabled by default.
 .TP
+.B \-rdo
+Enable fast rate-distortion optimization (trailing EOB truncation and
+zero-run merging). Disabled by default. Overridden if \fB\-trellis\fP is active.
+.TP
 .B \-trellis
-Enable trellis-based quantization (slower processing, but produces file
-optimized for rate-distortion).
+Enable trellis-based quantization (slower processing, but finds the optimal
+rate-distortion path across the entire block). Overrides \fB\-rdo\fP.
 .TP
 .B \-no_optim
 Disable Huffman code optimization (faster processing, larger file).

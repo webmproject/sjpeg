@@ -169,8 +169,10 @@ static void PrintInfo() {
     msg.push_back("  'o' ............... toggle Huffman optimization");
     msg.push_back("  'a' ............... toggle adaptive quantization");
     msg.push_back("  'b' ............... toggle adaptive bias");
+    msg.push_back("  'd' ............... toggle rate-distortion optimization");
     msg.push_back("  'l' ............... toggle quantization limitation");
-    msg.push_back("  't' ............... toggle trellis-based limitation");
+    msg.push_back(
+        "  't' ............... toggle trellis quantization (overrides 'd')");
     msg.push_back("  'e' ............... show error map");
     msg.push_back("  'r' ............... show riskiness map");
     msg.push_back("  '+'/'-' ........... go to next/previous file");
@@ -207,11 +209,14 @@ static void PrintInfo() {
     if (!kParams.param.adaptive_quantization) {
       msg.back() += " (no adaptive quantization)";
     }
+    if (kParams.param.use_trellis) {
+      msg.back() += " (trellis)";
+    }
     if (kParams.param.adaptive_bias) {
       msg.back() += " (adaptive bias)";
     }
-    if (kParams.param.use_trellis) {
-      msg.back() += " (trellis)";
+    if (!kParams.param.use_trellis && kParams.param.use_rdo) {
+      msg.back() += " (rdo)";
     }
 
     snprintf(tmp, sizeof(tmp), "Size: %ld [%.2f bpp] (%u ms)",
@@ -510,6 +515,9 @@ static void HandleKey(unsigned char key, int pos_x, int pos_y) {
   } else if (key == 'b') {
     kParams.param.adaptive_bias = !kParams.param.adaptive_bias;
     FullRedraw();
+  } else if (key == 'd') {
+    kParams.param.use_rdo = !kParams.param.use_rdo;
+    FullRedraw();
   } else if (key == 'l') {
     kParams.limit_quantization = !kParams.limit_quantization;
     FullRedraw();
@@ -633,6 +641,8 @@ static void Help() {
          "  -q quality ........ Quality factor in [0..100] range.\n"
          "                      Value of 100 gives the best quality\n"
          "                      Default value is 75.\n"
+         "  -rdo .............. enable rate-distortion optimization\n"
+         "  -trellis .......... enable trellis quantization (overrides -rdo)\n"
          "  -version .......... print version number and exit\n"
          "  -info ............. print info overlay\n"
          "  -h ................ this help message\n"
@@ -648,8 +658,9 @@ static void Help() {
          "  'o' ............... toggle Huffman optimization\n"
          "  'a' ............... toggle adaptive quantization\n"
          "  'b' ............... toggle adaptive bias\n"
+         "  'd' ............... toggle rate-distortion optimization\n"
          "  'l' ............... toggle quantization limitation\n"
-         "  't' ............... toggle trellis-based quantization\n"
+         "  't' ............... toggle trellis quantization (overrides 'd')\n"
          "  'e' ............... show error map\n"
          "  'r' ............... show riskiness map\n"
          "  '+'/'-' ........... go to next/previous file\n"
@@ -668,6 +679,10 @@ int main(int argc, char *argv[]) {
       return 0;
     } else if (!strcmp(argv[c], "-info")) {
       kParams.show = 2;
+    } else if (!strcmp(argv[c], "-rdo")) {
+      kParams.param.use_rdo = true;
+    } else if (!strcmp(argv[c], "-trellis")) {
+      kParams.param.use_trellis = true;
     } else if (!strcmp(argv[c], "-version")) {
       const uint32_t version = SjpegVersion();
       printf("SJPEG version: %d.%d.%d\n",

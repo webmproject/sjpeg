@@ -81,9 +81,8 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   assert(use_extra_memory_);
   assert(reuse_run_levels_);
 
-  const QuantizeBlockFunc quantize_block = use_trellis_ ? TrellisQuantizeBlock
-                                                        : quantize_block_;
-  if (use_trellis_) InitCodes(true);
+  const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
+  if (use_trellis_ || use_rdo_) InitCodes(true);
 
   // run/levels are in registers here, so frequencies come for free. Whoever
   // needs the tables afterwards only has to CompileEntropyStats().
@@ -157,7 +156,7 @@ void Encoder::LoopScan() {
       if (!ok_) break;
       if (optimize_size_) {
         CompileEntropyStats();   // stats were gathered by StoreRunLevels()
-        if (use_trellis_) InitCodes(true);
+        if (use_trellis_ || use_rdo_) InitCodes(true);
       }
       result = ComputeSize(base_coeffs);
     } else {

@@ -1130,6 +1130,112 @@ SJPEG_TEST(RestartMarkers) {
   }
 }
 
+SJPEG_TEST(RateDistortionOptimization) {
+  constexpr int kWidth = 64, kHeight = 64;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+
+  // 1. Basic encoding across quality factors with use_rdo.
+  static constexpr float kQualities[] = {10.0f, 50.0f, 75.0f, 90.0f, 95.0f, 100.0f};
+  for (const float q : kQualities) {
+    sjpeg::EncoderParam param(q);
+    param.use_rdo = true;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    SJPEG_CHECK(HasSize(out, kWidth, kHeight));
+  }
+
+  // 2. All YUV modes.
+  static constexpr SjpegYUVMode kModes[] = {SJPEG_YUV_AUTO, SJPEG_YUV_420, SJPEG_YUV_SHARP,
+                                            SJPEG_YUV_444, SJPEG_YUV_400};
+  for (const SjpegYUVMode m : kModes) {
+    sjpeg::EncoderParam param(80.0f);
+    param.use_rdo = true;
+    param.yuv_mode = m;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    SJPEG_CHECK(HasSize(out, kWidth, kHeight));
+  }
+
+  // 3. RDO produces smaller bitstream than default baseline.
+  {
+    sjpeg::EncoderParam param_default(75.0f);
+    std::string out_default;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param_default, &out_default));
+
+    sjpeg::EncoderParam param_rdo(75.0f);
+    param_rdo.use_rdo = true;
+    std::string out_rdo;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param_rdo, &out_rdo));
+
+    SJPEG_CHECK(out_rdo.size() <= out_default.size());
+  }
+
+  // 4. Trellis takes precedence over RDO.
+  {
+    sjpeg::EncoderParam param_trellis(80.0f);
+    param_trellis.use_trellis = true;
+    param_trellis.use_rdo = false;
+    std::string out_trellis;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param_trellis, &out_trellis));
+
+    sjpeg::EncoderParam param_both(80.0f);
+    param_both.use_trellis = true;
+    param_both.use_rdo = true;
+    std::string out_both;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param_both, &out_both));
+
+    SJPEG_CHECK(out_both == out_trellis);
+  }
+
+#if !defined(SJPEG_NO_PROGRESSIVE)
+  // 5. Progressive encoding with RDO actually applies RDO (differs from
+  // progressive without RDO).
+  {
+    sjpeg::EncoderParam param(75.0f);
+    param.progressive_luma_split = 2;
+    param.progressive_chroma_split = 8;
+    std::string out_default;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out_default));
+
+    param.use_rdo = true;
+    std::string out_rdo;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out_rdo));
+    int sof = 0, num_sos = 0;
+    SJPEG_CHECK(CheckMarkerStructure(out_rdo, &sof, &num_sos));
+    SJPEG_CHECK(sof == 0xc2);
+    SJPEG_CHECK(out_rdo != out_default);
+  }
+#endif
+
+  // 6. -no_optim (Huffman_compress = false) path with RDO also differs.
+  {
+    sjpeg::EncoderParam param(75.0f);
+    param.Huffman_compress = false;
+    std::string out_default;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out_default));
+
+    param.use_rdo = true;
+    std::string out_rdo;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out_rdo));
+    SJPEG_CHECK(out_rdo != out_default);
+  }
+
+  // 7. Multi-pass target-size (dichotomy) search with RDO also differs.
+  {
+    sjpeg::EncoderParam param(75.0f);
+    param.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
+    param.target_value = kWidth * kHeight / 8.f;  // rough target
+    param.passes = 5;
+    std::string out_default;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out_default));
+
+    param.use_rdo = true;
+    std::string out_rdo;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out_rdo));
+    SJPEG_CHECK(out_rdo != out_default);
+  }
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
