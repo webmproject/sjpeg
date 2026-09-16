@@ -67,6 +67,7 @@ MemoryManager* GetDefaultMemoryManager() { return &kDefaultMemory; }
 Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink,
                  MemoryManager* const memory)
   : yuv_mode_(yuv_mode), W_(W), H_(H),
+    use_rdo_(false),
     ok_(true),
     bw_(sink),
     in_blocks_base_(nullptr),
@@ -81,8 +82,7 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink,
     prog_planes_(nullptr),
     passes_(1),
     search_hook_(nullptr),
-    memory_hook_((memory == nullptr) ? &kDefaultMemory : memory),
-    use_rdo_(false) {
+    memory_hook_((memory == nullptr) ? &kDefaultMemory : memory) {
   SetCompressionMethod(kDefaultMethod);
   SetQuality(kDefaultQuality);
   get_yuv_block_ = GetBlockFunc(yuv_mode_);
