@@ -253,11 +253,20 @@ if(SJPEG_BUILD_TESTS)
   target_link_libraries(unit_test sjpeg Threads::Threads)
   add_test(NAME unit_test COMMAND unit_test)
 
+  set(CHECK_DEPENDS unit_test)
+  if(SJPEG_BUILD_EXAMPLES)
+    add_test(NAME test_cmd
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cmd.sh $<TARGET_FILE:sjpeg-bin>)
+    add_test(NAME test_png_jpg
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_png_jpg.sh $<TARGET_FILE:sjpeg-bin>)
+    list(APPEND CHECK_DEPENDS sjpeg-bin)
+  endif()
+
   # `ctest` alone never builds its targets first (unlike `make test` in the
   # plain Makefile); this mirrors that with a target that does.
   add_custom_target(check
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS unit_test
+    DEPENDS ${CHECK_DEPENDS}
   )
 endif()
 

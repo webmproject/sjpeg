@@ -16,14 +16,43 @@
 
 # tests for command lines
 
-SJPEG=../examples/sjpeg
-TMP_FILE1=/tmp/test.jpg
-TMP_FILE2=/tmp/test
-BAD_FILE=/tmp/
-SRC_FILE1="./testdata/source1.png"
-SRC_FILE2="./testdata/source2.jpg"
-SRC_FILE3="./testdata/source3.jpg"   # large file
-SRC_FILE4="./testdata/source4.ppm"
+TEST_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "${TEST_DIR}/.." && pwd)"
+
+if [ -n "$1" ]; then
+  SJPEG="$1"
+elif [ -z "${SJPEG}" ]; then
+  if [ -x "${ROOT_DIR}/build/sjpeg" ]; then
+    SJPEG="${ROOT_DIR}/build/sjpeg"
+  elif [ -x "${ROOT_DIR}/examples/sjpeg" ]; then
+    SJPEG="${ROOT_DIR}/examples/sjpeg"
+  elif [ -x "${TEST_DIR}/../examples/sjpeg" ]; then
+    SJPEG="${TEST_DIR}/../examples/sjpeg"
+  elif command -v sjpeg > /dev/null 2>&1; then
+    SJPEG="sjpeg"
+  else
+    echo "Error: sjpeg executable not found. Specify via \$1 or SJPEG=..." >&2
+    exit 1
+  fi
+fi
+
+if ! command -v "${SJPEG}" > /dev/null 2>&1 && [ ! -x "${SJPEG}" ]; then
+  echo "Error: cannot execute sjpeg at '${SJPEG}'." >&2
+  exit 1
+fi
+
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sjpeg_test.XXXXXX")"
+trap 'rm -rf "${TMP_DIR}"' EXIT INT TERM
+
+TMP_FILE1="${TMP_DIR}/test.jpg"
+TMP_FILE2="${TMP_DIR}/test"
+BAD_FILE="${TMP_DIR}/bad_dir/"
+mkdir -p "${BAD_FILE}"
+
+SRC_FILE1="${TEST_DIR}/testdata/source1.png"
+SRC_FILE2="${TEST_DIR}/testdata/source2.jpg"
+SRC_FILE3="${TEST_DIR}/testdata/source3.jpg"   # large file
+SRC_FILE4="${TEST_DIR}/testdata/source4.ppm"
 
 # simple coverage of command line arguments. Positive tests.
 echo
@@ -51,14 +80,21 @@ ${SJPEG} ${SRC_FILE1} -estimate
 ${SJPEG} ${SRC_FILE1} -i
 
 # test CRC is matching
-if [ -x "$(command -v md5)" ]; then
+MD5_CMD=""
+if command -v md5 > /dev/null 2>&1; then
+  MD5_CMD="md5"
+elif command -v md5sum > /dev/null 2>&1; then
+  MD5_CMD="md5sum"
+fi
+
+if [ -n "${MD5_CMD}" ]; then
   for file in ${SRC_FILE1} ${SRC_FILE2} ${SRC_FILE4}; do
     ${SJPEG} ${file} -o ${TMP_FILE1} -quiet
     ${SJPEG} ${file} -md5
-    md5 ${TMP_FILE1}
+    ${MD5_CMD} ${TMP_FILE1}
   done
 else
-  echo "'md5' command is not available. Skipping MD5 test."
+  echo "'md5' / 'md5sum' command is not available. Skipping MD5 test."
 fi
 
 # test -xmp / -exif / -icc
@@ -106,15 +142,15 @@ echo "LARGE EXIF" && ${SJPEG} ${SRC_FILE1} -exif ${SRC_FILE3} -quiet
 echo "LARGE XMP" && ${SJPEG} ${SRC_FILE1} -xmp ${SRC_FILE3} -quiet -o ${TMP_FILE1}
 
 # this test does not work for very low quality values (q<4)
-for q in `seq 4 100`; do
-  ${SJPEG} -q $q ${SRC_FILE1} -o ${TMP_FILE1} -no_adapt -no_optim &> /dev/null
+for q in $(seq 4 100); do
+  ${SJPEG} -q $q ${SRC_FILE1} -o ${TMP_FILE1} -no_adapt -no_optim > /dev/null 2>&1
   # parse the 'estimated quality' result string, and compare to expected quality
-  a=(`${SJPEG} -i ${TMP_FILE1} | grep estimated | grep -Eo '[+-]?[0-9]+(\.0)'`)
-  q1="${a[0]}"
-  q2="${a[1]}"
+  set -- $(${SJPEG} -i ${TMP_FILE1} | grep estimated | grep -Eo '[+-]?[0-9]+(\.0)')
+  q1="$1"
+  q2="$2"
   q3="${q}.0"
-  if [ "x${q1}" != "x${q3}" ]; then echo "Y-Quality mismatch!"; exit 1; fi
-  if [ "x${q2}" != "x${q3}" ]; then echo "UV-Quality mismatch!"; exit 1; fi
+  if [ "x${q1}" != "x${q3}" ]; then echo "Y-Quality mismatch at q=${q}!"; exit 1; fi
+  if [ "x${q2}" != "x${q3}" ]; then echo "UV-Quality mismatch at q=${q}!"; exit 1; fi
 done
 
 echo "OK!"
