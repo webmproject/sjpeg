@@ -354,6 +354,15 @@ void Encoder::CollectHistogramsSlice(int y_start, int y_end, Histo histos[2],
 }
 
 void Encoder::CollectHistograms() {
+#if !defined(SJPEG_NO_MULTITHREADING)
+  // Progressive mode isn't parallelized: cap to 1 slice when it applies.
+  const int num_slices =
+      (prog_luma_split_ != 64) ? 1 : GetNumSlices(mb_h_);
+  if (num_slices > 1) {
+    CollectHistogramsMultiThreaded(num_slices);
+    return;
+  }
+#endif
   ResetHisto();
   CollectHistogramsSlice(0, mb_h_, histos_, in_blocks_, replicated_buffer_);
   have_coeffs_ = use_extra_memory_;

@@ -267,6 +267,12 @@ size_t Encoder::SliceSlabSize(int first_interval, int end_interval) const {
   return slab;
 }
 
+#if defined(SJPEG_NO_MULTITHREADING)
+int Encoder::GetNumSlices(int /*cap*/, int /*grain*/) const {
+  return 1;
+}
+#endif  // SJPEG_NO_MULTITHREADING
+
 bool Encoder::ReserveSlab() {
   // Worst-case macroblock is 24bits*64*6 coeffs = 1152 bytes, doubled by 0xff
   // stuffing, so kMaxMCUSize (2560) covers one MCU. Writer serves that out of a
@@ -361,6 +367,13 @@ void Encoder::CollectCoeffsSlice(int y_start, int y_end, uint8_t* rep_buf) {
 }
 
 void Encoder::CollectCoeffs() {
+#if !defined(SJPEG_NO_MULTITHREADING)
+  const int num_slices = GetNumSlices(mb_h_);
+  if (num_slices > 1) {
+    CollectCoeffsMultiThreaded(num_slices);
+    return;
+  }
+#endif
   CollectCoeffsSlice(0, mb_h_, replicated_buffer_);
   have_coeffs_ = true;
 }
@@ -503,6 +516,14 @@ bool Encoder::ReplayScanSlice(int first_interval, int end_interval,
 
 void Encoder::SinglePassScan() {
   const int total_intervals = TotalRestartIntervals();
+#if !defined(SJPEG_NO_MULTITHREADING)
+  const int num_slices =
+      GetNumSlices(total_intervals, have_coeffs_ ? 64 : 0);
+  if (num_slices > 1) {
+    SinglePassScanMultiThreaded(num_slices, total_intervals);
+    return;
+  }
+#endif
   if (!CodeScanSlice(0, total_intervals, total_intervals, &bw_,
                      SliceSlabSize(0, total_intervals), in_blocks_,
                      replicated_buffer_)) {
@@ -524,6 +545,15 @@ void Encoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
 ////////////////////////////////////////////////////////////////////////////////
 
 void Encoder::SinglePassScanOptimized() {
+  const int total_intervals = TotalRestartIntervals();
+#if !defined(SJPEG_NO_MULTITHREADING)
+  const int num_slices =
+      GetNumSlices(total_intervals, have_coeffs_ ? 64 : 0);
+  if (num_slices > 1) {
+    SinglePassScanOptimizedMultiThreaded(num_slices, total_intervals);
+    return;
+  }
+#endif
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
   DCTCoeffs* const base_coeffs =
       Alloc<DCTCoeffs>(reuse_run_levels_ ? nb_mbs : 1);
@@ -534,7 +564,6 @@ void Encoder::SinglePassScanOptimized() {
 
   ResetEntropyStats();
   nb_run_levels_ = 0;
-  const int total_intervals = TotalRestartIntervals();
   if (!QuantizeScanSlice(0, total_intervals, base_coeffs, /*rl_vec=*/nullptr,
                          &nb_run_levels_, freq_ac_, freq_dc_, in_blocks_,
                          replicated_buffer_)) {
@@ -617,25 +646,9 @@ bool Encoder::Encode() {
 }
 
 void Encoder::SinglePassEncode() {
-#if !defined(SJPEG_NO_MULTITHREADING)
-  const int num_mcus = mb_w_ * mb_h_;
-  const int worthwhile = std::max(1, num_mcus / kMinMCUsPerThread);
-#endif
-
   if (use_adaptive_quant_) {
-    // Histogram analysis + derive optimal quant matrices
-#if !defined(SJPEG_NO_MULTITHREADING)
-    const int aq_threads =
-        (prog_luma_split_ != 64)
-            ? 1
-            : std::min({num_threads_, mb_h_, ScaledThreadLimit(num_mcus)});
-    if (aq_threads > 1) {
-      CollectHistogramsMultiThreaded(aq_threads);
-    } else
-#endif
-    {
-      CollectHistograms();
-    }
+    // Histogram analysis + derive optimal quant matrices.
+    CollectHistograms();
     AnalyseHisto();
   }
 
@@ -654,30 +667,12 @@ void Encoder::SinglePassEncode() {
   WriteSOF();
   WriteDRI();
 
-#if !defined(SJPEG_NO_MULTITHREADING)
-  const int total_intervals = TotalRestartIntervals();
-  const int scan_worthwhile =
-      have_coeffs_ ? ScaledThreadLimit(num_mcus) : worthwhile;
-  const int num_threads =
-      std::min({num_threads_, total_intervals, scan_worthwhile});
-  if (num_threads > 1) {
-    if (optimize_size_) {
-      SinglePassScanOptimizedMultiThreaded(num_threads, total_intervals);
-    } else {
-      WriteDHT();
-      WriteSOS();
-      SinglePassScanMultiThreaded(num_threads, total_intervals);
-    }
-  } else
-#endif
-  {
-    if (optimize_size_) {
-      SinglePassScanOptimized();
-    } else {
-      WriteDHT();
-      WriteSOS();
-      SinglePassScan();
-    }
+  if (optimize_size_) {
+    SinglePassScanOptimized();
+  } else {
+    WriteDHT();
+    WriteSOS();
+    SinglePassScan();
   }
 }
 

@@ -109,34 +109,22 @@ void Encoder::LoopScan() {
   assert(reuse_run_levels_);
 
 #if !defined(SJPEG_NO_MULTITHREADING)
-  const int num_mcus = mb_w_ * mb_h_;
-  const int aq_threads =
-      std::min({num_threads_, mb_h_, ScaledThreadLimit(num_mcus)});
   const int total_intervals = TotalRestartIntervals();
   const int search_threads =
-      search_hook_->for_size ? std::min(aq_threads, total_intervals)
-                             : aq_threads;
-  if (aq_threads > 1) {
-    if (use_adaptive_quant_) {
-      CollectHistogramsMultiThreaded(aq_threads);
-    } else {
-      CollectCoeffsMultiThreaded(aq_threads);
-    }
-  } else
-#endif
-  {
-    if (use_adaptive_quant_) {
-      CollectHistograms();
-    } else {
-      CollectCoeffs();   // we just need the coeffs
-    }
+      search_hook_->for_size ? GetNumSlices(total_intervals)
+                             : GetNumSlices(mb_h_);
+#endif  // !SJPEG_NO_MULTITHREADING
+  if (use_adaptive_quant_) {
+    CollectHistograms();
+  } else {
+    CollectCoeffs();   // we just need the coeffs
   }
 
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
   DCTCoeffs* base_coeffs = nullptr;
 #if !defined(SJPEG_NO_MULTITHREADING)
-  std::vector<ThreadChunk> search_chunks;
-  std::vector<ThreadChunk> best_chunks;
+  // Reused every iteration, like base_coeffs -- see the finalize step below.
+  std::vector<ThreadChunk> chunks;
   if (search_threads <= 1)
 #endif
   {
@@ -163,17 +151,15 @@ void Encoder::LoopScan() {
     }
 
     float result;
+    if (search_hook_->for_size) {
 #if !defined(SJPEG_NO_MULTITHREADING)
-    if (search_threads > 1) {
-      result = search_hook_->for_size
-                   ? EvaluateSizeMultiThreaded(search_threads, total_intervals,
-                                               &search_chunks)
-                   : ComputePSNRMultiThreaded(search_threads);
-      if (!ok_) break;
-    } else
+      if (search_threads > 1) {
+        result = EvaluateSizeMultiThreaded(search_threads, total_intervals,
+                                           &chunks);
+        if (!ok_) break;
+      } else
 #endif
-    {
-      if (search_hook_->for_size) {
+      {
         // compute pass to store coeffs / runs / dc_code_
         StoreRunLevels(base_coeffs);
         if (!ok_) break;
@@ -182,12 +168,12 @@ void Encoder::LoopScan() {
           if (use_trellis_ || use_rdo_) InitCodes(true);
         }
         result = ComputeSize(base_coeffs);
-      } else {
-        // if we're just targeting PSNR, we don't need to compute the
-        // run/levels within the loop. We just need to quantize the coeffs
-        // and measure the distortion.
-        result = ComputePSNR();
       }
+    } else {
+      // if we're just targeting PSNR, we don't need to compute the run/levels
+      // within the loop. We just need to quantize the coeffs and measure the
+      // distortion.
+      result = ComputePSNR();
     }
     if (DBG_PRINT) printf("pass #%d: q=%.2f value:%.2f ",
                           search_hook_->pass, search_hook_->q, result);
@@ -201,11 +187,6 @@ void Encoder::LoopScan() {
       best = fabs(result - search_hook_->target);
       best_q = search_hook_->q;
       best_result = result;
-#if !defined(SJPEG_NO_MULTITHREADING)
-      if (search_threads > 1 && search_hook_->for_size) {
-        best_chunks.swap(search_chunks);
-      }
-#endif
     }
     if (search_hook_->Update(result)) break;
   }
@@ -223,14 +204,13 @@ void Encoder::LoopScan() {
 #if !defined(SJPEG_NO_MULTITHREADING)
     if (search_threads > 1) {
       if (search_hook_->for_size) {
-        if (!last_is_best && optimize_size_) {
-          if (use_trellis_ || use_rdo_) {
-            QuantizeSlicesMultiThreaded(search_threads, total_intervals,
-                                        &best_chunks);
-          } else {
-            MergeChunkStats(best_chunks.data(), search_threads);
-          }
-          CompileEntropyStats();
+        // Like the serial fallback below, redo the quantization pass if the
+        // search's last try wasn't the winner.
+        if (!last_is_best) {
+          QuantizeSlicesMultiThreaded(search_threads, total_intervals,
+                                      &chunks);
+          if (!ok_) return;
+          if (optimize_size_) CompileEntropyStats();
         }
         DeallocateBlocks();
         WriteDQT();
@@ -238,27 +218,17 @@ void Encoder::LoopScan() {
         WriteDRI();
         WriteDHT();
         WriteSOS();
-        ReplaySlicesMultiThreaded(search_threads, total_intervals,
-                                  &best_chunks);
+        ReplaySlicesMultiThreaded(search_threads, total_intervals, &chunks);
       } else {
         WriteDQT();
         WriteSOF();
         WriteDRI();
-        const int scan_threads = std::min(search_threads, total_intervals);
         if (optimize_size_) {
-          if (scan_threads > 1) {
-            SinglePassScanOptimizedMultiThreaded(scan_threads, total_intervals);
-          } else {
-            SinglePassScanOptimized();
-          }
+          SinglePassScanOptimized();
         } else {
           WriteDHT();
           WriteSOS();
-          if (scan_threads > 1) {
-            SinglePassScanMultiThreaded(scan_threads, total_intervals);
-          } else {
-            SinglePassScan();
-          }
+          SinglePassScan();
         }
       }
     } else
@@ -416,6 +386,10 @@ uint64_t Encoder::ComputePSNRSlice(int y_start, int y_end) const {
 }
 
 float Encoder::ComputePSNR() const {
+#if !defined(SJPEG_NO_MULTITHREADING)
+  const int num_slices = GetNumSlices(mb_h_);
+  if (num_slices > 1) return ComputePSNRMultiThreaded(num_slices);
+#endif
   const uint64_t error = ComputePSNRSlice(0, mb_h_);
   const size_t nb_mbs = static_cast<size_t>(mb_w_) * mb_h_;
   return GetPSNR(error, 64ull * nb_mbs * mcu_blocks_);
