@@ -601,7 +601,7 @@ static void ConvertWRGBToYUV(const fixed_y_t* best_y,
 // Main function
 
 static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
-                           size_t stride, uint8_t* y_plane, uint8_t* u_plane,
+                           int stride, uint8_t* y_plane, uint8_t* u_plane,
                            uint8_t* v_plane) {
   // we expand the right/bottom border if needed
   const size_t w = ((size_t)width + 1) & ~1ULL;
@@ -652,7 +652,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
     const bool is_last_row = (j == (size_t)height - 1);
     fixed_y_t* const src1 = &tmp_buffer[0 * w];
     fixed_y_t* const src2 = &tmp_buffer[3 * w];
-    const size_t rgb_off = j * stride;
+    const ptrdiff_t rgb_off = static_cast<ptrdiff_t>(j) * stride;
     const size_t y_off = j * w;
     const size_t uv_off = (j >> 1) * 3 * uv_w;
 

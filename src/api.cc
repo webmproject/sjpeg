@@ -17,6 +17,7 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #if !defined(SJPEG_NO_MULTITHREADING)
@@ -238,7 +239,7 @@ bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
                                        uint8_t[(size_t)rgb_stride * height]);
     if (rgb == nullptr) return false;
     for (int y = 0; y < height; ++y) {
-      const uint8_t* s = bgra + (size_t)y * stride;
+      const uint8_t* s = bgra + static_cast<ptrdiff_t>(y) * stride;
       uint8_t* d = rgb.get() + (size_t)y * rgb_stride;
       for (int x = 0; x < width; ++x, s += 4, d += 3) {
         d[0] = s[2];
@@ -265,7 +266,7 @@ bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
                                        uint8_t[(size_t)rgb_stride * height]);
     if (rgb == nullptr) return false;
     for (int y = 0; y < height; ++y) {
-      const uint8_t* s = rgba + (size_t)y * stride;
+      const uint8_t* s = rgba + static_cast<ptrdiff_t>(y) * stride;
       uint8_t* d = rgb.get() + (size_t)y * rgb_stride;
       for (int x = 0; x < width; ++x, s += 4, d += 3) {
         d[0] = s[0];

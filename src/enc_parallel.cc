@@ -310,18 +310,22 @@ void Encoder::QuantizeSlicesMultiThreaded(int num_threads, int total_intervals,
                 const size_t nb_blocks =
                     static_cast<size_t>(y_end - y_first) * mb_w_ * mcu_blocks_;
                 chunk.nb_run_levels = 0;
-                chunk.coeffs.resize(nb_blocks);
-                // Blocks code far fewer than 64 run/levels on average; grow on
-                // demand, like EnsureRunLevels() does for all_run_levels_.
-                if (chunk.run_levels.size() < nb_blocks * 8 + 6 * 64) {
-                  chunk.run_levels.resize(nb_blocks * 8 + 6 * 64);
+                if (reuse_run_levels_) {
+                  chunk.coeffs.resize(nb_blocks);
+                  // Blocks code far fewer than 64 run/levels on average; grow on
+                  // demand, like EnsureRunLevels() does for all_run_levels_.
+                  if (chunk.run_levels.size() < nb_blocks * 8 + 6 * 64) {
+                    chunk.run_levels.resize(nb_blocks * 8 + 6 * 64);
+                  }
                 }
 
                 int16_t scratch[64 * 6];
                 uint8_t rep_buf[4 * 16 * 16];
                 chunk.ok = QuantizeScanSlice(
-                    first_interval, end_interval, chunk.coeffs.data(),
-                    &chunk.run_levels, &chunk.nb_run_levels,
+                    first_interval, end_interval,
+                    reuse_run_levels_ ? chunk.coeffs.data() : nullptr,
+                    reuse_run_levels_ ? &chunk.run_levels : nullptr,
+                    &chunk.nb_run_levels,
                     collect_stats ? chunk.freq_ac : nullptr,
                     collect_stats ? chunk.freq_dc : nullptr, scratch, rep_buf);
               });
@@ -359,11 +363,15 @@ void Encoder::SinglePassScanOptimizedMultiThreaded(int num_threads,
                                                    int total_intervals) {
   std::vector<ThreadChunk> chunks(num_threads);
   QuantizeSlicesMultiThreaded(num_threads, total_intervals, &chunks);
-  DeallocateBlocks();   // pass 2 replays run/levels; the coeffs are dead now
   CompileEntropyStats();
   WriteDHT();
   WriteSOS();
-  ReplaySlicesMultiThreaded(num_threads, total_intervals, &chunks);
+  if (!reuse_run_levels_) {
+    SinglePassScan();
+  } else {
+    DeallocateBlocks();   // pass 2 replays run/levels; the coeffs are dead now
+    ReplaySlicesMultiThreaded(num_threads, total_intervals, &chunks);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

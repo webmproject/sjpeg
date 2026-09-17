@@ -373,9 +373,29 @@ SJPEG_TEST(NegativeStrides) {
   const auto match = [&a, &b]() { SJPEG_CHECK(!a.empty() && a == b);
                                   a.clear();
                                   b.clear(); };
-  SJPEG_CHECK(EncodeRGB(Flip(rgb, 3 * W, H), W, H, p, &a));
-  SJPEG_CHECK(sjpeg::Encode(Last(rgb, 3 * W, H), W, H, -3 * W, p, &b));
-  match();
+  for (SjpegYUVMode mode : {SJPEG_YUV_420, SJPEG_YUV_AUTO, SJPEG_YUV_SHARP}) {
+    sjpeg::EncoderParam mode_p = p;
+    mode_p.yuv_mode = mode;
+    SJPEG_CHECK(EncodeRGB(Flip(rgb, 3 * W, H), W, H, mode_p, &a));
+    SJPEG_CHECK(sjpeg::Encode(Last(rgb, 3 * W, H), W, H, -3 * W, mode_p, &b));
+    match();
+  }
+
+  const std::vector<uint8_t> rgba = MakePlane(4 * W, H, 45);
+  for (SjpegYUVMode mode : {SJPEG_YUV_420, SJPEG_YUV_AUTO, SJPEG_YUV_SHARP}) {
+    sjpeg::EncoderParam mode_p = p;
+    mode_p.yuv_mode = mode;
+    SJPEG_CHECK(sjpeg::EncodeRGBA(Flip(rgba, 4 * W, H).data(), W, H, 4 * W,
+                                  mode_p, sjpeg::MakeByteSink(&a).get()));
+    SJPEG_CHECK(sjpeg::EncodeRGBA(Last(rgba, 4 * W, H), W, H, -4 * W, mode_p,
+                                  sjpeg::MakeByteSink(&b).get()));
+    match();
+    SJPEG_CHECK(sjpeg::EncodeBGRA(Flip(rgba, 4 * W, H).data(), W, H, 4 * W,
+                                  mode_p, sjpeg::MakeByteSink(&a).get()));
+    SJPEG_CHECK(sjpeg::EncodeBGRA(Last(rgba, 4 * W, H), W, H, -4 * W, mode_p,
+                                  sjpeg::MakeByteSink(&b).get()));
+    match();
+  }
 
   SJPEG_CHECK(sjpeg::EncodeYUV420(Flip(Y, W, H).data(), W,
                                   Flip(U, uv_w, uv_h).data(), uv_w,
@@ -1294,6 +1314,30 @@ SJPEG_TEST(MultiThreaded) {
           }
         }
       }
+    }
+  }
+
+  // Test all compression methods 0..8 (including methods 2, 6, 8 where
+  // reuse_run_levels_ == false).
+  const auto encode_method = [&](int method, int threads, std::string* out) {
+    sjpeg::EncoderParam param(80.0f);
+    param.restart_interval_rows = 1;
+    param.num_threads = threads;
+    sjpeg::StringSink sink(out);
+    std::unique_ptr<sjpeg::Encoder> enc(sjpeg::EncoderFactory(
+        rgb.data(), kWidth, kHeight, 3 * kWidth, SJPEG_YUV_420, &sink));
+    if (enc == nullptr || !enc->InitFromParam(param)) return false;
+    enc->SetCompressionMethod(method);
+    return enc->Encode();
+  };
+  for (int method = 0; method <= 8; ++method) {
+    std::string expected;
+    SJPEG_CHECK(encode_method(method, 1, &expected));
+    SJPEG_CHECK(HasSize(expected, kWidth, kHeight));
+    for (int threads : {2, 4, 8}) {
+      std::string out;
+      SJPEG_CHECK(encode_method(method, threads, &out));
+      SJPEG_CHECK(out == expected);
     }
   }
 
