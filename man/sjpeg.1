@@ -168,15 +168,15 @@ Disable adaptive quantization optimization (faster processing, larger file).
 .TP
 .B \-adapt_bias
 Enable the adaptive quantization-bias optimization (slower processing,
-usually smaller file). Disabled by default.
+usually smaller file). Disabled by default. Overridden if \fB\-trellis\fP is active. Can be combined with \fB\-rdo\fP.
 .TP
 .B \-rdo
 Enable fast rate-distortion optimization (trailing EOB truncation and
-zero-run merging). Disabled by default. Overridden if \fB\-trellis\fP is active.
+zero-run merging). Disabled by default. Overridden if \fB\-trellis\fP is active. Can be combined with \fB\-adapt_bias\fP.
 .TP
 .B \-trellis
 Enable trellis-based quantization (slower processing, but finds the optimal
-rate-distortion path across the entire block). Overrides \fB\-rdo\fP.
+rate-distortion path across the entire block). Overrides \fB\-rdo\fP and \fB\-adapt_bias\fP.
 .TP
 .B \-no_optim
 Disable Huffman code optimization (faster processing, larger file).
