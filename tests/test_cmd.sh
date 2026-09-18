@@ -75,6 +75,8 @@ ${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -rdo -progressive -quiet
 ${SJPEG} ${SRC_FILE2} -o ${TMP_FILE1} -rdo -q 24 -psnr 35 -pass 5 -quiet
 ${SJPEG} ${SRC_FILE4} -o ${TMP_FILE1} -rdo -size 24000 -pass -1 \
                                       -tolerance .2 -quiet
+${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -adapt_bias -quiet
+${SJPEG} ${SRC_FILE1} -o ${TMP_FILE1} -rdo -adapt_bias -quiet
 ${SJPEG} ${SRC_FILE2} -o ${TMP_FILE1} -q 24 -psnr 35 -pass 5 \
                                       -trellis -adapt_bias -quiet
 ${SJPEG} ${SRC_FILE4} -o ${TMP_FILE1} -size 24000 -pass -1 -tolerance .2 \

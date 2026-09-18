@@ -213,7 +213,7 @@ struct EncoderParam {
   SjpegYUVMode yuv_mode;        // YUV-420...444 decisions
   bool Huffman_compress;        // if true, use optimized Huffman tables.
   bool adaptive_quantization;   // if true, use optimized quantizer matrices.
-  bool adaptive_bias;           // if true, use perceptual bias adaptation
+  bool adaptive_bias;           // if true, use perceptual bias adaptation (luma)
   bool use_trellis;             // if true, use trellis-based optimization
   bool use_rdo;                 // if true, use fast rate-distortion optimization
 

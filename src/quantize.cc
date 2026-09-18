@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cmath>
 
 #define SJPEG_NEED_ASM_HEADERS
@@ -121,7 +122,36 @@ void SetDefaultMinQuantMatrix(uint8_t out[64]) {
 #define DIV_BY_MULT(A, M) (((A) * (M)) >> FP_BITS)
 #define QUANTIZE(A, M, B) (DIV_BY_MULT((A) + (B), (M)) >> AC_BITS)
 
-void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
+// Fills bias_out[] (if non-null) and qthresh_out[] for a nominal 'bias'
+// (DC and v==1 stay fixed regardless, see FinalizeQuantMatrix).
+static void ComputeBiasTable(const Quantizer* const q, int bias,
+                             uint16_t* const bias_out,
+                             uint16_t qthresh_out[64]) {
+  const uint16_t bias_1 = 0x80;
+  for (size_t i = 0; i < 64; ++i) {
+    const uint16_t v = q->quant_[i];
+    const uint16_t iquant = q->iquant_[i];
+    const uint16_t b = (v == 1) ? bias_1 : (i == 0) ? BIAS_DC : bias;
+    const uint32_t raw_ibias = (((b * v) << AC_BITS) + 128) >> 8;
+    const uint32_t thresh =
+        ((1 << (FP_BITS + AC_BITS)) + iquant - 1) / iquant;
+    // Ensure qthresh >= 1 so 0 never rounds to 1.
+    const uint16_t ibias = (raw_ibias >= thresh)
+                               ? static_cast<uint16_t>(thresh - 1)
+                               : static_cast<uint16_t>(raw_ibias);
+    const uint16_t qthresh = static_cast<uint16_t>(thresh - ibias);
+    if (bias_out != nullptr) bias_out[i] = ibias;
+    qthresh_out[i] = qthresh;
+    assert(QUANTIZE(qthresh, iquant, ibias) > 0);
+    assert(QUANTIZE(qthresh - 1, iquant, ibias) == 0);
+  }
+}
+
+// Perceptual masking: bias offset for flat/busy tiers.
+#define ADAPTIVE_BIAS_DELTA 32
+
+void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias,
+                                  bool adaptive) {
   // first, clamp the quant matrix:
   for (size_t i = 0; i < 64; ++i) {
     if (q->quant_[i] < q->min_quant_[i]) q->quant_[i] = q->min_quant_[i];
@@ -131,23 +161,23 @@ void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias) {
   // value 0x80. The overall precision isn't affected: it's bit-exact the same
   // for our working range.
   // Note that quant=1 can start appearing at quality as low as 93.
-  const uint16_t bias_1 = 0x80;
   const uint16_t iquant_1 = 0xffffu;
   for (size_t i = 0; i < 64; ++i) {
     const uint16_t v = q->quant_[i];
-    const uint16_t iquant = (v == 1) ? iquant_1 : MAKE_INV_QUANT(v);
-    const uint16_t bias = (v == 1) ? bias_1 : (i == 0) ? BIAS_DC : q_bias;
-    const uint16_t ibias = (((bias * v) << AC_BITS) + 128) >> 8;
-    const uint16_t qthresh =
-        ((1 << (FP_BITS + AC_BITS)) + iquant - 1) / iquant - ibias;
-    q->bias_[i] = ibias;
-    q->iquant_[i] = iquant;
-    q->qthresh_[i] = qthresh;
-    q->qthresh2_[i] = (uint32_t)qthresh * qthresh;
-    assert(QUANTIZE(qthresh, iquant, ibias) > 0);
-    assert(QUANTIZE(qthresh - 1, iquant, ibias) == 0);
+    q->iquant_[i] = (v == 1) ? iquant_1 : MAKE_INV_QUANT(v);
+  }
+  ComputeBiasTable(q, q_bias, q->bias_, q->qthresh_);
+  for (size_t i = 0; i < 64; ++i) {
+    q->qthresh2_[i] = (uint32_t)q->qthresh_[i] * q->qthresh_[i];
+  }
+  if (adaptive) {
+    const int bias_flat = std::min(255, q_bias + ADAPTIVE_BIAS_DELTA);
+    const int bias_busy = std::max(0, q_bias - ADAPTIVE_BIAS_DELTA);
+    ComputeBiasTable(q, bias_flat, nullptr, q->qthresh_flat_);
+    ComputeBiasTable(q, bias_busy, nullptr, q->qthresh_busy_);
   }
 }
+#undef ADAPTIVE_BIAS_DELTA
 
 void Encoder::SetCostCodes(int idx) {
   quants_[idx].codes_ = ac_codes_[idx];
@@ -433,18 +463,78 @@ static void MergeRuns(const int16_t in[64], const Quantizer* const Q,
   out->nb_coeffs_ = nb;
 }
 
+static inline void ApplyRDO(const int16_t in[64], const Quantizer* const Q,
+                            DCTCoeffs* const out, RunLevel* const rl) {
+  TrimTrailingEOB(in, Q, out, rl);
+  MergeRuns(in, Q, out, rl);
+}
+
 int Encoder::RDOQuantizeBlock(const int16_t in[64], int idx,
                               const Quantizer* const Q, DCTCoeffs* const out,
                               RunLevel* const rl) {
   const int dc = quantize_block_(in, idx, Q, out, rl);
-  TrimTrailingEOB(in, Q, out, rl);
-  MergeRuns(in, Q, out, rl);
+  ApplyRDO(in, Q, out, rl);
+  return dc;
+}
+
+int Encoder::RDOAdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
+                                          const Quantizer* const Q,
+                                          DCTCoeffs* const out,
+                                          RunLevel* const rl) {
+  const int dc = AdaptiveBiasQuantizeBlock(in, idx, Q, out, rl);
+  ApplyRDO(in, Q, out, rl);
+  return dc;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Adaptive-bias quantization ("poor man's trellis")
+
+int Encoder::AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
+                                       const Quantizer* const Q,
+                                       DCTCoeffs* const out,
+                                       RunLevel* const rl) {
+  // Only luma is perceptually masked.
+  const BlockActivityTier tier =
+      (idx == 0) ? ClassifyBlockActivity(in) : kNormalBlock;
+  if (tier == kNormalBlock) {
+    return quantize_block_(in, idx, Q, out, rl);
+  }
+  const uint16_t* const survive_thresh =
+      (tier == kFlatBlock) ? Q->qthresh_flat_ : Q->qthresh_busy_;
+  const uint16_t* const bias = Q->bias_;
+  const uint16_t* const qthresh = Q->qthresh_;
+  const uint16_t* const iquant = Q->iquant_;
+  int prev = 1;
+  int nb = 0;
+  for (int i = 1; i < 64; ++i) {
+    const int j = kZigzag[i];
+    int v = in[j];
+    const int32_t mask = v >> 31;
+    v = (v ^ mask) - mask;
+    if (v < survive_thresh[j]) continue;
+    v = (v >= qthresh[j]) ? QUANTIZE(v, iquant[j], bias[j]) : 1;
+    assert(v > 0);
+    const int n = CalcLog2(v);
+    const uint16_t code = (v ^ mask) & ((1 << n) - 1);
+    rl[nb].level_ = (code << 4) | n;
+    rl[nb].run_ = i - prev;
+    prev = i + 1;
+    ++nb;
+  }
+  const int dc = (in[0] < 0) ? -QUANTIZE(-in[0], iquant[0], bias[0])
+                             : QUANTIZE(in[0], iquant[0], bias[0]);
+  out->idx_ = idx;
+  out->last_ = prev - 1;
+  out->nb_coeffs_ = nb;
   return dc;
 }
 
 Encoder::QuantizeBlockFunc Encoder::GetActiveQuantizeBlockFunc() const {
   if (use_trellis_) return TrellisQuantizeBlock;
-  if (use_rdo_) return RDOQuantizeBlock;
+  if (use_rdo_) {
+    return adaptive_bias_ ? RDOAdaptiveBiasQuantizeBlock : RDOQuantizeBlock;
+  }
+  if (adaptive_bias_) return AdaptiveBiasQuantizeBlock;
   return quantize_block_;
 }
 
