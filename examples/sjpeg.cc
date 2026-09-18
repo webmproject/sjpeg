@@ -131,6 +131,7 @@ int main(int argc, char * argv[]) {
     "                       than the original (JPEG input only)\n"
     "  -no_optim .......... Don't use Huffman optimization (=faster)\n"
     "  -no_adapt .......... Don't use adaptive quantization (=faster)\n"
+    "  -adapt_bias ........ Use adaptive quantization bias (=slower)\n"
     "  -rdo ............... Use rate-distortion optimization\n"
     "  -trellis ........... use trellis-based quantization (=slower, overrides -rdo)\n"
     "  -progressive ....... shortcut for '-prog 2,8'\n"
@@ -152,8 +153,7 @@ int main(int argc, char * argv[]) {
     "  -420 ............... shortcut for '-yuv_mode 1'\n"
     "\n"
     "If the input format is JPEG, the recompression will not go beyond the\n"
-    "original quality, *except* if '-no_limit' option is used."
-    "\n";
+    "original quality, *except* if '-no_limit' option is used.\n";
 
   // in order to gather information, plug a search hook
   ALT_HOOK_CLASS hook;
