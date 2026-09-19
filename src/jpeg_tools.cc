@@ -26,6 +26,7 @@
 #include <utility>   // for std::swap
 #include <vector>
 
+#define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -328,6 +329,42 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
                                        kNoiseLevel, &score_sum, &score_num,
                                        &gray_num);
     }
+#elif defined(SJPEG_USE_NEON)
+    const uint16x8_t v_gray_min = vdupq_n_u16((uint16_t)gray_min);
+    const uint16x8_t v_s = vdupq_n_u16((uint16_t)s);
+    uint16x8_t v_gray_cnt = vdupq_n_u16(0);
+
+    for (; i + 8 <= width - 1; i += 8) {
+      const uint16_t* const r1_ptr = &row1[i];
+      const uint16_t* const r2_ptr = &row2[i];
+      const uint16x8_t r1 = vld1q_u16(r1_ptr);
+
+      const uint16x8_t diff = vsubq_u16(r1, v_gray_min);
+      const uint16x8_t is_gray = vcltq_u16(diff, v_s);
+      v_gray_cnt = vsubq_u16(v_gray_cnt, is_gray);
+
+      for (int k = 0; k < 8; ++k) {
+        const int idx0 = r1_ptr[k];
+        const int idx1 = r1_ptr[k + 1];
+        const int idx2 = r2_ptr[k];
+        const int score = sjpeg::kSharpnessScore[idx0 + kRGB3 * idx1]
+                        + sjpeg::kSharpnessScore[idx0 + kRGB3 * idx2]
+                        + sjpeg::kSharpnessScore[idx1 + kRGB3 * idx2];
+        if (score > kNoiseLevel) {
+          score_sum += score;
+          score_num += 1;
+        }
+      }
+    }
+#if defined(__aarch64__)
+    gray_num += vaddvq_u16(v_gray_cnt);
+#else
+    uint16x4_t sc =
+        vadd_u16(vget_low_u16(v_gray_cnt), vget_high_u16(v_gray_cnt));
+    sc = vpadd_u16(sc, sc);
+    sc = vpadd_u16(sc, sc);
+    gray_num += vget_lane_u16(sc, 0);
+#endif
 #endif
     SJPEG_UNROLL(4)
     for (; i < width - 1; ++i) {
