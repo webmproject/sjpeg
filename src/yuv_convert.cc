@@ -196,10 +196,10 @@ static void StoreGray_C(const fixed_y_t* const rgb, fixed_y_t* const y, int w) {
   }
 }
 
-static void ImportOneRow_C(const uint8_t* const rgb, int pic_width,
-                           fixed_y_t* const dst) {
+void ImportOneRow_C(const uint8_t* const rgb, int start_x, int pic_width,
+                    fixed_y_t* const dst) {
   const int w = (pic_width + 1) & ~1;
-  for (int i = 0; i < pic_width; ++i) {
+  for (int i = start_x; i < pic_width; ++i) {
     const int off = i * 3;
     dst[i + 0 * w] = UpLift(rgb[off + 0]);
     dst[i + 1 * w] = UpLift(rgb[off + 1]);
@@ -210,6 +210,11 @@ static void ImportOneRow_C(const uint8_t* const rgb, int pic_width,
     dst[pic_width + 1 * w] = dst[pic_width + 1 * w - 1];
     dst[pic_width + 2 * w] = dst[pic_width + 2 * w - 1];
   }
+}
+
+void ImportOneRow_C(const uint8_t* const rgb, int pic_width,
+                    fixed_y_t* const dst) {
+  ImportOneRow_C(rgb, 0, pic_width, dst);
 }
 
 //------------------------------------------------------------------------------

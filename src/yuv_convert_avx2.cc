@@ -45,10 +45,6 @@ static fixed_y_t clip_y(int y) {
 
 extern uint32_t RGBToGray(uint32_t r, uint32_t g, uint32_t b);
 
-static fixed_y_t UpLift(uint8_t a) {  // 8bit -> SFIX
-  return ((fixed_y_t)a << SFIX) | SHALF;
-}
-
 uint64_t SharpUpdateY_AVX2(const uint16_t* ref, const uint16_t* src,
                            uint16_t* dst, int len) {
   uint64_t diff = 0;
@@ -288,16 +284,8 @@ void ImportOneRow_AVX2(const uint8_t* const rgb, int pic_width,
     _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + 1 * w + i), g_up);
     _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + 2 * w + i), b_up);
   }
-  for (; i < pic_width; ++i) {
-    const int off = i * 3;
-    dst[i + 0 * w] = UpLift(rgb[off + 0]);
-    dst[i + 1 * w] = UpLift(rgb[off + 1]);
-    dst[i + 2 * w] = UpLift(rgb[off + 2]);
-  }
-  if (pic_width & 1) {
-    dst[pic_width + 0 * w] = dst[pic_width + 0 * w - 1];
-    dst[pic_width + 1 * w] = dst[pic_width + 1 * w - 1];
-    dst[pic_width + 2 * w] = dst[pic_width + 2 * w - 1];
+  if (i < pic_width) {
+    ImportOneRow_C(rgb, i, pic_width, dst);
   }
 }
 
@@ -314,9 +302,7 @@ extern uint32_t ScaleDown(int a, int b, int c, int d);
 
 //------------------------------------------------------------------------------
 
-static inline __m256i GammaToLinear8(__m256i idx) {
-  alignas(32) uint32_t p[8];
-  _mm256_store_si256(reinterpret_cast<__m256i*>(p), idx);
+static inline __m256i GammaToLinear8_Direct(const fixed_y_t* p) {
   return _mm256_set_epi32(
       kGammaToLinearTab[p[7]], kGammaToLinearTab[p[6]],
       kGammaToLinearTab[p[5]], kGammaToLinearTab[p[4]],
@@ -381,11 +367,6 @@ static inline __m256i RGBToGray8(__m256i r, __m256i g, __m256i b) {
   return _mm256_srli_epi32(luma, 16);
 }
 
-static inline __m256i Load8U16AsI32(const fixed_y_t* p) {
-  return _mm256_cvtepu16_epi32(
-      _mm_loadu_si128(reinterpret_cast<const __m128i*>(p)));
-}
-
 // Truncating narrow of 8x int32 lanes to 8x 16b, matching the plain C
 // `(fixed_y_t)v` / `(fixed_t)v` casts.
 static inline void Store8TruncTo16(void* p, __m256i v) {
@@ -401,9 +382,9 @@ static inline void Store8TruncTo16(void* p, __m256i v) {
 void UpdateW_AVX2(const fixed_y_t* src, fixed_y_t* dst, int w) {
   int i = 0;
   for (; i + 8 <= w; i += 8) {
-    const __m256i R = GammaToLinear8(Load8U16AsI32(src + 0 * w + i));
-    const __m256i G = GammaToLinear8(Load8U16AsI32(src + 1 * w + i));
-    const __m256i B = GammaToLinear8(Load8U16AsI32(src + 2 * w + i));
+    const __m256i R = GammaToLinear8_Direct(src + 0 * w + i);
+    const __m256i G = GammaToLinear8_Direct(src + 1 * w + i);
+    const __m256i B = GammaToLinear8_Direct(src + 2 * w + i);
     const __m256i Y = RGBToGray8(R, G, B);
     Store8TruncTo16(dst + i, LinearToGamma8(Y));
   }
@@ -418,35 +399,41 @@ void UpdateW_AVX2(const fixed_y_t* src, fixed_y_t* dst, int w) {
 
 //------------------------------------------------------------------------------
 
-// Deinterleaves 8 pairs into 'a'/'b' lanes
-static inline void LoadPairs8(const fixed_y_t* p, __m256i* a, __m256i* b) {
-  const __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(p));
-  *a = _mm256_and_si256(v, _mm256_set1_epi32(0xffff));
-  *b = _mm256_srli_epi32(v, 16);
-}
+static inline __m256i ScaleDownChannel8(const fixed_y_t* src1,
+                                        const fixed_y_t* src2,
+                                        size_t channel_off) {
+  const fixed_y_t* p1 = src1 + channel_off;
+  const fixed_y_t* p2 = src2 + channel_off;
 
-static inline __m256i ScaleDown8(__m256i a, __m256i b, __m256i c, __m256i d) {
-  const __m256i A = GammaToLinear8(a);
-  const __m256i B = GammaToLinear8(b);
-  const __m256i C = GammaToLinear8(c);
-  const __m256i D = GammaToLinear8(d);
+  const __m256i A = _mm256_set_epi32(
+      kGammaToLinearTab[p1[14]], kGammaToLinearTab[p1[12]],
+      kGammaToLinearTab[p1[10]], kGammaToLinearTab[p1[8]],
+      kGammaToLinearTab[p1[6]],  kGammaToLinearTab[p1[4]],
+      kGammaToLinearTab[p1[2]],  kGammaToLinearTab[p1[0]]);
+  const __m256i B = _mm256_set_epi32(
+      kGammaToLinearTab[p1[15]], kGammaToLinearTab[p1[13]],
+      kGammaToLinearTab[p1[11]], kGammaToLinearTab[p1[9]],
+      kGammaToLinearTab[p1[7]],  kGammaToLinearTab[p1[5]],
+      kGammaToLinearTab[p1[3]],  kGammaToLinearTab[p1[1]]);
+  const __m256i C = _mm256_set_epi32(
+      kGammaToLinearTab[p2[14]], kGammaToLinearTab[p2[12]],
+      kGammaToLinearTab[p2[10]], kGammaToLinearTab[p2[8]],
+      kGammaToLinearTab[p2[6]],  kGammaToLinearTab[p2[4]],
+      kGammaToLinearTab[p2[2]],  kGammaToLinearTab[p2[0]]);
+  const __m256i D = _mm256_set_epi32(
+      kGammaToLinearTab[p2[15]], kGammaToLinearTab[p2[13]],
+      kGammaToLinearTab[p2[11]], kGammaToLinearTab[p2[9]],
+      kGammaToLinearTab[p2[7]],  kGammaToLinearTab[p2[5]],
+      kGammaToLinearTab[p2[3]],  kGammaToLinearTab[p2[1]]);
+
   __m256i sum =
       _mm256_add_epi32(_mm256_add_epi32(A, B), _mm256_add_epi32(C, D));
   sum = _mm256_srli_epi32(_mm256_add_epi32(sum, _mm256_set1_epi32(2)), 2);
   return LinearToGamma8(sum);
 }
 
-static inline __m256i ScaleDownChannel8(const fixed_y_t* src1,
-                                        const fixed_y_t* src2,
-                                        size_t channel_off) {
-  __m256i a1, b1, a2, b2;
-  LoadPairs8(src1 + channel_off, &a1, &b1);
-  LoadPairs8(src2 + channel_off, &a2, &b2);
-  return ScaleDown8(a1, b1, a2, b2);
-}
-
 void UpdateChroma_AVX2(const fixed_y_t* src1, const fixed_y_t* src2,
-                        fixed_t* dst, size_t uv_w) {
+                       fixed_t* dst, size_t uv_w) {
   size_t i = 0;
   for (; i + 8 <= uv_w; i += 8, dst += 8, src1 += 16, src2 += 16) {
     const __m256i r = ScaleDownChannel8(src1, src2, 0 * uv_w);
