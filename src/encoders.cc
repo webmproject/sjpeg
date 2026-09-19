@@ -126,19 +126,19 @@ void Encoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const uint8_t* Encoder::GetReplicatedSamples(const uint8_t* rgb,
-                                             int rgb_step,
-                                             int sub_w, int sub_h,
-                                             int w, int h) {
-  Replicate8b(rgb, rgb_step, replicated_buffer_, pix_step_ * w, sub_w, sub_h, w,
-              h, pix_step_);
-  return replicated_buffer_;
+const uint8_t* Encoder::GetReplicatedSamples(const uint8_t* rgb, int rgb_step,
+                                             int sub_w, int sub_h, int w, int h,
+                                             uint8_t* rep_buf) {
+  Replicate8b(rgb, rgb_step, rep_buf, pix_step_ * w, sub_w, sub_h, w, h,
+              pix_step_);
+  return rep_buf;
 }
 
-const uint8_t* Encoder::GetReplicatedYSamples(const uint8_t* in,
-                                              int step, int sub_w, int sub_h) {
-  Replicate8b(in, step, replicated_buffer_, 16, sub_w, sub_h, 16, 16, 1);
-  return replicated_buffer_;
+const uint8_t* Encoder::GetReplicatedYSamples(const uint8_t* in, int step,
+                                              int sub_w, int sub_h,
+                                              uint8_t* rep_buf) {
+  Replicate8b(in, step, rep_buf, 16, sub_w, sub_h, 16, 16, 1);
+  return rep_buf;
 }
 
 // useful common function. Declared in sjpegi.h: api.cc calls it too.
@@ -167,12 +167,13 @@ class Encoder420 final : public Encoder {
     }
   }
   ~Encoder420() override {}
-  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
+                  uint8_t* rep_buf) override {
     const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 16;
     int step = step_;
     if (clipped) {
-      rgb = GetReplicatedSamples(rgb, step,
-                                 W_ - mb_x * 16, H_ - mb_y * 16, 16, 16);
+      rgb = GetReplicatedSamples(rgb, step, W_ - mb_x * 16, H_ - mb_y * 16, 16,
+                                 16, rep_buf);
       step = pix_step_ * 16;
     }
     get_yuv_block_(rgb, step, out);
@@ -203,12 +204,13 @@ class Encoder444 final : public Encoder {
   }
   ~Encoder444() override {}
 
-  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
+                  uint8_t* rep_buf) override {
     const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 8;
     int step = step_;
     if (clipped) {
-      rgb = GetReplicatedSamples(rgb, step,
-                                 W_ - mb_x * 8, H_ - mb_y * 8, 8, 8);
+      rgb = GetReplicatedSamples(rgb, step, W_ - mb_x * 8, H_ - mb_y * 8, 8, 8,
+                                 rep_buf);
       step = pix_step_ * 8;
     }
     get_yuv_block_(rgb, step, out);
@@ -236,12 +238,13 @@ class Encoder400 final : public Encoder {
   }
   ~Encoder400() override {}
 
-  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
+                  uint8_t* rep_buf) override {
     const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 8;
     int step = step_;
     if (clipped) {
-      rgb = GetReplicatedSamples(rgb, step_,
-                                 W_ - mb_x * 8, H_ - mb_y * 8, 8, 8);
+      rgb = GetReplicatedSamples(rgb, step_, W_ - mb_x * 8, H_ - mb_y * 8, 8, 8,
+                                 rep_buf);
       step = pix_step_ * 8;
     }
     get_yuv_block_(rgb, step, out);
@@ -261,7 +264,9 @@ class Encoder400G final : public Encoder {
         gray_(gray), step_(step) {}
   ~Encoder400G() override {}
 
-  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
+                  uint8_t* rep_buf) override {
+    (void)rep_buf;
     const uint8_t* data = gray_ + (mb_x + mb_y * step_) * 8;
     if (clipped) {
       Convert8To16bClipped(data, step_, out, W_ - mb_x * 8, H_ - mb_y * 8);
@@ -288,17 +293,24 @@ class EncoderNV12 final : public Encoder {
     assert(sink != nullptr);
   }
 
-  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
-    GetYSamples(mb_x, mb_y, clipped, out);
-    GetUVSamples(mb_x, mb_y, clipped, out + 4 * 64, out + 5 * 64);
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
+                  uint8_t* rep_buf) override {
+    // Both helpers scribble over the front of rep_buf: 16x16 replicated luma
+    // for the first, 2*8*8 of interleaved chroma for the second. Reusing it is
+    // safe only because GetYSamples() has fully consumed its copy into out[]
+    // by the time it returns. rep_buf must be at least 4 * 16 * 16 bytes.
+    GetYSamples(mb_x, mb_y, clipped, out, rep_buf);
+    GetUVSamples(mb_x, mb_y, clipped, out + 4 * 64, out + 5 * 64, rep_buf);
   }
 
  protected:
-  void GetYSamples(int mb_x, int mb_y, bool clipped, int16_t* out) {
+  void GetYSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
+                   uint8_t* rep_buf) {
     const uint8_t* Y1 = y_ + (mb_x + mb_y * y_step_) * 16;
     int y_step = y_step_;
     if (clipped) {
-      Y1 = GetReplicatedYSamples(Y1, y_step, W_ - mb_x * 16, H_ - mb_y * 16);
+      Y1 = GetReplicatedYSamples(Y1, y_step, W_ - mb_x * 16, H_ - mb_y * 16,
+                                 rep_buf);
       y_step = 16;
     }
     const uint8_t* Y2 = Y1 + 8 * y_step;
@@ -310,16 +322,15 @@ class EncoderNV12 final : public Encoder {
       AverageExtraLuma(W_ - mb_x * 16, H_ - mb_y * 16, out);
     }
   }
-  void GetUVSamples(int mb_x, int mb_y, bool clipped,
-                    int16_t* const U, int16_t* const V) {
+  void GetUVSamples(int mb_x, int mb_y, bool clipped, int16_t* const U,
+                    int16_t* const V, uint8_t* rep_buf) {
     const uint8_t* UV = uv_ + (2 * mb_x + mb_y * uv_step_) * 8;
     int uv_step = uv_step_;
-    uint8_t tmp_uv[2 * 8 * 8];
     if (clipped) {
       const int uv_w = ((W_ + 1) >> 1) - mb_x * 8;
       const int uv_h = ((H_ + 1) >> 1) - mb_y * 8;
-      Replicate8b(UV, uv_step_, tmp_uv, 16, uv_w, uv_h, 8, 8, 2);
-      UV = tmp_uv;
+      Replicate8b(UV, uv_step_, rep_buf, 16, uv_w, uv_h, 8, 8, 2);
+      UV = rep_buf;
       uv_step = 16;
     }
     // input samples are U/V/U/V/... for NV12 and V/U/V/U... for NV21
@@ -394,7 +405,9 @@ class EncoderYUV444 final : public Encoder {
   }
   ~EncoderYUV444() override {}
 
-  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
+                  uint8_t* rep_buf) override {
+    (void)rep_buf;
     const uint8_t* const y = y_ + (mb_x + mb_y * y_step_) * 8;
     const uint8_t* const u = u_ + (mb_x + mb_y * u_step_) * 8;
     const uint8_t* const v = v_ + (mb_x + mb_y * v_step_) * 8;
@@ -452,12 +465,14 @@ class EncoderYUV420 : public Encoder {
   }
   ~EncoderYUV420() override {}
 
-  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out) override {
+  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
+                  uint8_t* rep_buf) override {
     // Luma
     const uint8_t* Y1 = y_ + (mb_x + mb_y * y_step_) * 16;
     int y_step = y_step_;
     if (clipped) {
-      Y1 = GetReplicatedYSamples(Y1, y_step,  W_ - mb_x * 16, H_ - mb_y * 16);
+      Y1 = GetReplicatedYSamples(Y1, y_step, W_ - mb_x * 16, H_ - mb_y * 16,
+                                 rep_buf);
       y_step = 16;
     }
     const uint8_t* const Y2 = Y1 + 8 * y_step;

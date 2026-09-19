@@ -29,7 +29,7 @@
 
 #include <vector>
 
-#include "./utils.h"
+#include "utils.h"
 
 using std::vector;
 using sjpeg::EncoderParam;
@@ -144,7 +144,10 @@ int main(int argc, char * argv[]) {
     "  -qmin <float> ...... minimum acceptable quality factor during search\n"
     "  -qmax <float> ...... maximum acceptable quality factor during search\n"
     "  -tolerance <float> . tolerance for convergence during search\n"
-    "  -restart <int> ..... restart interval in MCU rows (default: 0 = off)\n"
+    "  -restart <int> ..... restart interval in MCU rows (default: 0; <= 0 means\n"
+    "                       off if single-threaded, automatic if multi-threaded)\n"
+    "  -threads <int> ..... number of threads to use (default: 1; -1 for all\n"
+    "                       available cores; baseline encoding only)\n"
     "\n"
     "  -gray .............. shortcut for '-yuv_mode 4'\n"
     "  -444 ............... shortcut for '-yuv_mode 3'\n"
@@ -238,6 +241,13 @@ int main(int argc, char * argv[]) {
       param.passes = atoi(argv[++c]);
     } else if (!strcmp(argv[c], "-restart") && c + 1 < argc) {
       param.restart_interval_rows = atoi(argv[++c]);
+    } else if (!strcmp(argv[c], "-threads") && c + 1 < argc) {
+      param.num_threads = atoi(argv[++c]);
+      if (param.num_threads < -1 || param.num_threads == 0) {
+        fprintf(stdout, "Error: invalid range for option '%s': %s\n",
+                argv[c - 1], argv[c]);
+        return 1;
+      }
     } else if (!strcmp(argv[c], "-no_metadata")) {
       no_metadata = true;
     } else if (!strcmp(argv[c], "-yuv_mode") && c + 1 < argc) {

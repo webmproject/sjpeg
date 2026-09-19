@@ -25,6 +25,13 @@
 #include <stdint.h>
 #include <type_traits>
 
+#include <vector>
+
+#if !defined(SJPEG_NO_MULTITHREADING)
+#include <functional>
+#include <memory>
+#endif
+
 // IWYU pragma: begin_exports
 #include "sjpeg.h"
 #include "bit_writer.h"
@@ -43,6 +50,11 @@
 
 // Progressive (spectral-split-only) encoding; on by default. Pass
 // -DSJPEG_NO_PROGRESSIVE to strip the feature's code out entirely.
+
+// Multi-threaded baseline encoding (EncoderParam::num_threads); on by default.
+// Pass -DSJPEG_NO_MULTITHREADING to strip the feature's code out entirely,
+// along with sjpeg's only use of <thread>. num_threads is then ignored and
+// encoding always runs on the calling thread.
 
 #if defined(__SSE2__)
 #define SJPEG_USE_SSE2
@@ -425,8 +437,11 @@ struct Encoder {
 
   // return MCU samples at macroblock position (mb_x, mb_y)
   // clipped is true if the MCU is clipped and needs replication
-  virtual void GetSamples(int mb_x, int mb_y, bool clipped,
-                          int16_t* out_blocks) = 0;
+  // rep_buf is 4 * 16 * 16 bytes of caller-owned scratch for replicating
+  // clipped MCUs. It must not be shared between threads; the parallel scans
+  // pass per-worker storage, everything else passes replicated_buffer_.
+  virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out_blocks,
+                          uint8_t* rep_buf) = 0;
 
  private:
   // setters
@@ -441,8 +456,22 @@ struct Encoder {
   void SetMetadata(const std::string& data, MetadataType type);
 
  private:
+  static constexpr size_t kMaxMCUSize = 2560;
+
   bool CheckBuffers();  // returns false in case of memory alloc error
   bool ReserveSlab();   // shared by CheckBuffers()/CheckProgBuffers()
+  bool EnsureRunLevels(size_t needed);
+  int TotalRestartIntervals() const {
+    return (restart_interval_rows_ > 0)
+               ? (mb_h_ + restart_interval_rows_ - 1) / restart_interval_rows_
+               : 1;
+  }
+  size_t SliceSlabSize(int first_interval, int end_interval) const;
+
+  // Slice count for a parallel pass over [0, cap): 1 if serial, else up to
+  // num_threads_ bounded by 'cap' and a worthwhileness check on MCU count
+  // (grain <= 0: linear kMinMCUsPerThread model; else ScaledThreadLimit()).
+  int GetNumSlices(int cap, int grain = 64) const;
 
   void Put16b(uint32_t size);
   void Put32b(uint32_t size);
@@ -496,18 +525,41 @@ struct Encoder {
 #endif  // !SJPEG_NO_PROGRESSIVE
 
   void ResetDCs();
-  void EmitRestartMarker(int interval_idx);
+  bool EmitRestartMarker(sjpeg::BitWriter* bw, int interval_idx,
+                         int total_intervals, size_t slab_size);
 
   // GetSamples() + fDCT_() for one MCU, into 'out'. Shared by the baseline
   // and progressive quantize loops.
+  void TransformMCU(int mb_x, int mb_y, int16_t* out, uint8_t* rep_buf);
   void TransformMCU(int mb_x, int mb_y, int16_t* const out);
 
   // TransformMCU() unless coefficients are already cached. Shared guard for
-  // SinglePassScan(), SinglePassScanOptimized(), EncodeProgressive().
+  // EncodeProgressive().
   void MaybeTransformMCU(int mb_x, int mb_y, int16_t** const in);
+
+  // The MCU's unquantized coefficients: the ones CollectCoeffs() cached if it
+  // ran, otherwise computed into 'scratch'.
+  const int16_t* GetMCUCoeffs(int mb_x, int mb_y, int16_t* scratch,
+                              uint8_t* rep_buf);
+
+  // Shared scan slice kernels used by both single-threaded and multi-threaded
+  // scan passes.
+  bool CodeScanSlice(int first_interval, int end_interval, int total_intervals,
+                     sjpeg::BitWriter* bw, size_t slab_size, int16_t* scratch,
+                     uint8_t* rep_buf);
+  bool QuantizeScanSlice(int first_interval, int end_interval,
+                         DCTCoeffs* coeffs, std::vector<RunLevel>* rl_vec,
+                         size_t* out_nb_rl, uint32_t freq_ac[2][256 + 1],
+                         uint32_t freq_dc[2][12 + 1], int16_t* scratch,
+                         uint8_t* rep_buf);
+  bool ReplayScanSlice(int first_interval, int end_interval,
+                       int total_intervals, size_t nb_blocks,
+                       const DCTCoeffs* coeffs, const RunLevel* rl,
+                       sjpeg::BitWriter* bw, size_t slab_size);
 
   // collect transformed coeffs (unquantized) only
   void CollectCoeffs();
+  void CollectCoeffsSlice(int y_start, int y_end, uint8_t* rep_buf);
 
   // points Huffman_tables_[] at the standard tables of JPEG section K.3
   void SetDefaultHuffmanTables();
@@ -516,6 +568,12 @@ struct Encoder {
   void ResetEntropyStats();
   void AddEntropyStats(const DCTCoeffs* const coeffs,
                        const RunLevel* const run_levels);
+  // Same, into the supplied histograms rather than freq_ac_/freq_dc_. The
+  // parallel scan tallies into per-worker copies and sums them afterwards.
+  static void AddEntropyStats(const DCTCoeffs* coeffs,
+                              const RunLevel* run_levels,
+                              uint32_t* freq_ac,
+                              uint32_t* freq_dc);
   void CompileEntropyStats();
   size_t EntropySize() const;  // size, in bits, derived from freq_ac_/freq_dc_
 
@@ -524,6 +582,62 @@ struct Encoder {
 
   void SinglePassEncode();         // non-iterating encoding pass
 
+#if !defined(SJPEG_NO_MULTITHREADING)
+  static constexpr int kMinMCUsPerThread = 256;
+  static int HardwareConcurrency();
+
+  class ThreadPool;
+  struct ThreadPoolDeleter {
+    void operator()(ThreadPool* p) const;
+  };
+  mutable std::unique_ptr<ThreadPool, ThreadPoolDeleter> thread_pool_;
+  void RunParallel(int num_threads, int total,
+                   const std::function<void(int, int, int)>& fn) const;
+
+  // Returns the optimal thread count when serial post-processing overhead grows
+  // linearly with thread count T, requiring O(T * grain) MCUs per thread.
+  static int ScaledThreadLimit(int num_mcus, int grain = 64) {
+    int threads = 1;
+    while (threads < 16 && threads * (threads + 1) * grain <= num_mcus) {
+      ++threads;
+    }
+    return threads;
+  }
+
+  // Per-worker output and scratch. Cache-line aligned: the histogram pass hits
+  // freq_ac[] once per coefficient, and neighbouring slices would otherwise
+  // share lines.
+  struct alignas(64) ThreadChunk {
+    std::string data;                  // this slice's entropy-coded bytes
+    std::vector<DCTCoeffs> coeffs;     // optimized path only: one per block
+    std::vector<RunLevel> run_levels;  // optimized path only: their run/levels
+    size_t nb_run_levels = 0;          // entries of run_levels[] in use
+    uint32_t freq_ac[2][256 + 1];      // optimized path only: local histograms
+    uint32_t freq_dc[2][12 + 1];
+    bool ok = true;
+  };
+
+  // Parallel equivalents of the histogram pass, coefficient collection,
+  // dichotomy search evaluation, and baseline scans. They emit the same
+  // bitstream, byte for byte.
+  void CollectHistogramsMultiThreaded(int num_threads);
+  void CollectCoeffsMultiThreaded(int num_threads);
+  float ComputePSNRMultiThreaded(int num_threads) const;
+  float EvaluateSizeMultiThreaded(int num_threads, int total_intervals,
+                                  std::vector<ThreadChunk>* chunks);
+  void QuantizeSlicesMultiThreaded(int num_threads, int total_intervals,
+                                   std::vector<ThreadChunk>* chunks);
+  void ReplaySlicesMultiThreaded(int num_threads, int total_intervals,
+                                 std::vector<ThreadChunk>* chunks);
+  void SinglePassScanMultiThreaded(int num_threads, int total_intervals);
+  void SinglePassScanOptimizedMultiThreaded(int num_threads,
+                                            int total_intervals);
+
+  // Appends the slices to bw_ in order, freeing each one as it goes.
+  void ConcatenateChunks(ThreadChunk* chunks, int num_chunks);
+  // Sums each slice's AC/DC symbol frequencies into freq_ac_ / freq_dc_.
+  void MergeChunkStats(const ThreadChunk* chunks, int num_chunks);
+#endif  // !SJPEG_NO_MULTITHREADING
   // quantize and compute run/levels from already stored coeffs
   void StoreRunLevels(DCTCoeffs* coeffs);
   // just write already stored run_levels & coeffs:
@@ -534,6 +648,8 @@ struct Encoder {
 
   // Histogram pass
   void CollectHistograms();
+  void CollectHistogramsSlice(int y_start, int y_end, Histo histos[2],
+                              int16_t* scratch, uint8_t* rep_buf);
 
   typedef int (*QuantizeBlockFunc)(const int16_t in[64], int idx,
                                    const Quantizer* const Q,
@@ -558,7 +674,11 @@ struct Encoder {
   static QuantizeErrorFunc quantize_error_;
   static QuantizeErrorFunc GetQuantizeErrorFunc();
 
-  void CodeBlock(const DCTCoeffs* const coeffs, const RunLevel* const rl);
+  void CodeBlock(const DCTCoeffs* coeffs, const RunLevel* rl) {
+    CodeBlock(coeffs, rl, &bw_);
+  }
+  void CodeBlock(const DCTCoeffs* coeffs, const RunLevel* rl,
+                 sjpeg::BitWriter* bw);
   // returns DC code (4bits for length, 12bits for suffix), updates DC_predictor
   static uint16_t GenerateDCDiffCode(int DC, int* const DC_predictor);
 
@@ -569,11 +689,14 @@ struct Encoder {
   size_t HeaderSize() const;
   void BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
                   const RunLevel* rl, sjpeg::BitCounter* const bc) const;
+  float ComputeSize(size_t entropy_bits) const;
   float ComputeSize(const DCTCoeffs* coeffs);
+  uint64_t ComputePSNRSlice(int y_start, int y_end) const;
   float ComputePSNR() const;
+  static float GetPSNR(uint64_t err, uint64_t size);
 
  protected:
-  bool SetError();   // sets ok_ to false, and returns false
+  bool SetError() const;   // sets ok_ to false, and returns false
 
   // format-specific parameters, set by virtual InitComponents()
   const SjpegYUVMode yuv_mode_;   // 444, 420 or 400 only
@@ -596,10 +719,11 @@ struct Encoder {
   const uint8_t* GetReplicatedSamples(const uint8_t* rgb,    // block source
                                       int rgb_step,          // stride in source
                                       int sub_w, int sub_h,  // sub-block size
-                                      int w, int h);         // size of mcu
+                                      int w, int h,          // size of mcu
+                                      uint8_t* rep_buf);
   // Replicate a 16x16 sub-block similarly.
-  const uint8_t* GetReplicatedYSamples(const uint8_t* in, int step,
-                                       int sub_w, int sub_h);
+  const uint8_t* GetReplicatedYSamples(const uint8_t* in, int step, int sub_w,
+                                       int sub_h, uint8_t* rep_buf);
   // set blocks that are totally outside of the picture to an average value
   void AverageExtraLuma(int sub_w, int sub_h, int16_t* out);
   uint8_t replicated_buffer_[4 * 16 * 16];  // tmp buffer for replication
@@ -631,7 +755,7 @@ struct Encoder {
   }
 
  protected:
-  bool ok_;                // set to false if a new[] fails
+  mutable bool ok_;        // set to false if a new[] fails
 
  private:
   sjpeg::BitWriter bw_;    // output buffer
@@ -646,6 +770,8 @@ struct Encoder {
   bool reuse_run_levels_;     // save quantized run/levels   (method 1, 4, 5)
   bool use_trellis_;          // use trellis-quantization    (method 7, 8)
   int restart_interval_rows_ = 0;  // MCU rows per restart interval (0 = off)
+  int num_threads_ = 1;            // total threads for parallel scan
+                                   // (1 = single-threaded)
 
   int q_bias_;           // [0..255]: rounding bias for quant. of AC coeffs.
   Quantizer quants_[2];  // quant matrices

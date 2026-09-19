@@ -17,8 +17,12 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
 
+#if !defined(SJPEG_NO_MULTITHREADING)
+#include <algorithm>
+#endif
 #include <cstdlib>
 #include <memory>
 #include <new>
@@ -102,6 +106,7 @@ void EncoderParam::Init(float quality_factor) {
   qmin = 0.;
   qmax = 100.;
   restart_interval_rows = 0;
+  num_threads = 1;
 }
 
 void EncoderParam::SetQuality(float quality_factor) {
@@ -182,6 +187,20 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   }
 
   restart_interval_rows_ = param.restart_interval_rows;
+#if defined(SJPEG_NO_MULTITHREADING)
+  num_threads_ = 1;
+#else
+  if (param.num_threads < 0) {
+    num_threads_ = HardwareConcurrency();
+  } else {
+    num_threads_ = std::max(1, param.num_threads);
+  }
+  // Parallel coding needs somewhere to slice the scan, so ask for the finest
+  // granularity unless the caller picked one.
+  if (num_threads_ > 1) {
+    restart_interval_rows_ = std::max(restart_interval_rows_, 1);
+  }
+#endif
 
   assert(memory_hook_ == (param.memory == nullptr ? GetDefaultMemoryManager()
                                                   : param.memory));
@@ -220,7 +239,7 @@ bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
                                        uint8_t[(size_t)rgb_stride * height]);
     if (rgb == nullptr) return false;
     for (int y = 0; y < height; ++y) {
-      const uint8_t* s = bgra + (size_t)y * stride;
+      const uint8_t* s = bgra + static_cast<ptrdiff_t>(y) * stride;
       uint8_t* d = rgb.get() + (size_t)y * rgb_stride;
       for (int x = 0; x < width; ++x, s += 4, d += 3) {
         d[0] = s[2];
@@ -247,7 +266,7 @@ bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
                                        uint8_t[(size_t)rgb_stride * height]);
     if (rgb == nullptr) return false;
     for (int y = 0; y < height; ++y) {
-      const uint8_t* s = rgba + (size_t)y * stride;
+      const uint8_t* s = rgba + static_cast<ptrdiff_t>(y) * stride;
       uint8_t* d = rgb.get() + (size_t)y * rgb_stride;
       for (int x = 0; x < width; ++x, s += 4, d += 3) {
         d[0] = s[0];

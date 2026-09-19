@@ -331,23 +331,40 @@ void Encoder::AnalyseHisto() {
   }
 }
 
-void Encoder::CollectHistograms() {
-  ResetHisto();
-  int16_t* in = in_blocks_;
+void Encoder::CollectHistogramsSlice(int y_start, int y_end, Histo histos[2],
+                                     int16_t* scratch, uint8_t* rep_buf) {
   const bool use_extra_memory = use_extra_memory_;
-  for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
+  for (int mb_y = y_start; mb_y < y_end; ++mb_y) {
+    int16_t* in =
+        use_extra_memory
+            ? in_blocks_ + static_cast<size_t>(mb_y * mb_w_) * 64 * mcu_blocks_
+            : scratch;
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
       if (!use_extra_memory) {
-        in = in_blocks_;
+        in = scratch;
       }
-      TransformMCU(mb_x, mb_y, in);
+      TransformMCU(mb_x, mb_y, in, rep_buf);
       for (int c = 0; c < nb_comps_; ++c) {
         const int num_blocks = nb_blocks_[c];
-        store_histo_(in, &histos_[quant_idx_[c]], num_blocks);
+        store_histo_(in, &histos[quant_idx_[c]], num_blocks);
         in += 64 * num_blocks;
       }
     }
   }
+}
+
+void Encoder::CollectHistograms() {
+#if !defined(SJPEG_NO_MULTITHREADING)
+  // Progressive mode isn't parallelized: cap to 1 slice when it applies.
+  const int num_slices =
+      (prog_luma_split_ != 64) ? 1 : GetNumSlices(mb_h_);
+  if (num_slices > 1) {
+    CollectHistogramsMultiThreaded(num_slices);
+    return;
+  }
+#endif
+  ResetHisto();
+  CollectHistogramsSlice(0, mb_h_, histos_, in_blocks_, replicated_buffer_);
   have_coeffs_ = use_extra_memory_;
 }
 

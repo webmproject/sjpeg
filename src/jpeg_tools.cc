@@ -18,6 +18,7 @@
 
 #include <assert.h>
 #include <math.h>     // for fabs
+#include <stddef.h>   // for ptrdiff_t
 #include <stdint.h>
 #include <string.h>   // for memset
 
@@ -357,11 +358,11 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
     } while (band >= num_bands);
     int j = band * kBandHeight;  // current row
     const int last_row = std::min(j + 1 + kBandHeight, height);
-    cvrt_func(rgb + (size_t)j * stride, width, &row1[0]);
+    cvrt_func(rgb + static_cast<ptrdiff_t>(j) * stride, width, &row1[0]);
     while (++j < last_row) {
       // note: cvrt_func() is called height/kBandHeight times too much,
       // but that's ok
-      cvrt_func(rgb + (size_t)j * stride, width, &row2[0]);
+      cvrt_func(rgb + static_cast<ptrdiff_t>(j) * stride, width, &row2[0]);
       ScoreRow();
       std::swap(row1, row2);
       ++rows_scored;

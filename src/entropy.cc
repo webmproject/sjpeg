@@ -185,24 +185,24 @@ static inline void CodeACRunLevels(const RunLevel* const rl, int n,
   }
 }
 
-void Encoder::CodeBlock(const DCTCoeffs* const coeffs,
-                        const RunLevel* const rl) {
+void Encoder::CodeBlock(const DCTCoeffs* const coeffs, const RunLevel* const rl,
+                        sjpeg::BitWriter* bw) {
   const int idx = coeffs->idx_;
   const int q_idx = quant_idx_[idx];
 
   // DC coefficient symbol
   const int dc_len = coeffs->dc_code_ & 0x0f;
   const uint32_t code = dc_codes_[q_idx][dc_len];
-  bw_.PutPackedCode(code);
+  bw->PutPackedCode(code);
   if (dc_len > 0) {
-    bw_.PutBits(coeffs->dc_code_ >> 4, dc_len);
+    bw->PutBits(coeffs->dc_code_ >> 4, dc_len);
   }
 
   // AC coeffs
   const uint32_t* const codes = ac_codes_[q_idx];
-  CodeACRunLevels(rl, coeffs->nb_coeffs_, codes, &bw_);
+  CodeACRunLevels(rl, coeffs->nb_coeffs_, codes, bw);
   if (coeffs->last_ < 63) {     // EOB
-    bw_.PutPackedCode(codes[0x00]);
+    bw->PutPackedCode(codes[0x00]);
   }
 }
 
@@ -228,6 +228,17 @@ static inline void AddACRunLevelStats(const RunLevel* const rl, int n,
   }
 }
 
+void Encoder::AddEntropyStats(const DCTCoeffs* coeffs,
+                              const RunLevel* run_levels,
+                              uint32_t* freq_ac,
+                              uint32_t* freq_dc) {
+  AddACRunLevelStats(run_levels, coeffs->nb_coeffs_, freq_ac);
+  if (coeffs->last_ < 63) {     // EOB
+    ++freq_ac[0x00];
+  }
+  ++freq_dc[coeffs->dc_code_ & 0x0f];
+}
+
 void Encoder::AddEntropyStats(const DCTCoeffs* const coeffs,
                               const RunLevel* const run_levels) {
   // freq_ac_[] and freq_dc_[] cannot overflow 32bits, since the maximum
@@ -235,11 +246,7 @@ void Encoder::AddEntropyStats(const DCTCoeffs* const coeffs,
   // be greater than 32bits, either.
   const int idx = coeffs->idx_;
   const int q_idx = quant_idx_[idx];
-  AddACRunLevelStats(run_levels, coeffs->nb_coeffs_, freq_ac_[q_idx]);
-  if (coeffs->last_ < 63) {     // EOB
-    ++freq_ac_[q_idx][0x00];
-  }
-  ++freq_dc_[q_idx][coeffs->dc_code_ & 0x0f];
+  AddEntropyStats(coeffs, run_levels, freq_ac_[q_idx], freq_dc_[q_idx]);
 }
 
 // Same total as BlocksSize(), minus uncounted 0xff byte-stuffing

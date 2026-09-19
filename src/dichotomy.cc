@@ -22,6 +22,11 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#if !defined(SJPEG_NO_MULTITHREADING)
+#include <algorithm>
+#include <vector>
+#endif
+
 #include "sjpegi.h"
 
 using namespace sjpeg;
@@ -81,7 +86,6 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   assert(use_extra_memory_);
   assert(reuse_run_levels_);
 
-  const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
   if (use_trellis_ || use_rdo_) InitCodes(true);
 
   // run/levels are in registers here, so frequencies come for free. Whoever
@@ -89,31 +93,14 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   const bool collect_stats = optimize_size_;
   if (collect_stats) ResetEntropyStats();
 
-  ResetDCs();
   nb_run_levels_ = 0;
-  int16_t* in = in_blocks_;
-  // Restart markers reset the decoder's DC predictors, so the dc_code_ deltas
-  // stored here must be relative to the very same boundaries that
-  // FinalPassScan() will later emit the markers at.
-  const int mcus_per_interval =
-      (restart_interval_rows_ > 0) ? restart_interval_rows_ * mb_w_ : 0;
-  for (int n = 0; n < mb_w_ * mb_h_; ++n) {
-    if (mcus_per_interval > 0 && n > 0 && n % mcus_per_interval == 0) {
-      ResetDCs();
-    }
-    if (!CheckBuffers()) return;
-    for (int c = 0; c < nb_comps_; ++c) {
-      for (int i = 0; i < nb_blocks_[c]; ++i) {
-        RunLevel* const run_levels = all_run_levels_ + nb_run_levels_;
-        const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
-                                      coeffs, run_levels);
-        coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
-        if (collect_stats) AddEntropyStats(coeffs, run_levels);
-        nb_run_levels_ += coeffs->nb_coeffs_;
-        ++coeffs;
-        in += 64;
-      }
-    }
+  const int total_intervals = TotalRestartIntervals();
+  if (!QuantizeScanSlice(0, total_intervals, coeffs, /*rl_vec=*/nullptr,
+                         &nb_run_levels_,
+                         collect_stats ? freq_ac_ : nullptr,
+                         collect_stats ? freq_dc_ : nullptr,
+                         in_blocks_, replicated_buffer_)) {
+    return;
   }
 }
 
@@ -121,6 +108,12 @@ void Encoder::LoopScan() {
   assert(use_extra_memory_);
   assert(reuse_run_levels_);
 
+#if !defined(SJPEG_NO_MULTITHREADING)
+  const int total_intervals = TotalRestartIntervals();
+  const int search_threads =
+      search_hook_->for_size ? GetNumSlices(total_intervals)
+                             : GetNumSlices(mb_h_);
+#endif  // !SJPEG_NO_MULTITHREADING
   if (use_adaptive_quant_) {
     CollectHistograms();
   } else {
@@ -128,8 +121,16 @@ void Encoder::LoopScan() {
   }
 
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
-  DCTCoeffs* const base_coeffs = Alloc<DCTCoeffs>(nb_mbs);
-  if (base_coeffs == nullptr) return;
+  DCTCoeffs* base_coeffs = nullptr;
+#if !defined(SJPEG_NO_MULTITHREADING)
+  // Reused every iteration, like base_coeffs -- see the finalize step below.
+  std::vector<ThreadChunk> chunks;
+  if (search_threads <= 1)
+#endif
+  {
+    base_coeffs = Alloc<DCTCoeffs>(nb_mbs);
+    if (base_coeffs == nullptr) return;
+  }
 
   uint8_t opt_quants[2][64];
 
@@ -151,18 +152,27 @@ void Encoder::LoopScan() {
 
     float result;
     if (search_hook_->for_size) {
-      // compute pass to store coeffs / runs / dc_code_
-      StoreRunLevels(base_coeffs);
-      if (!ok_) break;
-      if (optimize_size_) {
-        CompileEntropyStats();   // stats were gathered by StoreRunLevels()
-        if (use_trellis_ || use_rdo_) InitCodes(true);
+#if !defined(SJPEG_NO_MULTITHREADING)
+      if (search_threads > 1) {
+        result = EvaluateSizeMultiThreaded(search_threads, total_intervals,
+                                           &chunks);
+        if (!ok_) break;
+      } else
+#endif
+      {
+        // compute pass to store coeffs / runs / dc_code_
+        StoreRunLevels(base_coeffs);
+        if (!ok_) break;
+        if (optimize_size_) {
+          CompileEntropyStats();   // stats were gathered by StoreRunLevels()
+          if (use_trellis_ || use_rdo_) InitCodes(true);
+        }
+        result = ComputeSize(base_coeffs);
       }
-      result = ComputeSize(base_coeffs);
     } else {
-      // if we're just targeting PSNR, we don't need to compute the
-      // run/levels within the loop. We just need to quantize the coeffs
-      // and measure the distortion.
+      // if we're just targeting PSNR, we don't need to compute the run/levels
+      // within the loop. We just need to quantize the coeffs and measure the
+      // distortion.
       result = ComputePSNR();
     }
     if (DBG_PRINT) printf("pass #%d: q=%.2f value:%.2f ",
@@ -191,25 +201,59 @@ void Encoder::LoopScan() {
     search_hook_->q = best_q;
     search_hook_->value = best_result;
 
-    // optimize Huffman table now, if we haven't already during the search
-    if (!search_hook_->for_size || !last_is_best) {
-      StoreRunLevels(base_coeffs);
-      if (ok_ && optimize_size_) {
-        CompileEntropyStats();
+#if !defined(SJPEG_NO_MULTITHREADING)
+    if (search_threads > 1) {
+      if (search_hook_->for_size) {
+        // Like the serial fallback below, redo the quantization pass if the
+        // search's last try wasn't the winner.
+        if (!last_is_best) {
+          QuantizeSlicesMultiThreaded(search_threads, total_intervals,
+                                      &chunks);
+          if (!ok_) return;
+          if (optimize_size_) CompileEntropyStats();
+        }
+        DeallocateBlocks();
+        WriteDQT();
+        WriteSOF();
+        WriteDRI();
+        WriteDHT();
+        WriteSOS();
+        ReplaySlicesMultiThreaded(search_threads, total_intervals, &chunks);
+      } else {
+        WriteDQT();
+        WriteSOF();
+        WriteDRI();
+        if (optimize_size_) {
+          SinglePassScanOptimized();
+        } else {
+          WriteDHT();
+          WriteSOS();
+          SinglePassScan();
+        }
+      }
+    } else
+#endif
+    {
+      // optimize Huffman table now, if we haven't already during the search
+      if (!search_hook_->for_size || !last_is_best) {
+        StoreRunLevels(base_coeffs);
+        if (ok_ && optimize_size_) {
+          CompileEntropyStats();
+        }
+      }
+
+      // finish bitstream
+      if (ok_) {
+        WriteDQT();
+        WriteSOF();
+        WriteDRI();
+        WriteDHT();
+        WriteSOS();
+        FinalPassScan(nb_mbs, base_coeffs);
       }
     }
-
-    // finish bitstream
-    if (ok_) {
-      WriteDQT();
-      WriteSOF();
-      WriteDRI();
-      WriteDHT();
-      WriteSOS();
-      FinalPassScan(nb_mbs, base_coeffs);
-    }
   }
-  Free(base_coeffs);
+  if (base_coeffs != nullptr) Free(base_coeffs);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -288,21 +332,8 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
   }
 }
 
-float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
-  InitCodes(false);
-  size_t size = HeaderSize();
-  if (optimize_size_) {
-    // not counting the 0xff byte-stuffing that BlocksSize() tracks exactly
-    // these depends on the bit sequence, not on symbol counts.
-    // it's a little approximation we can live with.
-    // Under-estimated ~1/256 = 0.39%: uniform bytes, 0xff produces 2 bytes.
-    // Not worth correcting: below the search's own convergence precision.
-    size += EntropySize();
-  } else {
-    BitCounter bc;
-    BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, all_run_levels_, &bc);
-    size += bc.Size();
-  }
+float Encoder::ComputeSize(size_t entropy_bits) const {
+  size_t size = HeaderSize() + entropy_bits;
   if (restart_interval_rows_ > 0) {
     // Each restart costs a 2-byte RSTn marker, plus the '1'-bits padding the
     // preceding entropy data to a byte boundary (0..7 bits, ~4 on average).
@@ -313,20 +344,36 @@ float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
   return size / 8.f;
 }
 
+float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
+  InitCodes(false);
+  if (optimize_size_) {
+    // not counting the 0xff byte-stuffing that BlocksSize() tracks exactly
+    // these depends on the bit sequence, not on symbol counts.
+    // it's a little approximation we can live with.
+    // Under-estimated ~1/256 = 0.39%: uniform bytes, 0xff produces 2 bytes.
+    // Not worth correcting: below the search's own convergence precision.
+    return ComputeSize(EntropySize());
+  }
+  BitCounter bc;
+  BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, all_run_levels_, &bc);
+  return ComputeSize(bc.Size());
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
-static float GetPSNR(uint64_t err, uint64_t size) {
+float Encoder::GetPSNR(uint64_t err, uint64_t size) {
   // This expression is written such that it gives the same result on ARM
   // and x86 (for large values of err/size in particular). Don't change it!
   return (err > 0 && size > 0) ? 4.3429448f * log(size / (err / 255. / 255.))
                                : 99.f;
 }
 
-float Encoder::ComputePSNR() const {
+uint64_t Encoder::ComputePSNRSlice(int y_start, int y_end) const {
   uint64_t error = 0;
-  const int16_t* in = in_blocks_;
-  const size_t nb_mbs = mb_w_ * mb_h_;
-  for (size_t n = 0; n < nb_mbs; ++n) {
+  const int16_t* in =
+      in_blocks_ + static_cast<size_t>(y_start) * mb_w_ * 64 * mcu_blocks_;
+  const size_t slice_mbs = static_cast<size_t>(y_end - y_start) * mb_w_;
+  for (size_t n = 0; n < slice_mbs; ++n) {
     for (int c = 0; c < nb_comps_; ++c) {
       const Quantizer* const Q = &quants_[quant_idx_[c]];
       for (int i = 0; i < nb_blocks_[c]; ++i) {
@@ -335,5 +382,15 @@ float Encoder::ComputePSNR() const {
       }
     }
   }
+  return error;
+}
+
+float Encoder::ComputePSNR() const {
+#if !defined(SJPEG_NO_MULTITHREADING)
+  const int num_slices = GetNumSlices(mb_h_);
+  if (num_slices > 1) return ComputePSNRMultiThreaded(num_slices);
+#endif
+  const uint64_t error = ComputePSNRSlice(0, mb_h_);
+  const size_t nb_mbs = static_cast<size_t>(mb_w_) * mb_h_;
   return GetPSNR(error, 64ull * nb_mbs * mcu_blocks_);
 }
