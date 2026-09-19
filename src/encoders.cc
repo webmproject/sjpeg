@@ -515,11 +515,21 @@ class EncoderSharp420 final : public EncoderYUV420 {
                   ByteSink* const sink, MemoryManager* const memory = nullptr)
       : EncoderYUV420(nullptr, 0, nullptr, 0, nullptr, 0, W, H, sink, memory),
         yuv_memory_(nullptr) {
+    if (W <= 0 || H <= 0 || W > kMaxDimension || H > kMaxDimension) {
+      ok_ = false;
+      return;
+    }
     const int uv_w = (W + 1) >> 1;
     const int uv_h = (H + 1) >> 1;
-    const size_t y_size = (size_t)W * H;
-    const size_t uv_size = (size_t)uv_w * uv_h;
-    yuv_memory_ = Alloc<uint8_t>(y_size + 2 * uv_size);
+    size_t y_size = 0, uv_size = 0, uv_2size = 0, total_size = 0;
+    if (!SafeMultiply<size_t>(W, H, &y_size) ||
+        !SafeMultiply<size_t>(uv_w, uv_h, &uv_size) ||
+        !SafeMultiply<size_t>(uv_size, 2, &uv_2size) ||
+        !SafeAdd<size_t>(y_size, uv_2size, &total_size)) {
+      ok_ = false;
+      return;
+    }
+    yuv_memory_ = Alloc<uint8_t>(total_size);
     ok_ = (yuv_memory_ != nullptr);
     if (ok_) {
       y_ = yuv_memory_;
