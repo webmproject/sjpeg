@@ -27,6 +27,7 @@
 
 #if !defined(SJPEG_NO_MULTITHREADING)
 #include <functional>
+#include <memory>
 #endif
 
 // IWYU pragma: begin_exports
@@ -508,8 +509,10 @@ struct Encoder {
   static int HardwareConcurrency();
 
   class ThreadPool;
-  mutable ThreadPool* thread_pool_ = nullptr;
-  void DeleteThreadPool();
+  struct ThreadPoolDeleter {
+    void operator()(ThreadPool* p) const;
+  };
+  mutable std::unique_ptr<ThreadPool, ThreadPoolDeleter> thread_pool_;
   void RunParallel(int num_threads, int total,
                    const std::function<void(int, int, int)>& fn) const;
 

@@ -101,9 +101,6 @@ Encoder::~Encoder() {
 #if !defined(SJPEG_NO_PROGRESSIVE)
   DeallocateProgPlanes();
 #endif
-#if !defined(SJPEG_NO_MULTITHREADING)
-  DeleteThreadPool();
-#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////

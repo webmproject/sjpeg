@@ -133,9 +133,8 @@ class Encoder::ThreadPool {
   bool stop_ = false;
 };
 
-void Encoder::DeleteThreadPool() {
-  delete thread_pool_;
-  thread_pool_ = nullptr;
+void Encoder::ThreadPoolDeleter::operator()(ThreadPool* p) const {
+  delete p;
 }
 
 namespace {
@@ -159,10 +158,9 @@ void Encoder::RunParallel(int num_threads, int total,
   }
   const int num_workers = num_threads - 1;
   assert(num_workers > 0);
-  if (thread_pool_ == nullptr || thread_pool_->num_workers() < num_workers) {
-    delete thread_pool_;
-    thread_pool_ = new (std::nothrow) ThreadPool(num_workers);
-    if (thread_pool_ == nullptr) {
+  if (!thread_pool_ || thread_pool_->num_workers() < num_workers) {
+    thread_pool_.reset(new (std::nothrow) ThreadPool(num_workers));
+    if (!thread_pool_) {
       SetError();
       return;
     }
@@ -187,7 +185,7 @@ void Encoder::ConcatenateChunks(ThreadChunk* chunks, int num_chunks) {
     }
     bw_.PutBytes(reinterpret_cast<const uint8_t*>(chunks[t].data.data()),
                  chunks[t].data.size());
-    std::string().swap(chunks[t].data);   // free as we go
+    chunks[t].data.clear();
   }
 }
 
@@ -353,8 +351,8 @@ void Encoder::ReplaySlicesMultiThreaded(int num_threads, int total_intervals,
                 bw.Flush();
                 chunk.ok = bw.Finalize();
                 // Release the slice's scratch as soon as it has been coded.
-                std::vector<DCTCoeffs>().swap(chunk.coeffs);
-                std::vector<RunLevel>().swap(chunk.run_levels);
+                chunk.coeffs.clear();
+                chunk.run_levels.clear();
               });
   ConcatenateChunks(chunks->data(), num_threads);
 }
