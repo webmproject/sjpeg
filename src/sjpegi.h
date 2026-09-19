@@ -20,8 +20,10 @@
 #define SJPEG_JPEGI_H_
 
 #include <assert.h>
+#include <limits>
 #include <stddef.h>
 #include <stdint.h>
+#include <type_traits>
 
 #include <vector>
 
@@ -101,6 +103,82 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace sjpeg {
+
+////////////////////////////////////////////////////////////////////////////////
+// Safe integer arithmetic helpers for buffer sizing and allocations.
+
+#if (defined(__GNUC__) && __GNUC__ >= 5) || \
+    (defined(__clang__) && defined(__has_builtin) && \
+     __has_builtin(__builtin_mul_overflow) && \
+     __has_builtin(__builtin_add_overflow))
+#define SJPEG_HAS_BUILTIN_OVERFLOW 1
+#endif
+
+// Returns true if a * b does not overflow type T, storing the result in *out.
+// If overflow occurs, *out is set to 0 and false is returned.
+template <typename T>
+inline bool SafeMultiply(T a, T b, T* out) {
+  if (out == nullptr) return false;
+#if defined(SJPEG_HAS_BUILTIN_OVERFLOW)
+  return !__builtin_mul_overflow(a, b, out);
+#else
+  static_assert(std::is_integral<T>::value, "Integral type required");
+  if (a == 0 || b == 0) {
+    *out = 0;
+    return true;
+  }
+  if (a > 0 && b > 0) {
+    if (b > std::numeric_limits<T>::max() / a) {
+      *out = 0;
+      return false;
+    }
+  } else if (a < 0 && b < 0) {
+    if (a == std::numeric_limits<T>::min() ||
+        b == std::numeric_limits<T>::min()) {
+      *out = 0;
+      return false;
+    }
+    if (-b > std::numeric_limits<T>::max() / -a) {
+      *out = 0;
+      return false;
+    }
+  } else if (a < 0) {
+    if (a < std::numeric_limits<T>::min() / b) {
+      *out = 0;
+      return false;
+    }
+  } else {  // b < 0
+    if (b < std::numeric_limits<T>::min() / a) {
+      *out = 0;
+      return false;
+    }
+  }
+  *out = a * b;
+  return true;
+#endif
+}
+
+// Returns true if a + b does not overflow type T, storing the result in *out.
+// If overflow occurs, *out is set to 0 and false is returned.
+template <typename T>
+inline bool SafeAdd(T a, T b, T* out) {
+  if (out == nullptr) return false;
+#if defined(SJPEG_HAS_BUILTIN_OVERFLOW)
+  return !__builtin_add_overflow(a, b, out);
+#else
+  static_assert(std::is_integral<T>::value, "Integral type required");
+  if (b > 0 && a > std::numeric_limits<T>::max() - b) {
+    *out = 0;
+    return false;
+  }
+  if (b < 0 && a < std::numeric_limits<T>::min() - b) {
+    *out = 0;
+    return false;
+  }
+  *out = a + b;
+  return true;
+#endif
+}
 
 extern bool SupportsSSE2();
 extern bool SupportsNEON();
@@ -658,7 +736,12 @@ struct Encoder {
   // Memory management
   template<class T> T* Alloc(size_t num) {
     assert(memory_hook_ != nullptr);
-    T* const ptr = reinterpret_cast<T*>(memory_hook_->Alloc(sizeof(T) * num));
+    size_t bytes = 0;
+    if (!SafeMultiply(num, sizeof(T), &bytes)) {
+      SetError();
+      return nullptr;
+    }
+    T* const ptr = reinterpret_cast<T*>(memory_hook_->Alloc(bytes));
     if (ptr == nullptr) SetError();
     return ptr;
   }

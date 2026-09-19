@@ -307,8 +307,12 @@ bool Encoder::CheckBuffers() {
 bool Encoder::AllocateBlocks(size_t num_blocks) {
   assert(in_blocks_ == nullptr);
   have_coeffs_ = false;
-  const size_t size = num_blocks * 64 * sizeof(*in_blocks_);
-  in_blocks_base_ = Alloc<uint8_t>(size + ALIGN_CST);
+  size_t size = 0;
+  if (!SafeMultiply<size_t>(num_blocks, 64 * sizeof(*in_blocks_), &size) ||
+      !SafeAdd<size_t>(size, ALIGN_CST, &size)) {
+    return false;
+  }
+  in_blocks_base_ = Alloc<uint8_t>(size);
   if (in_blocks_base_ == nullptr) return false;
   in_blocks_ = reinterpret_cast<int16_t*>(
       (ALIGN_CST + reinterpret_cast<uintptr_t>(in_blocks_base_)) & ~ALIGN_CST);
@@ -617,8 +621,15 @@ bool Encoder::Encode() {
   if (restart_interval_rows_ > 0) {
     restart_interval_rows_ = std::min(restart_interval_rows_, 0xffff / mb_w_);
   }
-  const size_t nb_blocks = use_extra_memory_ ? mb_w_ * mb_h_ : 1;
-  if (!AllocateBlocks(nb_blocks * mcu_blocks_)) return false;
+  size_t nb_blocks = 1;
+  if (use_extra_memory_) {
+    if (!SafeMultiply<size_t>(mb_w_, mb_h_, &nb_blocks)) return false;
+  }
+  size_t total_blocks = 0;
+  if (!SafeMultiply<size_t>(nb_blocks, mcu_blocks_, &total_blocks) ||
+      !AllocateBlocks(total_blocks)) {
+    return false;
+  }
 
   WriteAPP0();
 

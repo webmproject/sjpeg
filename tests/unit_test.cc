@@ -16,6 +16,7 @@
 //     ./unit_test [test-name]...
 
 #include <assert.h>
+#include <climits>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -1528,6 +1529,60 @@ SJPEG_TEST(MultiThreadedIntervalDefaults) {
   SJPEG_CHECK(single_interval_mt == single_interval_serial);
 }
 #endif  // !SJPEG_NO_MULTITHREADING
+
+SJPEG_TEST(SafeArithmetic) {
+  using namespace sjpeg;
+
+  // SafeMultiply with size_t
+  size_t out_s = 0;
+  SJPEG_CHECK(SafeMultiply<size_t>(10, 20, &out_s) && out_s == 200);
+  SJPEG_CHECK(SafeMultiply<size_t>(0, 100, &out_s) && out_s == 0);
+  SJPEG_CHECK(SafeMultiply<size_t>(100, 0, &out_s) && out_s == 0);
+  SJPEG_CHECK(SafeMultiply<size_t>(0, SIZE_MAX, &out_s) && out_s == 0);
+  SJPEG_CHECK(SafeMultiply<size_t>(SIZE_MAX / 2, 2, &out_s) &&
+              out_s == (SIZE_MAX / 2) * 2);
+  SJPEG_CHECK(!SafeMultiply<size_t>(SIZE_MAX, 2, &out_s));
+  SJPEG_CHECK(!SafeMultiply<size_t>(SIZE_MAX / 2 + 1, 2, &out_s));
+  SJPEG_CHECK(!SafeMultiply<size_t>(10, 20, nullptr));
+
+  // SafeAdd with size_t
+  SJPEG_CHECK(SafeAdd<size_t>(10, 20, &out_s) && out_s == 30);
+  SJPEG_CHECK(SafeAdd<size_t>(0, 0, &out_s) && out_s == 0);
+  SJPEG_CHECK(SafeAdd<size_t>(SIZE_MAX - 5, 5, &out_s) &&
+              out_s == SIZE_MAX);
+  SJPEG_CHECK(!SafeAdd<size_t>(SIZE_MAX, 1, &out_s));
+  SJPEG_CHECK(!SafeAdd<size_t>(SIZE_MAX - 5, 6, &out_s));
+  SJPEG_CHECK(!SafeAdd<size_t>(10, 20, nullptr));
+
+  // Signed integers (int)
+  int out_i = 0;
+  SJPEG_CHECK(SafeMultiply<int>(10, 20, &out_i) && out_i == 200);
+  SJPEG_CHECK(SafeMultiply<int>(-10, 20, &out_i) && out_i == -200);
+  SJPEG_CHECK(SafeMultiply<int>(-10, -20, &out_i) && out_i == 200);
+  SJPEG_CHECK(SafeMultiply<int>(0, -5, &out_i) && out_i == 0);
+  SJPEG_CHECK(SafeMultiply<int>(INT_MAX, 1, &out_i) && out_i == INT_MAX);
+  SJPEG_CHECK(SafeMultiply<int>(INT_MIN, 1, &out_i) && out_i == INT_MIN);
+  SJPEG_CHECK(!SafeMultiply<int>(INT_MAX, 2, &out_i));
+  SJPEG_CHECK(!SafeMultiply<int>(INT_MAX / 2 + 1, 2, &out_i));
+  SJPEG_CHECK(!SafeMultiply<int>(INT_MIN, -1, &out_i));
+  SJPEG_CHECK(!SafeMultiply<int>(-1, INT_MIN, &out_i));
+  SJPEG_CHECK(!SafeMultiply<int>(INT_MIN, 2, &out_i));
+  SJPEG_CHECK(!SafeMultiply<int>(10, 20, nullptr));
+
+  // Signed add
+  SJPEG_CHECK(SafeAdd<int>(10, 20, &out_i) && out_i == 30);
+  SJPEG_CHECK(SafeAdd<int>(-10, 20, &out_i) && out_i == 10);
+  SJPEG_CHECK(SafeAdd<int>(-10, -20, &out_i) && out_i == -30);
+  SJPEG_CHECK(SafeAdd<int>(INT_MAX - 1, 1, &out_i) && out_i == INT_MAX);
+  SJPEG_CHECK(SafeAdd<int>(INT_MIN + 1, -1, &out_i) && out_i == INT_MIN);
+  SJPEG_CHECK(!SafeAdd<int>(INT_MAX, 1, &out_i));
+  SJPEG_CHECK(!SafeAdd<int>(INT_MIN, -1, &out_i));
+  SJPEG_CHECK(!SafeAdd<int>(10, 20, nullptr));
+
+  // Automatic conversion of arguments when template parameter is explicit
+  int w = 320, h = 240;
+  SJPEG_CHECK(SafeMultiply<size_t>(w, h, &out_s) && out_s == 76800);
+}
 
 }  // namespace
 
