@@ -249,6 +249,12 @@ bool ApplySharpYUVConversion(const uint8_t* const rgb,
 typedef int16_t fixed_t;
 typedef uint16_t fixed_y_t;
 
+// Import one RGB row into planar fixed_y_t format starting at column start_x.
+void ImportOneRow_C(const uint8_t* const rgb, int start_x, int pic_width,
+                    fixed_y_t* const dst);
+void ImportOneRow_C(const uint8_t* const rgb, int pic_width,
+                    fixed_y_t* const dst);
+
 ///////////////////////////////////////////////////////////////////////////////
 // Generic sample-replication function. Replicate sub_w x sub_h area of 'src'
 // into 'dst', assuming the individual samples are 'x_step' bytes each.
