@@ -30,6 +30,10 @@
 #include "sjpegi.h"
 #include "sjpeg.h"
 
+namespace sjpeg {
+extern bool ForceSlowCImplementation;
+}  // namespace sjpeg
+
 namespace {
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -606,6 +610,46 @@ SJPEG_TEST(Riskiness) {
   SJPEG_CHECK(EncodeRGB(gray, kWidth, kHeight, param, &out));
   uint8_t quant[2][64];
   SJPEG_CHECK(SjpegFindQuantizer(out, quant) == 1);
+}
+
+SJPEG_TEST(RiskinessScoreRow) {
+  const int kNoiseLevel = 4;
+  const int kRGB3 = sjpeg::kRGBSize * sjpeg::kRGBSize * sjpeg::kRGBSize;
+
+  const int kMaxWidth = 2048;
+  std::vector<uint16_t> row1(kMaxWidth + 16), row2(kMaxWidth + 16);
+  for (int i = 0; i < kMaxWidth + 16; ++i) {
+    row1[i] = static_cast<uint16_t>((i * 17 + 23) % kRGB3);
+    row2[i] = static_cast<uint16_t>((i * 31 + 47) % kRGB3);
+  }
+
+  const int kTestWidths[] = {
+      1, 2, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65,
+      127, 128, 255, 256, 333, 512, 1001, 1024, 1920, 2048};
+
+  // Obtain SIMD and scalar C dispatch function pointers.
+  sjpeg::ForceSlowCImplementation = false;
+  const sjpeg::RiskinessScoreRowFunc score_simd =
+      sjpeg::GetRiskinessScoreRowFunc();
+  sjpeg::ForceSlowCImplementation = true;
+  const sjpeg::RiskinessScoreRowFunc score_c =
+      sjpeg::GetRiskinessScoreRowFunc();
+  sjpeg::ForceSlowCImplementation = false;
+
+  for (size_t w_idx = 0; w_idx < ARRAY_SIZE(kTestWidths); ++w_idx) {
+    const int width = kTestWidths[w_idx];
+    int64_t score_sum_simd = 0, score_num_simd = 0, gray_num_simd = 0;
+    score_simd(row1.data(), row2.data(), width - 1, kNoiseLevel,
+               &score_sum_simd, &score_num_simd, &gray_num_simd);
+
+    int64_t score_sum_c = 0, score_num_c = 0, gray_num_c = 0;
+    score_c(row1.data(), row2.data(), width - 1, kNoiseLevel,
+            &score_sum_c, &score_num_c, &gray_num_c);
+
+    SJPEG_CHECK(score_sum_simd == score_sum_c);
+    SJPEG_CHECK(score_num_simd == score_num_c);
+    SJPEG_CHECK(gray_num_simd == gray_num_c);
+  }
 }
 
 // TARGET_SIZE converges by comparing ComputeSize(), which adds HeaderSize(),

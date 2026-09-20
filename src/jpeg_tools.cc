@@ -242,17 +242,58 @@ static int BitReversal16b(int v, int bits) {
   return r;
 }
 
-#if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
 namespace sjpeg {
+
+// Reference scalar C implementation of row scoring.
+// Processes 'size' samples in [0, size).
+void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2,
+                         int size, int noise_level,
+                         int64_t* score_sum, int64_t* score_num,
+                         int64_t* gray_num) {
+  const int s = kRGBSize;  // shortcut
+  const int kRGB3 = s * s * s;
+  const int gray = (s / 2) * (1 + s) * s;   // gray level for y=0,u=128,v=128
+  // idx packs y + s * (u + s * v), so the samples with neutral chroma are
+  // exactly the ones in [gray_min, gray_min + s), whatever their luma.
+  const int gray_min = gray - gray % s;
+
+  SJPEG_UNROLL(4)
+  for (int i = 0; i < size; ++i) {
+    const int idx0 = row1[i + 0];
+    const int idx1 = row1[i + 1];
+    const int idx2 = row2[i + 0];
+    const int score = kSharpnessScore[idx0 + kRGB3 * idx1]
+                    + kSharpnessScore[idx0 + kRGB3 * idx2]
+                    + kSharpnessScore[idx1 + kRGB3 * idx2];
+    if (score > noise_level) {
+      *score_sum += score;
+      *score_num += 1;
+    }
+    *gray_num += ((uint32_t)(idx0 - gray_min) < (uint32_t)s);
+  }
+}
+
+#if defined(SJPEG_HAVE_AVX2)
 // defined in riskiness_avx2.cc, built separately with -mavx2 (see Makefile)
 // so this file itself doesn't need an AVX2 target.
-extern int RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
-                                 int size, int noise_level,
-                                 int64_t* const score_sum,
-                                 int64_t* const score_num,
-                                 int64_t* const gray_num);
-}  // namespace sjpeg
+extern void RiskinessScoreInitRowTableAVX2();
+extern void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
+                                  int size, int noise_level,
+                                  int64_t* score_sum, int64_t* score_num,
+                                  int64_t* gray_num);
 #endif
+
+RiskinessScoreRowFunc GetRiskinessScoreRowFunc() {
+#if defined(SJPEG_HAVE_AVX2)
+  if (SupportsAVX2()) {
+    RiskinessScoreInitRowTableAVX2();
+    return RiskinessScoreRowAVX2;
+  }
+#endif
+  return RiskinessScoreRow_C;
+}
+
+}  // namespace sjpeg
 
 // if 'full_scan' is true, the progressive early-exit is disabled and every
 // band gets scored -- used only to produce a before/after reference for
@@ -261,15 +302,8 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
                                   int width, int height, int stride,
                                   float* risk, bool full_scan) {
   const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
-#if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
-  const bool use_avx2_riskiness = sjpeg::SupportsAVX2();
-#endif
-  const int s = sjpeg::kRGBSize;  // shortcut
-  const int kRGB3 = s * s * s;
-  const int gray = (s / 2) * (1 + s) * s;   // gray level for y=0,u=128,v=128
-  // idx packs y + s * (u + s * v), so the samples with neutral chroma are
-  // exactly the ones in [gray_min, gray_min + s), whatever their luma.
-  const int gray_min = gray - gray % s;
+  const sjpeg::RiskinessScoreRowFunc score_row_func =
+      sjpeg::GetRiskinessScoreRowFunc();
 
   // Use faster int64_t accumulation instead of double. A score is at most
   // 3 * 255, so even a 16k x 16k image stays under 2^38. The cast to double
@@ -322,28 +356,8 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
 
   // scores one adjacent row-pair (row1 = above, row2 = below)
   const auto ScoreRow = [&]() {
-    int i = 0;
-#if defined(SJPEG_HAVE_AVX2) && defined(SJPEG_USE_AVX2_RISKINESS)
-    if (use_avx2_riskiness) {
-      i = sjpeg::RiskinessScoreRowAVX2(&row1[0], &row2[0], width - 1,
-                                       kNoiseLevel, &score_sum, &score_num,
-                                       &gray_num);
-    }
-#endif
-    SJPEG_UNROLL(4)
-    for (; i < width - 1; ++i) {
-      const int idx0 = row1[i + 0];
-      const int idx1 = row1[i + 1];
-      const int idx2 = row2[i + 0];
-      const int score = sjpeg::kSharpnessScore[idx0 + kRGB3 * idx1]
-                      + sjpeg::kSharpnessScore[idx0 + kRGB3 * idx2]
-                      + sjpeg::kSharpnessScore[idx1 + kRGB3 * idx2];
-      if (score > kNoiseLevel) {
-        score_sum += score;
-        score_num += 1;
-      }
-      gray_num += ((uint32_t)(idx0 - gray_min) < (uint32_t)s);
-    }
+    score_row_func(&row1[0], &row2[0], width - 1, kNoiseLevel,
+                   &score_sum, &score_num, &gray_num);
   };
 
   int cursor = 0;  // walks bit-reversed indices in [0, 1<<bits), skipping
