@@ -303,8 +303,11 @@ extern MemoryManager* GetDefaultMemoryManager();
 enum { FP_BITS = 16, AC_BITS = 4 };
 
 // Block activity classification for perceptual adaptive-bias quantization.
-enum class BlockActivityTier { kFlatBlock = -1, kNormalBlock = 0,
-                               kBusyBlock = 1 };
+enum class BlockActivityTier {
+  kFlatBlock = -1,
+  kNormalBlock = 0,
+  kBusyBlock = 1
+};
 enum {
   kActivityLo = 28 << AC_BITS,
   kActivityHi = 360 << AC_BITS,

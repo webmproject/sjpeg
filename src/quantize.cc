@@ -494,14 +494,14 @@ int Encoder::AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
                                        DCTCoeffs* const out,
                                        RunLevel* const rl) {
   // Only luma is perceptually masked.
-  const BlockActivityTier tier = (idx == 0) ? ClassifyBlockActivity(in)
-                                            : BlockActivityTier::kNormalBlock;
+  const BlockActivityTier tier =
+      (idx == 0) ? ClassifyBlockActivity(in) : BlockActivityTier::kNormalBlock;
   if (tier == BlockActivityTier::kNormalBlock) {
     return quantize_block_(in, idx, Q, out, rl);
   }
-  const uint16_t* const survive_thresh =
-      (tier == BlockActivityTier::kFlatBlock) ? Q->qthresh_flat_
-                                              : Q->qthresh_busy_;
+  const uint16_t* const survive_thresh = (tier == BlockActivityTier::kFlatBlock)
+                                             ? Q->qthresh_flat_
+                                             : Q->qthresh_busy_;
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const qthresh = Q->qthresh_;
   const uint16_t* const iquant = Q->iquant_;

@@ -408,8 +408,8 @@ SJPEG_TEST(NegativeStrides) {
   match();
 
   SJPEG_CHECK(sjpeg::EncodeNV12(Flip(Y, W, H).data(), W,
-                                Flip(UV, uv_stride, uv_h).data(), uv_stride,
-                                W, H, p, sjpeg::MakeByteSink(&a).get()));
+                                Flip(UV, uv_stride, uv_h).data(), uv_stride, W,
+                                H, p, sjpeg::MakeByteSink(&a).get()));
   SJPEG_CHECK(sjpeg::EncodeNV12(Last(Y, W, H), -W, Last(UV, uv_stride, uv_h),
                                 -uv_stride, W, H, p,
                                 sjpeg::MakeByteSink(&b).get()));

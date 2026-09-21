@@ -326,11 +326,14 @@ static void ComputeErrorMap() {
 namespace sjpeg {
 extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
                                   int16_t score[8 * 8]);
-enum class BlockActivityTier { kFlatBlock = -1, kNormalBlock = 0,
-                               kBusyBlock = 1 };
+enum class BlockActivityTier {
+  kFlatBlock = -1,
+  kNormalBlock = 0,
+  kBusyBlock = 1
+};
 extern BlockActivityTier BlockActivityScore(const uint8_t* rgb, int stride,
                                             uint32_t* activity = nullptr);
-}
+}  // namespace sjpeg
 
 static void ComputeRiskinessMap() {
   if (kParams.show != 5) {
@@ -411,7 +414,7 @@ static void ComputeActivityMap() {
         static const int kFlatTint[3] = {40, 140, 255};   // cyan/blue
         static const int kBusyTint[3] = {255, 60, 40};    // red/orange
         const int* const tint =
-            (tier == sjpeg::BlockActivityTier::kFlatBlock) ? kFlatTint
+            (tier == sjpeg::BlockActivityTier::kFlatBlock)   ? kFlatTint
             : (tier == sjpeg::BlockActivityTier::kBusyBlock) ? kBusyTint
                                                              : nullptr;
 

@@ -470,9 +470,9 @@ double BlockRiskinessScore(const uint8_t* rgb, int stride,
 }
 
 BlockActivityTier ClassifyActivity(uint32_t activity) {
-  return (activity < kActivityLo) ? BlockActivityTier::kFlatBlock
-       : (activity > kActivityHi) ? BlockActivityTier::kBusyBlock
-                                  : BlockActivityTier::kNormalBlock;
+  return (activity < kActivityLo)   ? BlockActivityTier::kFlatBlock
+         : (activity > kActivityHi) ? BlockActivityTier::kBusyBlock
+                                    : BlockActivityTier::kNormalBlock;
 }
 
 BlockActivityTier ClassifyBlockActivity(const int16_t in[64], uint32_t* score) {
