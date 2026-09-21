@@ -252,7 +252,6 @@ can be enabled or disabled via compiler definitions (`-D...`):
 | Macro / Flag | Default | Description |
 |---|---|---|
 | `SJPEG_HAVE_AVX2` | Off (`CMake`) | Compiles optimized AVX2 kernels for FDCT, quantization, histogram, and color conversion on x86-64. Safely falls back to SSE2 on older CPUs at runtime. |
-| `SJPEG_USE_AVX2_RISKINESS` | Off | Experimental gather-based AVX2 implementation of `SjpegRiskiness()` (`src/riskiness_avx2.cc`). Disabled by default due to gather latency variability on early AVX2 hardware (Haswell/Excavator). |
 | `SJPEG_USE_AVX2_YUV_GATHER` | On (with AVX2) | Enables gather-based AVX2 gamma-table lookups for Sharp RGB $\to$ YUV (`src/yuv_convert_avx2.cc`). Bit-exact with C and $\sim 1.15\times$ faster. |
 | `SJPEG_USE_PEXT` | Off | In `src/quantize_avx2.cc`, uses BMI2 `_pext_u32` to compact the natural-order non-zero coefficient mask (2 ops vs 5). Off by default because `pext` is microcoded with multi-cycle latency on AMD Zen 1/Zen+. Requires `-mbmi2`. |
 | `SJPEG_NO_PROGRESSIVE` | Off | Completely strips progressive encoding code, structures, and buffers, reducing binary footprint for baseline-only deployments. (Set automatically by `-DSJPEG_ENABLE_PROGRESSIVE=OFF`). |

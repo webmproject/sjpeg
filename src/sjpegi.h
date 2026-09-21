@@ -68,10 +68,6 @@
 #define SJPEG_USE_AVX2
 #endif
 
-// Experimental: gather-based AVX2 riskiness scoring (src/riskiness_avx2.cc).
-// Off by default (gather throughput is erratic on early AVX2 hardware)
-// #define SJPEG_USE_AVX2_RISKINESS
-
 // Gather-based AVX2 variant of the Sharp RGB->YUV gamma-table lookups
 // Bit-exact with C-variant, ~1.15x faster.
 #define SJPEG_USE_AVX2_YUV_GATHER
@@ -218,6 +214,17 @@ extern double DCTRiskinessScore(const int16_t yuv[3 * 64],
 extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
                                   int16_t scores[8 * 8]);
 extern int YUVToRiskIdx(int16_t y, int16_t u, int16_t v);
+typedef void (*RiskinessScoreRowFunc)(const uint16_t* row1,
+                                      const uint16_t* row2,
+                                      int size, int noise_level,
+                                      int64_t* score_sum, int64_t* score_num,
+                                      int64_t* gray_num);
+extern RiskinessScoreRowFunc GetRiskinessScoreRowFunc();
+// scalar C reference, also used for the remainder of the SIMD variants
+extern void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2,
+                                int size, int noise_level,
+                                int64_t* score_sum, int64_t* score_num,
+                                int64_t* gray_num);
 
 ///////////////////////////////////////////////////////////////////////////////
 // RGB->YUV conversion
