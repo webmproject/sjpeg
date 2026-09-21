@@ -220,6 +220,11 @@ typedef void (*RiskinessScoreRowFunc)(const uint16_t* row1,
                                       int64_t* score_sum, int64_t* score_num,
                                       int64_t* gray_num);
 extern RiskinessScoreRowFunc GetRiskinessScoreRowFunc();
+// scalar C reference, also used for the remainder of the SIMD variants
+extern void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2,
+                                int size, int noise_level,
+                                int64_t* score_sum, int64_t* score_num,
+                                int64_t* gray_num);
 
 ///////////////////////////////////////////////////////////////////////////////
 // RGB->YUV conversion

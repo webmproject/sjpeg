@@ -98,11 +98,6 @@ static inline void Process8Pixels(
 
 // Processes 'size' samples in [0, size), 8 at a time with AVX2 and finishes
 // any trailing remainder with the scalar C version.
-extern void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2,
-                                int size, int noise_level,
-                                int64_t* score_sum, int64_t* score_num,
-                                int64_t* gray_num);
-
 void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
                            int size, int noise_level,
                            int64_t* score_sum, int64_t* score_num,
@@ -118,12 +113,12 @@ void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
   const __m128i noise_vec_16 = _mm_set1_epi16(noise_level);
   const __m128i ones_16 = _mm_set1_epi16(1);
 
-  // 8-lane accumulators, reduced post-loop. Overflow-safe since kMaxDimension
+  // Per-row accumulators, reduced post-loop. Overflow-safe since kMaxDimension
   // is 65535 => even the worst case (max score on every iteration):
-  // num_vec_16 and gray_vec_16 accumulate at most 65535/8 = 8192 counts per
-  // lane per row, which stays safely within the signed 16-bit limit (32767).
-  // sum_vec_32 uses 32-bit accumulators via _mm_madd_epi16, which stays well
-  // under the 32-bit limit (65534/8 * 765 ~= 6.3M).
+  // num_vec_16 and gray_vec_16 have 8 x 16-bit lanes and accumulate at most
+  // 65535/8 = 8192 counts per lane, within the signed 16-bit limit (32767).
+  // sum_vec_32 has 4 x 32-bit lanes (_mm_madd_epi16 folds pairs of scores)
+  // and stays well under the 32-bit limit (65534/4 * 765 ~= 12.5M).
   __m128i sum_vec_32 = _mm_setzero_si128();   // scores above the noise level
   __m128i num_vec_16 = _mm_setzero_si128();   // number of sum_vec
   __m128i gray_vec_16 = _mm_setzero_si128();  // samples with neutral chroma
