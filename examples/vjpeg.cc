@@ -324,11 +324,12 @@ static void ComputeErrorMap() {
 }
 
 namespace sjpeg {
-// undocumented functions
 extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
                                   int16_t score[8 * 8]);
-extern int BlockActivityScore(const uint8_t* rgb, int stride,
-                              uint32_t* activity = nullptr);
+enum class BlockActivityTier { kFlatBlock = -1, kNormalBlock = 0,
+                               kBusyBlock = 1 };
+extern BlockActivityTier BlockActivityScore(const uint8_t* rgb, int stride,
+                                            uint32_t* activity = nullptr);
 }
 
 static void ComputeRiskinessMap() {
@@ -368,7 +369,7 @@ static void ComputeActivityMap() {
     const int width = kParams.width;
     const int height = kParams.height;
     const int stride = 3 * width;
-    kParams.map.resize(stride * height);
+    kParams.map.resize((size_t)stride * height);
     uint8_t* dst = &kParams.map[0];
     const uint8_t* src = &kParams.rgb[0];
 
@@ -396,11 +397,12 @@ static void ComputeActivityMap() {
           step = 8 * 3;
         }
 
-        const int tier = sjpeg::BlockActivityScore(src_block, step);
+        const sjpeg::BlockActivityTier tier =
+            sjpeg::BlockActivityScore(src_block, step);
         ++kParams.nb_blocks;
-        if (tier < 0) {
+        if (tier == sjpeg::BlockActivityTier::kFlatBlock) {
           ++kParams.nb_flat_blocks;
-        } else if (tier > 0) {
+        } else if (tier == sjpeg::BlockActivityTier::kBusyBlock) {
           ++kParams.nb_busy_blocks;
         } else {
           ++kParams.nb_normal_blocks;
@@ -409,7 +411,9 @@ static void ComputeActivityMap() {
         static const int kFlatTint[3] = {40, 140, 255};   // cyan/blue
         static const int kBusyTint[3] = {255, 60, 40};    // red/orange
         const int* const tint =
-            (tier < 0) ? kFlatTint : (tier > 0) ? kBusyTint : nullptr;
+            (tier == sjpeg::BlockActivityTier::kFlatBlock) ? kFlatTint
+            : (tier == sjpeg::BlockActivityTier::kBusyBlock) ? kBusyTint
+                                                             : nullptr;
 
         for (int y = 0; y < max_y; ++y) {
           for (int x = 0; x < max_x; ++x) {

@@ -217,8 +217,9 @@ extern double DCTRiskinessScore(const int16_t yuv[3 * 64],
                                 int16_t scores[8 * 8]);
 extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
                                   int16_t scores[8 * 8]);
-extern int BlockActivityScore(const uint8_t* rgb, int stride,
-                              uint32_t* activity = nullptr);
+enum class BlockActivityTier;  // see definition below
+extern BlockActivityTier BlockActivityScore(const uint8_t* rgb, int stride,
+                                            uint32_t* activity = nullptr);
 extern int YUVToRiskIdx(int16_t y, int16_t u, int16_t v);
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -302,7 +303,8 @@ extern MemoryManager* GetDefaultMemoryManager();
 enum { FP_BITS = 16, AC_BITS = 4 };
 
 // Block activity classification for perceptual adaptive-bias quantization.
-enum BlockActivityTier { kFlatBlock = -1, kNormalBlock = 0, kBusyBlock = 1 };
+enum class BlockActivityTier { kFlatBlock = -1, kNormalBlock = 0,
+                               kBusyBlock = 1 };
 enum {
   kActivityLo = 28 << AC_BITS,
   kActivityHi = 360 << AC_BITS,

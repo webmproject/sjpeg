@@ -408,8 +408,8 @@ SJPEG_TEST(NegativeStrides) {
   match();
 
   SJPEG_CHECK(sjpeg::EncodeNV12(Flip(Y, W, H).data(), W,
-                                 Flip(UV, uv_stride, uv_h).data(), uv_stride,
-                                 W, H, p, sjpeg::MakeByteSink(&a).get()));
+                                Flip(UV, uv_stride, uv_h).data(), uv_stride,
+                                W, H, p, sjpeg::MakeByteSink(&a).get()));
   SJPEG_CHECK(sjpeg::EncodeNV12(Last(Y, W, H), -W, Last(UV, uv_stride, uv_h),
                                 -uv_stride, W, H, p,
                                 sjpeg::MakeByteSink(&b).get()));
@@ -1667,15 +1667,17 @@ SJPEG_TEST(AdaptiveBias) {
   }
   uint32_t act_flat = 0, act_busy = 0;
   SJPEG_CHECK(sjpeg::BlockActivityScore(&flat8[0], 24, &act_flat) ==
-              sjpeg::kFlatBlock);
+              sjpeg::BlockActivityTier::kFlatBlock);
   SJPEG_CHECK(sjpeg::BlockActivityScore(&busy8[0], 24, &act_busy) ==
-              sjpeg::kBusyBlock);
+              sjpeg::BlockActivityTier::kBusyBlock);
   SJPEG_CHECK(act_flat < sjpeg::kActivityLo && act_busy > sjpeg::kActivityHi);
-  SJPEG_CHECK(sjpeg::ClassifyActivity(act_flat) == sjpeg::kFlatBlock);
-  SJPEG_CHECK(sjpeg::ClassifyActivity(act_busy) == sjpeg::kBusyBlock);
+  SJPEG_CHECK(sjpeg::ClassifyActivity(act_flat) ==
+              sjpeg::BlockActivityTier::kFlatBlock);
+  SJPEG_CHECK(sjpeg::ClassifyActivity(act_busy) ==
+              sjpeg::BlockActivityTier::kBusyBlock);
   SJPEG_CHECK(
       sjpeg::ClassifyActivity((sjpeg::kActivityLo + sjpeg::kActivityHi) / 2) ==
-      sjpeg::kNormalBlock);
+      sjpeg::BlockActivityTier::kNormalBlock);
 }
 
 }  // namespace

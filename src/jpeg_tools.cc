@@ -470,9 +470,9 @@ double BlockRiskinessScore(const uint8_t* rgb, int stride,
 }
 
 BlockActivityTier ClassifyActivity(uint32_t activity) {
-  return (activity < kActivityLo) ? kFlatBlock
-       : (activity > kActivityHi) ? kBusyBlock
-                                  : kNormalBlock;
+  return (activity < kActivityLo) ? BlockActivityTier::kFlatBlock
+       : (activity > kActivityHi) ? BlockActivityTier::kBusyBlock
+                                  : BlockActivityTier::kNormalBlock;
 }
 
 BlockActivityTier ClassifyBlockActivity(const int16_t in[64], uint32_t* score) {
@@ -484,10 +484,8 @@ BlockActivityTier ClassifyBlockActivity(const int16_t in[64], uint32_t* score) {
   return ClassifyActivity(activity);
 }
 
-// This function returns the block activity classification:
-// -1 = flat, 0 = normal, 1 = busy.
-int BlockActivityScore(const uint8_t* rgb, int stride,
-                       uint32_t* activity) {
+BlockActivityTier BlockActivityScore(const uint8_t* rgb, int stride,
+                                     uint32_t* activity) {
   const RGBToYUVBlockFunc get_block = GetBlockFunc(SJPEG_YUV_400);
   int16_t y[64];
   get_block(rgb, stride, y);
