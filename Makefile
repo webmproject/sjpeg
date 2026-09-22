@@ -131,6 +131,7 @@ HDRS_INSTALLED = \
 
 HDRS = \
     examples/utils.h \
+    src/simd.h \
     src/sjpegi.h \
     src/bit_writer.h \
     $(HDRS_INSTALLED) \

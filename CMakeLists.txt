@@ -88,6 +88,7 @@ set(SJPEG_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/src/jpeg_tools.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/score_7.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/simd.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/sjpeg.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/sjpegi.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/yuv_convert.cc

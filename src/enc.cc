@@ -67,23 +67,26 @@ MemoryManager* GetDefaultMemoryManager() { return &kDefaultMemory; }
 
 Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink,
                  MemoryManager* const memory)
-  : yuv_mode_(yuv_mode), W_(W), H_(H),
-    use_rdo_(false),
-    ok_(true),
-    bw_(sink),
-    in_blocks_base_(nullptr),
-    in_blocks_(nullptr),
-    have_coeffs_(false),
-    all_run_levels_(nullptr),
-    nb_run_levels_(0),
-    max_run_levels_(0),
-    qdelta_max_luma_(kDefaultDeltaMaxLuma),
-    qdelta_max_chroma_(kDefaultDeltaMaxChroma),
-    prog_luma_split_(64), prog_chroma_split_(8),
-    prog_planes_(nullptr),
-    passes_(1),
-    search_hook_(nullptr),
-    memory_hook_((memory == nullptr) ? &kDefaultMemory : memory) {
+    : yuv_mode_(yuv_mode),
+      W_(W),
+      H_(H),
+      ok_(true),
+      bw_(sink),
+      use_rdo_(false),
+      in_blocks_base_(nullptr),
+      in_blocks_(nullptr),
+      have_coeffs_(false),
+      all_run_levels_(nullptr),
+      nb_run_levels_(0),
+      max_run_levels_(0),
+      qdelta_max_luma_(kDefaultDeltaMaxLuma),
+      qdelta_max_chroma_(kDefaultDeltaMaxChroma),
+      prog_luma_split_(64),
+      prog_chroma_split_(8),
+      prog_planes_(nullptr),
+      passes_(1),
+      search_hook_(nullptr),
+      memory_hook_((memory == nullptr) ? &kDefaultMemory : memory) {
   SetCompressionMethod(kDefaultMethod);
   SetQuality(kDefaultQuality);
   get_yuv_block_ = GetBlockFunc(yuv_mode_);
@@ -135,6 +138,8 @@ void Encoder::SetCompressionMethod(int method) {
                    || (method == 7);
   use_trellis_ = (method >= 7);
 }
+
+void Encoder::SetRDO(bool use_rdo) { use_rdo_ = use_rdo; }
 
 void Encoder::SetProgressive(int luma_split, int chroma_split) {
 #if !defined(SJPEG_NO_PROGRESSIVE)

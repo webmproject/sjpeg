@@ -259,13 +259,12 @@ static const union {
         0xb4be, 0x4b42, 0x14c3, 0x587e, 0x28ba, 0x9dac, 0x14c3, 0xc4df } } };
 
 #define LOAD_CST(x, y)  (x) = (CST_ ## y).m
-#define LOAD(x, y)      \
-    (x) = _mm_load_si128(reinterpret_cast<const __m128i*>(&(y)))
+#define LOAD(x, y) (x) = LOAD_ALIGNED_16(&(y))
 #define MULT(x, y)      (x) = _mm_mulhi_epi16((x), (y))
 #define ADD(x, y)       (x) = _mm_add_epi16((x), (y))
 #define SUB(x, y)       (x) = _mm_sub_epi16((x), (y))
 #define LSHIFT(x, n)    (x) = _mm_slli_epi16((x), (n))
-#define STORE16(a, b) _mm_store_si128(reinterpret_cast<__m128i*>(&(a)), (b))
+#define STORE16(a, b) STORE_ALIGNED_16((b), &(a))
 #define CORRECT_LSB(a) (a) = _mm_adds_epi16((a), CST_kfRounder1.m)
 
 // DCT vertical pass
@@ -334,8 +333,8 @@ void RowDct_SSE2(int16_t* in, const __m128i* table1,
   m0 = _mm_packs_epi32(m0, m2);
   m4 = _mm_packs_epi32(m4, m6);
 
-  _mm_store_si128(reinterpret_cast<__m128i*>(in + 0 * 8), m0);
-  _mm_store_si128(reinterpret_cast<__m128i*>(in + 1 * 8), m4);
+  STORE_ALIGNED_16(m0, in + 0 * 8);
+  STORE_ALIGNED_16(m4, in + 1 * 8);
 }
 
 #undef LOAD_CST

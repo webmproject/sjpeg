@@ -56,21 +56,18 @@ uint64_t SharpUpdateY_AVX2(const uint16_t* ref, const uint16_t* src,
   __m256i sum = zero;
 
   for (i = 0; i + 16 <= len; i += 16) {
-    const __m256i A =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ref + i));
-    const __m256i B =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + i));
-    const __m256i C =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(dst + i));
+    const __m256i A = LOAD_32(ref + i);
+    const __m256i B = LOAD_32(src + i);
+    const __m256i C = LOAD_32(dst + i);
     const __m256i D = _mm256_sub_epi16(A, B);   // diff_y
-    const __m256i abs_D = _mm256_abs_epi16(D);  // |diff_y|
+    const __m256i abs_D = ABS_32(D);            // |diff_y|
     const __m256i F = _mm256_add_epi16(C, D);   // new_y
     const __m256i H = _mm256_max_epi16(_mm256_min_epi16(F, max), zero);
     const __m256i I = _mm256_madd_epi16(abs_D, one);  // sum(abs(...))
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + i), H);
+    STORE_32(H, dst + i);
     sum = _mm256_add_epi32(sum, I);
   }
-  _mm256_storeu_si256(reinterpret_cast<__m256i*>(tmp), sum);
+  STORE_32(sum, tmp);
   diff = (uint64_t)tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] +
          tmp[6] + tmp[7];
   for (; i < len; ++i) {
@@ -86,15 +83,12 @@ void SharpUpdateRGB_AVX2(const int16_t* ref, const int16_t* src,
                          int16_t* dst, int len) {
   int i = 0;
   for (i = 0; i + 16 <= len; i += 16) {
-    const __m256i A =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ref + i));
-    const __m256i B =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src + i));
-    const __m256i C =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(dst + i));
+    const __m256i A = LOAD_32(ref + i);
+    const __m256i B = LOAD_32(src + i);
+    const __m256i C = LOAD_32(dst + i);
     const __m256i D = _mm256_sub_epi16(A, B);  // diff_uv
     const __m256i E = _mm256_add_epi16(C, D);  // new_uv
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + i), E);
+    STORE_32(E, dst + i);
   }
   for (; i < len; ++i) {
     const int diff_uv = ref[i] - src[i];
@@ -110,14 +104,10 @@ void SharpFilterRow_AVX2(const int16_t* A, const int16_t* B, int len,
   const __m256i zero = _mm256_setzero_si256();
 
   for (i = 0; i + 16 <= len; i += 16) {
-    const __m256i a0 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(A + i + 0));
-    const __m256i a1 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(A + i + 1));
-    const __m256i b0 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(B + i + 0));
-    const __m256i b1 =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(B + i + 1));
+    const __m256i a0 = LOAD_32(A + i + 0);
+    const __m256i a1 = LOAD_32(A + i + 1);
+    const __m256i b0 = LOAD_32(B + i + 0);
+    const __m256i b1 = LOAD_32(B + i + 1);
 
     const __m256i a0b1 = _mm256_add_epi16(a0, b1);
     const __m256i a1b0 = _mm256_add_epi16(a1, b0);
@@ -143,10 +133,8 @@ void SharpFilterRow_AVX2(const int16_t* A, const int16_t* B, int len,
     const __m256i f0 = _mm256_permute2x128_si256(f_lo, f_hi, 0x20);
     const __m256i f1 = _mm256_permute2x128_si256(f_lo, f_hi, 0x31);
 
-    const __m256i g0 = _mm256_loadu_si256(
-        reinterpret_cast<const __m256i*>(best_y + 2 * i + 0));
-    const __m256i g1 = _mm256_loadu_si256(
-        reinterpret_cast<const __m256i*>(best_y + 2 * i + 16));
+    const __m256i g0 = LOAD_32(best_y + 2 * i + 0);
+    const __m256i g1 = LOAD_32(best_y + 2 * i + 16);
 
     const __m256i h0 = _mm256_add_epi16(g0, f0);
     const __m256i h1 = _mm256_add_epi16(g1, f1);
@@ -154,8 +142,8 @@ void SharpFilterRow_AVX2(const int16_t* A, const int16_t* B, int len,
     const __m256i i0 = _mm256_max_epi16(_mm256_min_epi16(h0, max), zero);
     const __m256i i1 = _mm256_max_epi16(_mm256_min_epi16(h1, max), zero);
 
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(out + 2 * i + 0), i0);
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(out + 2 * i + 16), i1);
+    STORE_32(i0, out + 2 * i + 0);
+    STORE_32(i1, out + 2 * i + 16);
   }
   for (; i < len; ++i) {
     const int a0b1 = A[i + 0] + B[i + 1];
@@ -179,12 +167,9 @@ void StoreGray_AVX2(const fixed_y_t* const rgb, fixed_y_t* const y, int w) {
   const __m256i zero = _mm256_setzero_si256();
 
   for (; i + 16 <= w; i += 16) {
-    const __m256i r =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(rgb + 0 * w + i));
-    const __m256i g =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(rgb + 1 * w + i));
-    const __m256i b =
-        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(rgb + 2 * w + i));
+    const __m256i r = LOAD_32(rgb + 0 * w + i);
+    const __m256i g = LOAD_32(rgb + 1 * w + i);
+    const __m256i b = LOAD_32(rgb + 2 * w + i);
 
     const __m256i rg_lo = _mm256_unpacklo_epi16(r, g);
     const __m256i rg_hi = _mm256_unpackhi_epi16(r, g);
@@ -212,7 +197,7 @@ void StoreGray_AVX2(const fixed_y_t* const rgb, fixed_y_t* const y, int w) {
     const __m256i y_hi = _mm256_srli_epi32(luma_hi, 16);
 
     const __m256i y_packed = _mm256_packs_epi32(y_lo, y_hi);
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(y + i), y_packed);
+    STORE_32(y_packed, y + i);
   }
   for (; i < w; ++i) {
     y[i] = RGBToGray(rgb[0 * w + i], rgb[1 * w + i], rgb[2 * w + i]);
@@ -222,10 +207,8 @@ void StoreGray_AVX2(const fixed_y_t* const rgb, fixed_y_t* const y, int w) {
 static inline void RGB24ToPlanar8(const uint8_t* const rgb, __m128i* const r,
                                   __m128i* const g, __m128i* const b) {
   const __m128i zero = _mm_setzero_si128();
-  const __m128i in0 =
-      _mm_loadu_si128(reinterpret_cast<const __m128i*>(rgb + 0));
-  const __m128i in1 =
-      _mm_loadu_si128(reinterpret_cast<const __m128i*>(rgb + 8));
+  const __m128i in0 = LOAD_16(rgb + 0);
+  const __m128i in1 = LOAD_16(rgb + 8);
   static const int8_t kShufR0[16] = {0,  3,  6,  9,  12, 15, -1, -1,
                                      -1, -1, -1, -1, -1, -1, -1, -1};
   static const int8_t kShufR1[16] = {-1, -1, -1, -1, -1, -1, 10, 13,
@@ -239,18 +222,12 @@ static inline void RGB24ToPlanar8(const uint8_t* const rgb, __m128i* const r,
   static const int8_t kShufB1[16] = {-1, -1, -1, -1, -1, 9,  12, 15,
                                      -1, -1, -1, -1, -1, -1, -1, -1};
 
-  const __m128i mask_r0 =
-      _mm_loadu_si128(reinterpret_cast<const __m128i*>(kShufR0));
-  const __m128i mask_r1 =
-      _mm_loadu_si128(reinterpret_cast<const __m128i*>(kShufR1));
-  const __m128i mask_g0 =
-      _mm_loadu_si128(reinterpret_cast<const __m128i*>(kShufG0));
-  const __m128i mask_g1 =
-      _mm_loadu_si128(reinterpret_cast<const __m128i*>(kShufG1));
-  const __m128i mask_b0 =
-      _mm_loadu_si128(reinterpret_cast<const __m128i*>(kShufB0));
-  const __m128i mask_b1 =
-      _mm_loadu_si128(reinterpret_cast<const __m128i*>(kShufB1));
+  const __m128i mask_r0 = LOAD_16(kShufR0);
+  const __m128i mask_r1 = LOAD_16(kShufR1);
+  const __m128i mask_g0 = LOAD_16(kShufG0);
+  const __m128i mask_g1 = LOAD_16(kShufG1);
+  const __m128i mask_b0 = LOAD_16(kShufB0);
+  const __m128i mask_b1 = LOAD_16(kShufB1);
 
   const __m128i r_bytes = _mm_or_si128(_mm_shuffle_epi8(in0, mask_r0),
                                        _mm_shuffle_epi8(in1, mask_r1));
@@ -280,9 +257,9 @@ void ImportOneRow_AVX2(const uint8_t* const rgb, int pic_width,
     const __m256i r_up = _mm256_or_si256(_mm256_slli_epi16(r, SFIX), shalf);
     const __m256i g_up = _mm256_or_si256(_mm256_slli_epi16(g, SFIX), shalf);
     const __m256i b_up = _mm256_or_si256(_mm256_slli_epi16(b, SFIX), shalf);
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + 0 * w + i), r_up);
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + 1 * w + i), g_up);
-    _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst + 2 * w + i), b_up);
+    STORE_32(r_up, dst + 0 * w + i);
+    STORE_32(g_up, dst + 1 * w + i);
+    STORE_32(b_up, dst + 2 * w + i);
   }
   if (i < pic_width) {
     ImportOneRow_C(rgb, i, pic_width, dst);
@@ -317,14 +294,10 @@ static inline __m256i LinearToGamma8(__m256i value) {
   const __m256i x =
       _mm256_and_si256(v, _mm256_set1_epi32((1 << kGammaToLinearBits) - 1));
 
-  const __m256i T0 = _mm256_loadu_si256(
-      reinterpret_cast<const __m256i*>(kPackedLinearToGammaTab + 0));
-  const __m256i T1 = _mm256_loadu_si256(
-      reinterpret_cast<const __m256i*>(kPackedLinearToGammaTab + 8));
-  const __m256i T2 = _mm256_loadu_si256(
-      reinterpret_cast<const __m256i*>(kPackedLinearToGammaTab + 16));
-  const __m256i T3 = _mm256_loadu_si256(
-      reinterpret_cast<const __m256i*>(kPackedLinearToGammaTab + 24));
+  const __m256i T0 = LOAD_32(kPackedLinearToGammaTab + 0);
+  const __m256i T1 = LOAD_32(kPackedLinearToGammaTab + 8);
+  const __m256i T2 = LOAD_32(kPackedLinearToGammaTab + 16);
+  const __m256i T3 = LOAD_32(kPackedLinearToGammaTab + 24);
 
   const __m256i p0 = _mm256_permutevar8x32_epi32(T0, tab_pos);
   const __m256i p1 = _mm256_permutevar8x32_epi32(T1, tab_pos);
@@ -373,8 +346,7 @@ static inline void Store8TruncTo16(void* p, __m256i v) {
   const __m256i masked = _mm256_and_si256(v, _mm256_set1_epi32(0xffff));
   const __m256i packed = _mm256_packus_epi32(masked, masked);
   const __m256i fixed = _mm256_permute4x64_epi64(packed, 0xd8);
-  _mm_storeu_si128(reinterpret_cast<__m128i*>(p),
-                    _mm256_castsi256_si128(fixed));
+  STORE_16(_mm256_castsi256_si128(fixed), p);
 }
 
 //------------------------------------------------------------------------------

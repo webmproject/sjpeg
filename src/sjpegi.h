@@ -81,17 +81,7 @@
 #endif
 
 #if defined(SJPEG_NEED_ASM_HEADERS)
-#if defined(SJPEG_USE_AVX2)
-#include <immintrin.h>
-#elif defined(SJPEG_USE_SSSE3)
-#include <tmmintrin.h>
-#elif defined(SJPEG_USE_SSE2)
-#include <emmintrin.h>
-#endif
-
-#if defined(SJPEG_USE_NEON)
-#include <arm_neon.h>
-#endif
+#include "simd.h"
 #endif    // SJPEG_NEED_ASM_HEADERS
 
 #include <assert.h>
@@ -462,6 +452,7 @@ struct Encoder {
   // setters
   void SetQuality(float q);
   void SetCompressionMethod(int method);
+  void SetRDO(bool use_rdo = true);
   // luma_split/chroma_split: see EncoderParam::progressive_luma_split in
   // sjpeg.h.
   void SetProgressive(int luma_split, int chroma_split);
@@ -779,8 +770,7 @@ struct Encoder {
   int pix_step_ = 3;  // bytes per input pixel (3=RGB, 4=BGRA/RGBA)
 
   sjpeg::RGBToYUVBlockFunc get_yuv_block_;  // set by GetBlockFunc()
-  bool adaptive_bias_;   // if true, use per-block perceptual bias modulation
-  bool use_rdo_ = false; // if true, use fast rate-distortion optimization
+  bool adaptive_bias_;  // if true, use per-block perceptual bias modulation
 
   // Memory management
   template<class T> T* Alloc(size_t num) {
@@ -818,6 +808,7 @@ struct Encoder {
   bool use_extra_memory_;     // save the unquantized coeffs (method 3, 4)
   bool reuse_run_levels_;     // save quantized run/levels   (method 1, 4, 5)
   bool use_trellis_;          // use trellis-quantization    (method 7, 8)
+  bool use_rdo_ = false;      // use fast rate-distortion optimization
   int restart_interval_rows_ = 0;  // MCU rows per restart interval (0 = off)
   int num_threads_ = 1;            // total threads for parallel scan
                                    // (1 = single-threaded)

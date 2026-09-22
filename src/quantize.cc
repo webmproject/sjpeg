@@ -230,10 +230,6 @@ static inline int EmitRunLevels(const int16_t in0, const T tmp[64],
 #endif  // SJPEG_USE_SSE2 || SJPEG_USE_NEON
 
 #if defined(SJPEG_USE_SSE2)
-// Load eight 16b-words from *src.
-#define LOAD_16(src) _mm_loadu_si128(reinterpret_cast<const __m128i*>(src))
-// Store eight 16b-words into *dst
-#define STORE_16(V, dst) _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), (V))
 
 static int QuantizeBlockSSE2(const int16_t in[64], int idx,
                              const Quantizer* const Q,
@@ -248,7 +244,7 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
     const __m128i m_mult = LOAD_16(iquant + i);
     const __m128i A = LOAD_16(in + i);                        // A = in[i]
     const __m128i B = _mm_srai_epi16(A, 15);                  // sign extract
-    const __m128i C = _mm_sub_epi16(_mm_xor_si128(A, B), B);  // abs(A)
+    const __m128i C = ABS_16(A);                              // abs(A)
     const __m128i D = _mm_adds_epi16(C, m_bias);              // v' = v + bias
     const __m128i E = _mm_mulhi_epu16(D, m_mult);             // (v' * iq) >> 16
     const __m128i F = _mm_srli_epi16(E, AC_BITS);             // = QUANTIZE(...)
@@ -264,8 +260,6 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
   }
   return EmitRunLevels(in[0], tmp, masked, nzn, idx, out, rl);
 }
-#undef LOAD_16
-#undef STORE_16
 
 #elif defined(SJPEG_USE_NEON)
 static int QuantizeBlockNEON(const int16_t in[64], int idx,
@@ -722,11 +716,6 @@ Encoder::QuantizeBlockFunc Encoder::GetQuantizeBlockFunc() {
 ////////////////////////////////////////////////////////////////////////////////
 
 #if defined(SJPEG_USE_SSE2)
-// Load eight 16b-words from *src.
-#define LOAD_16(src) _mm_loadu_si128((const __m128i*)(src))
-#define LOAD_64(src) _mm_loadl_epi64((const __m128i*)(src))
-// Store eight 16b-words into *dst
-#define STORE_16(V, dst) _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), (V))
 
 static uint32_t QuantizeErrorSSE2(const int16_t in[64],
                                   const Quantizer* const Q) {
@@ -740,8 +729,7 @@ static uint32_t QuantizeErrorSSE2(const int16_t in[64],
     const __m128i m_iquant = LOAD_16(iquant + i);
     const __m128i m_quant = _mm_unpacklo_epi8(LOAD_64(quant + i), zero);
     const __m128i A = LOAD_16(in + i);                        // v0 = in[i]
-    const __m128i B = _mm_srai_epi16(A, 15);                  // sign extract
-    const __m128i C = _mm_sub_epi16(_mm_xor_si128(A, B), B);  // abs(v0)
+    const __m128i C = ABS_16(A);                              // abs(v0)
     const __m128i D = _mm_adds_epi16(C, m_bias);              // v' = v0 + bias
     const __m128i E = _mm_mulhi_epu16(D, m_iquant);           // (v' * iq) >> 16
     const __m128i F = _mm_srai_epi16(E, AC_BITS);
@@ -755,9 +743,6 @@ static uint32_t QuantizeErrorSSE2(const int16_t in[64],
   for (int i = 0; i < 32; ++i) err += tmp[i];
   return err;
 }
-#undef LOAD_16
-#undef LOAD_64
-#undef STORE_16
 
 #elif defined(SJPEG_USE_NEON)
 
