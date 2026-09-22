@@ -213,6 +213,9 @@ extern double DCTRiskinessScore(const int16_t yuv[3 * 64],
                                 int16_t scores[8 * 8]);
 extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
                                   int16_t scores[8 * 8]);
+enum class BlockActivityTier;  // see definition below
+extern BlockActivityTier BlockActivityScore(const uint8_t* rgb, int stride,
+                                            uint32_t* activity = nullptr);
 extern int YUVToRiskIdx(int16_t y, int16_t u, int16_t v);
 typedef void (*RiskinessScoreRowFunc)(const uint16_t* row1,
                                       const uint16_t* row2,
@@ -306,6 +309,24 @@ extern MemoryManager* GetDefaultMemoryManager();
 // a division, AC_BITS for the extra precision left over by the fdct's scaling.
 enum { FP_BITS = 16, AC_BITS = 4 };
 
+// Block activity classification for perceptual adaptive-bias quantization.
+enum class BlockActivityTier {
+  kFlatBlock = -1,
+  kNormalBlock = 0,
+  kBusyBlock = 1
+};
+enum {
+  kActivityLo = 28 << AC_BITS,
+  kActivityHi = 360 << AC_BITS,
+};
+
+// Returns the flat/normal/busy classification from an activity score.
+BlockActivityTier ClassifyActivity(uint32_t activity);
+
+// Classify an 8x8 block from its DCT coefficients.
+BlockActivityTier ClassifyBlockActivity(const int16_t in[64],
+                                        uint32_t* score = nullptr);
+
 #if defined(__has_builtin)
 #define SJPEG_HAS_BUILTIN(x) __has_builtin(x)
 #else
@@ -374,6 +395,9 @@ struct Quantizer {
   uint16_t qthresh_[64];   // minimal absolute value that produce non-zero coeff
   uint32_t qthresh2_[64];  // qthresh_[]^2 for fast comparison against coeff^2
   uint16_t bias_[64];      // bias, for coring
+  // Alternate thresholds for adaptive-bias mode.
+  uint16_t qthresh_flat_[64];
+  uint16_t qthresh_busy_[64];
   const uint32_t* codes_;  // codes for bit-cost calculation
 };
 
@@ -675,11 +699,22 @@ struct Encoder {
                                   DCTCoeffs* const out,
                                   RunLevel* const rl);
 
+  static int AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
+                                       const Quantizer* const Q,
+                                       DCTCoeffs* const out,
+                                       RunLevel* const rl);
+
   static int RDOQuantizeBlock(const int16_t in[64], int idx,
                               const Quantizer* const Q, DCTCoeffs* const out,
                               RunLevel* const rl);
 
-  // Picks quantize_block_ / TrellisQuantizeBlock / RDOQuantizeBlock.
+  static int RDOAdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
+                                          const Quantizer* const Q,
+                                          DCTCoeffs* const out,
+                                          RunLevel* const rl);
+
+  // Picks quantize_block_ / TrellisQuantizeBlock / RDOQuantizeBlock /
+  // RDOAdaptiveBiasQuantizeBlock / AdaptiveBiasQuantizeBlock.
   QuantizeBlockFunc GetActiveQuantizeBlockFunc() const;
 
   typedef uint32_t (*QuantizeErrorFunc)(const int16_t in[64],
@@ -695,7 +730,8 @@ struct Encoder {
   // returns DC code (4bits for length, 12bits for suffix), updates DC_predictor
   static uint16_t GenerateDCDiffCode(int DC, int* const DC_predictor);
 
-  static void FinalizeQuantMatrix(Quantizer* const q, int bias);
+  static void FinalizeQuantMatrix(Quantizer* const q, int bias,
+                                  bool adaptive = false);
   void SetCostCodes(int idx);
   void InitCodes(bool only_ac);
 

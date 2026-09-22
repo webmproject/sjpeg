@@ -596,8 +596,8 @@ bool Encoder::Encode() {
     return SetError();
   }
 
-  FinalizeQuantMatrix(&quants_[0], q_bias_);
-  FinalizeQuantMatrix(&quants_[1], q_bias_);
+  FinalizeQuantMatrix(&quants_[0], q_bias_, adaptive_bias_);
+  FinalizeQuantMatrix(&quants_[1], q_bias_, adaptive_bias_);
   SetCostCodes(0);
   SetCostCodes(1);
 

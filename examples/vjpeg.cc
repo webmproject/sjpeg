@@ -58,7 +58,8 @@ struct Params {
   int done;
   bool error;
   int show;  // 0 = compressed, 1 = original, 2 = info, 3 = help
-             // 4 = error map, 5 = riskiness map, 6 = alt
+             // 4 = error map, 5 = riskiness map, 6 = alt,
+             // 7 = bias activity map
   int fade;  // [0..100]
 
   size_t current_file;
@@ -83,7 +84,13 @@ struct Params {
   int is_yuv420;
   int viewport_width, viewport_height;
 
-  Params() : current_file(~0u) {
+  int nb_blocks;
+  int nb_flat_blocks;
+  int nb_normal_blocks;
+  int nb_busy_blocks;
+
+  Params() : current_file(~0u), nb_blocks(0), nb_flat_blocks(0),
+             nb_normal_blocks(0), nb_busy_blocks(0) {
     limit_quantization = true;
     quality = 75;
   }
@@ -175,6 +182,8 @@ static void PrintInfo() {
         "  't' ............... toggle trellis quantization (overrides 'd')");
     msg.push_back("  'e' ............... show error map");
     msg.push_back("  'r' ............... show riskiness map");
+    msg.push_back(
+        "  'c' ............... show bias activity map (flat/busy)");
     msg.push_back("  '+'/'-' ........... go to next/previous file");
     msg.push_back("  'h' ............... show this help message");
     msg.push_back("  'q' / 'Q' / ESC ... quit");
@@ -248,6 +257,19 @@ static void PrintInfo() {
     snprintf(tmp, sizeof(tmp), "- Alt Pic (%ld bytes) -",
              static_cast<long int>(kParams.alt_size));
     msg.push_back(tmp);
+  } else if (kParams.show == 7) {
+    msg.push_back("- Bias Activity Map -");
+    if (kParams.nb_blocks > 0) {
+      char tmp[120];
+      const float factor = 100.0f / kParams.nb_blocks;
+      snprintf(tmp, sizeof(tmp),
+               "Blocks: %d (flat: %.1f%% [blue], normal: %.1f%%, busy: %.1f%% [red])",
+               kParams.nb_blocks,
+               factor * kParams.nb_flat_blocks,
+               factor * kParams.nb_normal_blocks,
+               factor * kParams.nb_busy_blocks);
+      msg.push_back(tmp);
+    }
   }
 
   PrintMessages(msg, color, kParams.show != 1);
@@ -302,10 +324,16 @@ static void ComputeErrorMap() {
 }
 
 namespace sjpeg {
-// undocumented function
 extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
                                   int16_t score[8 * 8]);
-}
+enum class BlockActivityTier {
+  kFlatBlock = -1,
+  kNormalBlock = 0,
+  kBusyBlock = 1
+};
+extern BlockActivityTier BlockActivityScore(const uint8_t* rgb, int stride,
+                                            uint32_t* activity = nullptr);
+}  // namespace sjpeg
 
 static void ComputeRiskinessMap() {
   if (kParams.show != 5) {
@@ -339,6 +367,75 @@ static void ComputeRiskinessMap() {
   }
 }
 
+static void ComputeActivityMap() {
+  if (kParams.show != 7) {
+    const int width = kParams.width;
+    const int height = kParams.height;
+    const int stride = 3 * width;
+    kParams.map.resize((size_t)stride * height);
+    uint8_t* dst = &kParams.map[0];
+    const uint8_t* src = &kParams.rgb[0];
+
+    kParams.nb_blocks = 0;
+    kParams.nb_flat_blocks = 0;
+    kParams.nb_normal_blocks = 0;
+    kParams.nb_busy_blocks = 0;
+
+    uint8_t block[8 * 8 * 3];
+    for (int j = 0; j < height; j += 8) {
+      const int max_y = (j + 8 <= height) ? 8 : height - j;
+      for (int i = 0; i < width; i += 8) {
+        const int max_x = (i + 8 <= width) ? 8 : width - i;
+        const uint8_t* src_block = src + 3 * i + j * stride;
+        int step = stride;
+        if (max_x < 8 || max_y < 8) {
+          for (int y = 0; y < 8; ++y) {
+            const int sy = (y < max_y) ? j + y : height - 1;
+            for (int x = 0; x < 8; ++x) {
+              const int sx = (x < max_x) ? i + x : width - 1;
+              memcpy(&block[(y * 8 + x) * 3], &src[sy * stride + sx * 3], 3);
+            }
+          }
+          src_block = block;
+          step = 8 * 3;
+        }
+
+        const sjpeg::BlockActivityTier tier =
+            sjpeg::BlockActivityScore(src_block, step);
+        ++kParams.nb_blocks;
+        if (tier == sjpeg::BlockActivityTier::kFlatBlock) {
+          ++kParams.nb_flat_blocks;
+        } else if (tier == sjpeg::BlockActivityTier::kBusyBlock) {
+          ++kParams.nb_busy_blocks;
+        } else {
+          ++kParams.nb_normal_blocks;
+        }
+
+        static const int kFlatTint[3] = {40, 140, 255};   // cyan/blue
+        static const int kBusyTint[3] = {255, 60, 40};    // red/orange
+        const int* const tint =
+            (tier == sjpeg::BlockActivityTier::kFlatBlock)   ? kFlatTint
+            : (tier == sjpeg::BlockActivityTier::kBusyBlock) ? kBusyTint
+                                                             : nullptr;
+
+        for (int y = 0; y < max_y; ++y) {
+          for (int x = 0; x < max_x; ++x) {
+            const size_t off = 3 * (i + x) + (j + y) * stride;
+            const bool is_grid = (x == 0) || (y == 0);
+            for (int c = 0; c < 3; ++c) {
+              int v = (tint != nullptr) ? (src[off + c] + tint[c]) / 2
+                                        : (3 * src[off + c] + 128) / 4;
+              if (is_grid) v = (2 * v) / 3;
+              dst[off + c] = static_cast<uint8_t>(v);
+            }
+          }
+        }
+      }
+    }
+    kParams.show = 7;
+  }
+}
+
 //------------------------------------------------------------------------------
 // compression
 
@@ -363,6 +460,9 @@ static bool EncodeAndDecode() {
   } else if (kParams.show == 5) {
     kParams.show = 0;  // force recomputation
     ComputeRiskinessMap();
+  } else if (kParams.show == 7) {
+    kParams.show = 0;  // force recomputation
+    ComputeActivityMap();
   }
   return true;
 }
@@ -477,6 +577,9 @@ static void HandleKey(unsigned char key, int pos_x, int pos_y) {
   } else if (key == 'R' || key == 'r') {
     ComputeRiskinessMap();
     glutPostRedisplay();
+  } else if (key == 'c' || key == 'C') {
+    ComputeActivityMap();
+    glutPostRedisplay();
   } else if (key == '+') {
     if (kParams.current_file + 1 < kParams.files.size()) {
       kParams.SetCurrentFile(kParams.current_file + 1);
@@ -538,7 +641,8 @@ static void HandleKeyUp(unsigned char key, int pos_x, int pos_y) {
   } else if (key == 13) {
     kParams.show = 0;
     glutPostRedisplay();
-  } else if (key == 'E' || key == 'e' || key == 'R' || key == 'r') {
+  } else if (key == 'E' || key == 'e' || key == 'R' || key == 'r' ||
+             key == 'c' || key == 'C') {
     kParams.show = 0;
     kParams.map.clear();
     glutPostRedisplay();
@@ -592,7 +696,7 @@ static void HandleDisplay() {
   const uint8_t* src;
   if (kParams.show == 1) {
     src = &kParams.rgb[0];
-  } else if (kParams.show == 4 || kParams.show == 5) {
+  } else if (kParams.show == 4 || kParams.show == 5 || kParams.show == 7) {
     src = &kParams.map[0];
   } else if (kParams.show == 6 && !kParams.alt.empty()) {
     src = &kParams.alt[0];
@@ -663,6 +767,7 @@ static void Help() {
          "  't' ............... toggle trellis quantization (overrides 'd')\n"
          "  'e' ............... show error map\n"
          "  'r' ............... show riskiness map\n"
+         "  'c' ............... show bias activity map (flat/busy)\n"
          "  '+'/'-' ........... go to next/previous file\n"
          "  'm' ............... print the output quantization matrices\n"
          "  'h' ............... show this help message\n"

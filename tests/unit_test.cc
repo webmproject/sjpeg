@@ -412,8 +412,8 @@ SJPEG_TEST(NegativeStrides) {
   match();
 
   SJPEG_CHECK(sjpeg::EncodeNV12(Flip(Y, W, H).data(), W,
-                                Flip(UV, uv_stride, uv_h).data(), uv_stride,
-                                W, H, p, sjpeg::MakeByteSink(&a).get()));
+                                Flip(UV, uv_stride, uv_h).data(), uv_stride, W,
+                                H, p, sjpeg::MakeByteSink(&a).get()));
   SJPEG_CHECK(sjpeg::EncodeNV12(Last(Y, W, H), -W, Last(UV, uv_stride, uv_h),
                                 -uv_stride, W, H, p,
                                 sjpeg::MakeByteSink(&b).get()));
@@ -1626,6 +1626,102 @@ SJPEG_TEST(SafeArithmetic) {
   // Automatic conversion of arguments when template parameter is explicit
   int w = 320, h = 240;
   SJPEG_CHECK(SafeMultiply<size_t>(w, h, &out_s) && out_s == 76800);
+}
+
+SJPEG_TEST(AdaptiveBias) {
+  constexpr int kWidth = 64, kHeight = 64;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  const auto encode = [&](const sjpeg::EncoderParam& p) {
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, p, &out));
+    return out;
+  };
+
+  // 1. Basic encoding across quality factors and YUV modes.
+  for (const float q : {10.0f, 50.0f, 75.0f, 90.0f, 95.0f, 100.0f}) {
+    sjpeg::EncoderParam p(q);
+    p.adaptive_bias = true;
+    SJPEG_CHECK(HasSize(encode(p), kWidth, kHeight));
+  }
+  for (const auto m : {SJPEG_YUV_AUTO, SJPEG_YUV_420, SJPEG_YUV_SHARP,
+                       SJPEG_YUV_444, SJPEG_YUV_400}) {
+    sjpeg::EncoderParam p(80.0f);
+    p.adaptive_bias = true;
+    p.yuv_mode = m;
+    SJPEG_CHECK(HasSize(encode(p), kWidth, kHeight));
+  }
+
+  // 2. High quantization_bias must not underflow qthresh.
+  const std::vector<uint8_t> flat = MakeFlatRGB(32, 32, 128, 128, 128);
+  for (const int b : {128, 200, 240, 255}) {
+    sjpeg::EncoderParam p(95.0f);
+    p.adaptive_bias = true;
+    p.quantization_bias = b;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(flat, 32, 32, p, &out));
+    SJPEG_CHECK(HasSize(out, 32, 32) && out.size() < 600);
+  }
+
+  // 3. Interactions: distinct from default, combined with RDO, overridden by
+  // trellis.
+  sjpeg::EncoderParam p_bias(80.0f), p_rdo(80.0f), p_trellis(80.0f);
+  p_bias.adaptive_bias = true;
+  p_rdo.use_rdo = true;
+  p_trellis.use_trellis = true;
+
+  const std::string out_def = encode(sjpeg::EncoderParam(80.0f));
+  const std::string out_bias = encode(p_bias);
+  const std::string out_rdo = encode(p_rdo);
+  const std::string out_trellis = encode(p_trellis);
+  SJPEG_CHECK(out_bias != out_def);
+
+  sjpeg::EncoderParam p_both = p_rdo;
+  p_both.adaptive_bias = true;
+  const std::string out_rdo_bias = encode(p_both);
+  SJPEG_CHECK(out_rdo_bias != out_rdo && out_rdo_bias != out_bias);
+
+  p_both = p_trellis;
+  p_both.adaptive_bias = true;
+  SJPEG_CHECK(encode(p_both) == out_trellis);
+
+  // 4. Multi-pass search and progressive encoding.
+  sjpeg::EncoderParam p_mp(75.0f);
+  p_mp.adaptive_bias = true;
+  p_mp.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
+  p_mp.target_value = 2000.0f;
+  p_mp.passes = 5;
+  SJPEG_CHECK(HasSize(encode(p_mp), kWidth, kHeight));
+
+#if !defined(SJPEG_NO_PROGRESSIVE)
+  sjpeg::EncoderParam p_prog(75.0f);
+  p_prog.adaptive_bias = true;
+  p_prog.progressive_luma_split = 2;
+  p_prog.progressive_chroma_split = 8;
+  int sof = 0, num_sos = 0;
+  SJPEG_CHECK(CheckMarkerStructure(encode(p_prog), &sof, &num_sos) &&
+              sof == 0xc2);
+#endif
+
+  // 5. Activity classification.
+  const std::vector<uint8_t> flat8 = MakeFlatRGB(8, 8, 128, 128, 128);
+  std::vector<uint8_t> busy8(8 * 8 * 3);
+  for (int i = 0; i < 64; ++i) {
+    const uint8_t v = ((i ^ (i >> 3)) & 1) ? 255 : 0;
+    busy8[3 * i] = busy8[3 * i + 1] = busy8[3 * i + 2] = v;
+  }
+  uint32_t act_flat = 0, act_busy = 0;
+  SJPEG_CHECK(sjpeg::BlockActivityScore(&flat8[0], 24, &act_flat) ==
+              sjpeg::BlockActivityTier::kFlatBlock);
+  SJPEG_CHECK(sjpeg::BlockActivityScore(&busy8[0], 24, &act_busy) ==
+              sjpeg::BlockActivityTier::kBusyBlock);
+  SJPEG_CHECK(act_flat < sjpeg::kActivityLo && act_busy > sjpeg::kActivityHi);
+  SJPEG_CHECK(sjpeg::ClassifyActivity(act_flat) ==
+              sjpeg::BlockActivityTier::kFlatBlock);
+  SJPEG_CHECK(sjpeg::ClassifyActivity(act_busy) ==
+              sjpeg::BlockActivityTier::kBusyBlock);
+  SJPEG_CHECK(
+      sjpeg::ClassifyActivity((sjpeg::kActivityLo + sjpeg::kActivityHi) / 2) ==
+      sjpeg::BlockActivityTier::kNormalBlock);
 }
 
 }  // namespace
