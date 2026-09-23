@@ -35,13 +35,6 @@ enum { FRAC = 16, HALF = 1 << FRAC >> 1,
 
 #if defined(SJPEG_USE_SSE2)
 
-// Load eight 16b-words from *src.
-#define LOAD_16(src) _mm_loadu_si128(reinterpret_cast<const __m128i*>(src))
-#define LOAD_ALIGNED_16(src) \
-  _mm_load_si128(reinterpret_cast<const __m128i*>(src))
-// Store eight 16b-words into *dst
-#define STORE_16(V, dst) _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), (V))
-
 // Convert 8 packed RGB samples to r[], g[], b[]
 static inline void RGB24PackedToPlanar(const uint8_t* const rgb,
                                        __m128i* const r,
@@ -404,10 +397,6 @@ static void Get16x16Block_RGBA_SSE2(const uint8_t* data, int step,
                                     int16_t* blocks) {
   Get16x16Block_SSE2_Impl<4, RGBA32PackedToPlanar>(data, step, blocks);
 }
-
-#undef LOAD_16
-#undef LOAD_ALIGNED_16
-#undef STORE_16
 
 #endif    // SJPEG_USE_SSE2
 
@@ -1087,7 +1076,7 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
     const __m128i v3_0 = _mm_mullo_epi16(v2_0, mult2);
     const __m128i tmp0 = _mm_add_epi16(y2_0, u3_0);
     const __m128i idx0 = _mm_add_epi16(tmp0, v3_0);
-    _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), idx0);
+    STORE_16(idx0, dst);
 
     // clamping to [0, 255]
     const __m128i y1_1 = _mm_min_epi16(_mm_max_epi16(Y1, zero), k255);
@@ -1103,7 +1092,7 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
     const __m128i v3_1 = _mm_mullo_epi16(v2_1, mult2);
     const __m128i tmp1 = _mm_add_epi16(y2_1, u3_1);
     const __m128i idx1 = _mm_add_epi16(tmp1, v3_1);
-    _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + 8), idx1);
+    STORE_16(idx1, dst + 8);
 
     rgb += 3 * 16;
     dst += 16;
@@ -1128,7 +1117,7 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
     const __m128i v3 = _mm_mullo_epi16(v2, mult2);
     const __m128i tmp = _mm_add_epi16(y2, u3);
     const __m128i idx = _mm_add_epi16(tmp, v3);
-    _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), idx);
+    STORE_16(idx, dst);
 
     rgb += 3 * 8;
     dst += 8;
@@ -1247,16 +1236,14 @@ void Convert8To16b(const uint8_t* src, int src_step, int16_t* dst) {
     // Process two rows of 8 samples per iteration.
     const __m128i k128 = _mm_set1_epi16(128);
     for (int y = 0; y < 8; y += 2) {
-      const __m128i in0 =
-          _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src));
-      const __m128i in1 =
-          _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src + src_step));
+      const __m128i in0 = LOAD_64(src);
+      const __m128i in1 = LOAD_64(src + src_step);
       const __m128i in0_16 = _mm_unpacklo_epi8(in0, _mm_setzero_si128());
       const __m128i in1_16 = _mm_unpacklo_epi8(in1, _mm_setzero_si128());
       const __m128i out0 = _mm_sub_epi16(in0_16, k128);
       const __m128i out1 = _mm_sub_epi16(in1_16, k128);
-      _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), out0);
-      _mm_storeu_si128(reinterpret_cast<__m128i*>(dst + 8), out1);
+      STORE_16(out0, dst);
+      STORE_16(out1, dst + 8);
       src += 2 * src_step;
       dst += 16;
     }

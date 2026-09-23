@@ -266,9 +266,6 @@ void UpdateChroma_AVX2(const fixed_y_t* src1, const fixed_y_t* src2,
 
 #if defined(SJPEG_USE_SSE2)
 
-#define LOAD_16(P) (_mm_loadu_si128(reinterpret_cast<const __m128i*>(P)))
-#define STORE_16(P, V) (_mm_storeu_si128(reinterpret_cast<__m128i*>(P), (V)))
-
 static uint64_t SharpUpdateY_SSE2(const uint16_t* ref, const uint16_t* src,
                                   uint16_t* dst, int len) {
   uint64_t diff = 0;
@@ -289,10 +286,10 @@ static uint64_t SharpUpdateY_SSE2(const uint16_t* ref, const uint16_t* src,
     const __m128i G = _mm_or_si128(E, one);      // -1 or 1
     const __m128i H = _mm_max_epi16(_mm_min_epi16(F, max), zero);
     const __m128i I = _mm_madd_epi16(D, G);      // sum(abs(...))
-    STORE_16(dst + i, H);
+    STORE_16(H, dst + i);
     sum = _mm_add_epi32(sum, I);
   }
-  STORE_16(tmp, sum);
+  STORE_16(sum, tmp);
   diff = tmp[3] + tmp[2] + tmp[1] + tmp[0];
   for (; i < len; ++i) {
     const int diff_y = ref[i] - src[i];
@@ -312,7 +309,7 @@ static void SharpUpdateRGB_SSE2(const int16_t* ref, const int16_t* src,
     const __m128i C = LOAD_16(dst + i);
     const __m128i D = _mm_sub_epi16(A, B);   // diff_uv
     const __m128i E = _mm_add_epi16(C, D);   // new_uv
-    STORE_16(dst + i, E);
+    STORE_16(E, dst + i);
   }
   for (; i < len; ++i) {
     const int diff_uv = ref[i] - src[i];
@@ -351,8 +348,8 @@ static void SharpFilterRow_SSE2(const int16_t* A, const int16_t* B, int len,
     const __m128i h1 = _mm_add_epi16(g1, f1);
     const __m128i i0 = _mm_max_epi16(_mm_min_epi16(h0, max), zero);
     const __m128i i1 = _mm_max_epi16(_mm_min_epi16(h1, max), zero);
-    STORE_16(out + 2 * i + 0, i0);
-    STORE_16(out + 2 * i + 8, i1);
+    STORE_16(i0, out + 2 * i + 0);
+    STORE_16(i1, out + 2 * i + 8);
   }
   for (; i < len; ++i) {
     //   (9 * A0 + 3 * A1 + 3 * B0 + B1 + 8) >> 4 =
@@ -367,8 +364,6 @@ static void SharpFilterRow_SSE2(const int16_t* A, const int16_t* B, int len,
     out[2 * i + 1] = clip_y(best_y[2 * i + 1] + v1);
   }
 }
-#undef STORE_16
-#undef LOAD_16
 
 #elif defined(SJPEG_USE_NEON)
 

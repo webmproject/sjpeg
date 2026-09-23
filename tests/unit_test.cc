@@ -1351,6 +1351,41 @@ SJPEG_TEST(RateDistortionOptimization) {
     }
   }
 #endif
+
+  // 9. Directly calling enc->SetRDO(true/false) matches param.use_rdo.
+  {
+    sjpeg::EncoderParam param(75.0f);
+    param.use_rdo = true;
+    std::string expected_rdo;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &expected_rdo));
+
+    sjpeg::EncoderParam param_no_rdo(75.0f);
+    param_no_rdo.use_rdo = false;
+    std::string expected_no_rdo;
+    SJPEG_CHECK(
+        EncodeRGB(rgb, kWidth, kHeight, param_no_rdo, &expected_no_rdo));
+
+    // Calling SetRDO(true) overrides param_no_rdo.use_rdo = false.
+    std::string out;
+    sjpeg::StringSink sink(&out);
+    std::unique_ptr<sjpeg::Encoder> enc(sjpeg::EncoderFactory(
+        rgb.data(), kWidth, kHeight, 3 * kWidth, SJPEG_YUV_AUTO, &sink));
+    SJPEG_CHECK(enc != nullptr);
+    SJPEG_CHECK(enc->InitFromParam(param_no_rdo));
+    enc->SetRDO(true);
+    SJPEG_CHECK(enc->Encode());
+    SJPEG_CHECK(out == expected_rdo);
+
+    // Calling SetRDO(false) overrides param.use_rdo = true.
+    out.clear();
+    std::unique_ptr<sjpeg::Encoder> enc2(sjpeg::EncoderFactory(
+        rgb.data(), kWidth, kHeight, 3 * kWidth, SJPEG_YUV_AUTO, &sink));
+    SJPEG_CHECK(enc2 != nullptr);
+    SJPEG_CHECK(enc2->InitFromParam(param));
+    enc2->SetRDO(false);
+    SJPEG_CHECK(enc2->Encode());
+    SJPEG_CHECK(out == expected_no_rdo);
+  }
 }
 
 #if !defined(SJPEG_NO_MULTITHREADING)

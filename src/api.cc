@@ -166,7 +166,7 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   }
 
   SetCompressionMethod(method);
-  use_rdo_ = param.use_rdo;
+  SetRDO(param.use_rdo);
   SetQuantizationBias(param.quantization_bias, param.adaptive_bias);
   SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);
   SetProgressive(param.progressive_luma_split, param.progressive_chroma_split);

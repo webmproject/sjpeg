@@ -31,10 +31,6 @@
 
 namespace sjpeg {
 
-#define LOAD_32(src) _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src))
-#define STORE_32(V, dst) \
-  _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst), (V))
-
 void StoreHistoAVX2(const int16_t in[64], Histo* const histos,
                     int nb_blocks) {
   assert(nb_blocks > 0);
@@ -44,7 +40,7 @@ void StoreHistoAVX2(const int16_t in[64], Histo* const histos,
     uint16_t tmp[64];
     for (int i = 0; i < 64; i += 16) {
       const __m256i A = LOAD_32(in + i);
-      const __m256i C = _mm256_abs_epi16(A);
+      const __m256i C = ABS_32(A);
       const __m256i D = _mm256_srli_epi16(C, HSHIFT);
       const __m256i E = _mm256_min_epi16(D, kMaxHisto);
       STORE_32(E, tmp + i);
@@ -56,9 +52,6 @@ void StoreHistoAVX2(const int16_t in[64], Histo* const histos,
     in += 64;
   } while (++n < nb_blocks);
 }
-
-#undef LOAD_32
-#undef STORE_32
 
 }  // namespace sjpeg
 

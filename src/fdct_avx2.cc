@@ -71,16 +71,13 @@ static const union {
 } while (0)
 
 static inline __m256i LoadRow(const int16_t* a, const int16_t* b, int row) {
-  return _mm256_set_m128i(
-      _mm_load_si128(reinterpret_cast<const __m128i*>(b + row * 8)),
-      _mm_load_si128(reinterpret_cast<const __m128i*>(a + row * 8)));
+  return _mm256_set_m128i(LOAD_ALIGNED_16(b + row * 8),
+                          LOAD_ALIGNED_16(a + row * 8));
 }
 
 static inline void StoreRow(int16_t* a, int16_t* b, int row, __m256i v) {
-  _mm_store_si128(reinterpret_cast<__m128i*>(a + row * 8),
-                  _mm256_castsi256_si128(v));
-  _mm_store_si128(reinterpret_cast<__m128i*>(b + row * 8),
-                  _mm256_extracti128_si256(v, 1));
+  STORE_ALIGNED_16(_mm256_castsi256_si128(v), a + row * 8);
+  STORE_ALIGNED_16(_mm256_extracti128_si256(v, 1), b + row * 8);
 }
 
 static void ColumnDct_AVX2(int16_t* a, int16_t* b) {
