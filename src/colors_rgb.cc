@@ -505,9 +505,9 @@ static void ToYUV_8(const int16x8_t r, const int16x8_t g, const int16x8_t b,
   int16x8_t Y, U, V;
   ConvertRGBToY(r, g, b, coeffs1, &Y);
   ConvertRGBToUV(r, g, b, coeffs2, &U, &V);
-  vst1q_s16(out + 0 * 64, Y);
-  vst1q_s16(out + 1 * 64, U);
-  vst1q_s16(out + 2 * 64, V);
+  STORE_16(Y, out + 0 * 64);
+  STORE_16(U, out + 1 * 64);
+  STORE_16(V, out + 2 * 64);
 }
 
 // Convert 8 RGB samples to Y only. out[] points to a 1*64 data block.
@@ -515,7 +515,7 @@ static void ToY_8(const int16x8_t r, const int16x8_t g, const int16x8_t b,
                   const int16x4_t coeffs, int16_t* const out) {
   int16x8_t Y;
   ConvertRGBToY(r, g, b, coeffs, &Y);
-  vst1q_s16(out, Y);
+  STORE_16(Y, out);
 }
 
 // Convert 16x16 RGB samples to YUV420
@@ -530,7 +530,7 @@ static inline void ToY_16x16(const int16x8_t r,
                              bool do_add) {
   int16x8_t Y;
   ConvertRGBToY(r, g, b, coeffs, &Y);
-  vst1q_s16(y_out, Y);
+  STORE_16(Y, y_out);
   if (do_add) {
     *R_acc = vaddq_s16(*R_acc, r);
     *G_acc = vaddq_s16(*G_acc, g);
@@ -549,8 +549,8 @@ static inline void ToUV_8x8(const int16x8_t R,
                             int16_t* const uv_out) {
   int16x8_t U, V;
   ConvertRGBToUVAccumulated(R, G, B, coeffs, &U, &V);
-  vst1q_s16(uv_out + 0 * 64, U);
-  vst1q_s16(uv_out + 1 * 64, V);
+  STORE_16(U, uv_out + 0 * 64);
+  STORE_16(V, uv_out + 1 * 64);
 }
 
 static void Condense16To8(const int16x8_t acc1, int16x8_t* const acc2) {
@@ -1063,9 +1063,9 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
     ConvertRGBToUV(&r1, &g1, &b1, 128, &U1, &V1);
 
     // clamping to [0, 255]
-    const __m128i y1_0 = _mm_min_epi16(_mm_max_epi16(Y0, zero), k255);
-    const __m128i u1_0 = _mm_min_epi16(_mm_max_epi16(U0, zero), k255);
-    const __m128i v1_0 = _mm_min_epi16(_mm_max_epi16(V0, zero), k255);
+    const __m128i y1_0 = CLAMP_16(Y0, zero, k255);
+    const __m128i u1_0 = CLAMP_16(U0, zero, k255);
+    const __m128i v1_0 = CLAMP_16(V0, zero, k255);
     // convert to idx and divide by 255:
     // (v * (kRGBSize - 1) * 0x0101) >> 16 ~= v * (kRGBSize - 1) / 255
     const __m128i y2_0 = _mm_mulhi_epi16(y1_0, mult);
@@ -1079,9 +1079,9 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
     STORE_16(idx0, dst);
 
     // clamping to [0, 255]
-    const __m128i y1_1 = _mm_min_epi16(_mm_max_epi16(Y1, zero), k255);
-    const __m128i u1_1 = _mm_min_epi16(_mm_max_epi16(U1, zero), k255);
-    const __m128i v1_1 = _mm_min_epi16(_mm_max_epi16(V1, zero), k255);
+    const __m128i y1_1 = CLAMP_16(Y1, zero, k255);
+    const __m128i u1_1 = CLAMP_16(U1, zero, k255);
+    const __m128i v1_1 = CLAMP_16(V1, zero, k255);
     // convert to idx and divide by 255:
     // (v * (kRGBSize - 1) * 0x0101) >> 16 ~= v * (kRGBSize - 1) / 255
     const __m128i y2_1 = _mm_mulhi_epi16(y1_1, mult);
@@ -1105,9 +1105,9 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
     ConvertRGBToY(&r, &g, &b, 0, &Y);
     ConvertRGBToUV(&r, &g, &b, 128, &U, &V);
     // clamping to [0, 255]
-    const __m128i y1 = _mm_min_epi16(_mm_max_epi16(Y, zero), k255);
-    const __m128i u1 = _mm_min_epi16(_mm_max_epi16(U, zero), k255);
-    const __m128i v1 = _mm_min_epi16(_mm_max_epi16(V, zero), k255);
+    const __m128i y1 = CLAMP_16(Y, zero, k255);
+    const __m128i u1 = CLAMP_16(U, zero, k255);
+    const __m128i v1 = CLAMP_16(V, zero, k255);
     // convert to idx
     const __m128i y2 = _mm_mulhi_epi16(y1, mult);
     const __m128i u2 = _mm_mulhi_epi16(u1, mult);
@@ -1154,7 +1154,7 @@ void RowToIndexNEON(const uint8_t* rgb, int width, uint16_t* dst) {
     // store final idx
     const uint16x8_t tmp = vmlaq_u16(y3, u3, mult1);
     const uint16x8_t idx = vmlaq_u16(tmp, v3, mult2);
-    vst1q_u16(dst, idx);
+    STORE_16(idx, dst);
 
     rgb += 3 * 8;
     dst += 8;
@@ -1254,12 +1254,12 @@ void Convert8To16b(const uint8_t* src, int src_step, int16_t* dst) {
     // Process two rows of 8 samples per iteration.
     const uint8x8_t k128 = vdup_n_u8(128);
     for (int y = 0; y < 8; y += 2) {
-      const uint8x8_t in0 = vld1_u8(src);
-      const uint8x8_t in1 = vld1_u8(src + src_step);
+      const uint8x8_t in0 = LOAD_64(src);
+      const uint8x8_t in1 = LOAD_64(src + src_step);
       const int16x8_t out0 = vreinterpretq_s16_u16(vsubl_u8(in0, k128));
       const int16x8_t out1 = vreinterpretq_s16_u16(vsubl_u8(in1, k128));
-      vst1q_s16(dst + 0, out0);
-      vst1q_s16(dst + 8, out1);
+      STORE_16(out0, dst + 0);
+      STORE_16(out1, dst + 8);
       src += 2 * src_step;
       dst += 16;
     }

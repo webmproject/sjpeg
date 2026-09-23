@@ -391,6 +391,11 @@ struct Quantizer {
   const uint32_t* codes_;  // codes for bit-cost calculation
 };
 
+// Testing hook: exposes Encoder::GetQuantizeErrorFunc(), which is private.
+typedef uint32_t (*QuantizeErrorTestFunc)(const int16_t in[64],
+                                          const Quantizer* const Q);
+QuantizeErrorTestFunc GetQuantizeErrorFuncForTest();
+
 // compact Run/Level storage, separate from DCTCoeffs infos
 // Run/Level Information is not yet entropy-coded, but just stored
 struct RunLevel {

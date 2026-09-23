@@ -284,7 +284,7 @@ static uint64_t SharpUpdateY_SSE2(const uint16_t* ref, const uint16_t* src,
     const __m128i E = _mm_cmpgt_epi16(zero, D);  // sign (-1 or 0)
     const __m128i F = _mm_add_epi16(C, D);       // new_y
     const __m128i G = _mm_or_si128(E, one);      // -1 or 1
-    const __m128i H = _mm_max_epi16(_mm_min_epi16(F, max), zero);
+    const __m128i H = CLAMP_16(F, zero, max);
     const __m128i I = _mm_madd_epi16(D, G);      // sum(abs(...))
     STORE_16(H, dst + i);
     sum = _mm_add_epi32(sum, I);
@@ -346,8 +346,8 @@ static void SharpFilterRow_SSE2(const int16_t* A, const int16_t* B, int len,
     const __m128i g1 = LOAD_16(best_y + 2 * i + 8);
     const __m128i h0 = _mm_add_epi16(g0, f0);
     const __m128i h1 = _mm_add_epi16(g1, f1);
-    const __m128i i0 = _mm_max_epi16(_mm_min_epi16(h0, max), zero);
-    const __m128i i1 = _mm_max_epi16(_mm_min_epi16(h1, max), zero);
+    const __m128i i0 = CLAMP_16(h0, zero, max);
+    const __m128i i1 = CLAMP_16(h1, zero, max);
     STORE_16(i0, out + 2 * i + 0);
     STORE_16(i1, out + 2 * i + 8);
   }
@@ -375,15 +375,14 @@ static uint64_t SharpUpdateY_NEON(const uint16_t* ref, const uint16_t* src,
   uint64x2_t sum = vdupq_n_u64(0);
 
   for (i = 0; i + 8 <= len; i += 8) {
-    const int16x8_t A = vreinterpretq_s16_u16(vld1q_u16(ref + i));
-    const int16x8_t B = vreinterpretq_s16_u16(vld1q_u16(src + i));
-    const int16x8_t C = vreinterpretq_s16_u16(vld1q_u16(dst + i));
+    const int16x8_t A = LOAD_16(ref + i);
+    const int16x8_t B = LOAD_16(src + i);
+    const int16x8_t C = LOAD_16(dst + i);
     const int16x8_t D = vsubq_s16(A, B);       // diff_y
     const int16x8_t F = vaddq_s16(C, D);       // new_y
-    const uint16x8_t H =
-        vreinterpretq_u16_s16(vmaxq_s16(vminq_s16(F, max), zero));
-    const int16x8_t I = vabsq_s16(D);          // abs(diff_y)
-    vst1q_u16(dst + i, H);
+    const int16x8_t H = CLAMP_16(F, zero, max);
+    const int16x8_t I = ABS_16(D);  // abs(diff_y)
+    STORE_16(H, dst + i);
     sum = vpadalq_u32(sum, vpaddlq_u16(vreinterpretq_u16_s16(I)));
   }
   uint64_t diff = vgetq_lane_u64(sum, 0) + vgetq_lane_u64(sum, 1);
@@ -400,12 +399,12 @@ static void SharpUpdateRGB_NEON(const int16_t* ref, const int16_t* src,
                                 int16_t* dst, int len) {
   int i;
   for (i = 0; i + 8 <= len; i += 8) {
-    const int16x8_t A = vld1q_s16(ref + i);
-    const int16x8_t B = vld1q_s16(src + i);
-    const int16x8_t C = vld1q_s16(dst + i);
+    const int16x8_t A = LOAD_16(ref + i);
+    const int16x8_t B = LOAD_16(src + i);
+    const int16x8_t C = LOAD_16(dst + i);
     const int16x8_t D = vsubq_s16(A, B);   // diff_uv
     const int16x8_t E = vaddq_s16(C, D);   // new_uv
-    vst1q_s16(dst + i, E);
+    STORE_16(E, dst + i);
   }
   for (; i < len; ++i) {
     const int diff_uv = ref[i] - src[i];
@@ -419,10 +418,10 @@ static void SharpFilterRow_NEON(const int16_t* A, const int16_t* B, int len,
   const int16x8_t max = vdupq_n_s16(MAX_Y_T);
   const int16x8_t zero = vdupq_n_s16(0);
   for (i = 0; i + 8 <= len; i += 8) {
-    const int16x8_t a0 = vld1q_s16(A + i + 0);
-    const int16x8_t a1 = vld1q_s16(A + i + 1);
-    const int16x8_t b0 = vld1q_s16(B + i + 0);
-    const int16x8_t b1 = vld1q_s16(B + i + 1);
+    const int16x8_t a0 = LOAD_16(A + i + 0);
+    const int16x8_t a1 = LOAD_16(A + i + 1);
+    const int16x8_t b0 = LOAD_16(B + i + 0);
+    const int16x8_t b1 = LOAD_16(B + i + 1);
     const int16x8_t a0b1 = vaddq_s16(a0, b1);
     const int16x8_t a1b0 = vaddq_s16(a1, b0);
     const int16x8_t a0a1b0b1 = vaddq_s16(a0b1, a1b0);  // A0+A1+B0+B1
@@ -435,14 +434,14 @@ static void SharpFilterRow_NEON(const int16_t* A, const int16_t* B, int len,
     const int16x8_t e0 = vrshrq_n_s16(d0, 1);
     const int16x8_t e1 = vrshrq_n_s16(d1, 1);
     const int16x8x2_t f = vzipq_s16(e0, e1);
-    const int16x8_t g0 = vreinterpretq_s16_u16(vld1q_u16(best_y + 2 * i + 0));
-    const int16x8_t g1 = vreinterpretq_s16_u16(vld1q_u16(best_y + 2 * i + 8));
+    const int16x8_t g0 = LOAD_16(best_y + 2 * i + 0);
+    const int16x8_t g1 = LOAD_16(best_y + 2 * i + 8);
     const int16x8_t h0 = vaddq_s16(g0, f.val[0]);
     const int16x8_t h1 = vaddq_s16(g1, f.val[1]);
-    const int16x8_t i0 = vmaxq_s16(vminq_s16(h0, max), zero);
-    const int16x8_t i1 = vmaxq_s16(vminq_s16(h1, max), zero);
-    vst1q_u16(out + 2 * i + 0, vreinterpretq_u16_s16(i0));
-    vst1q_u16(out + 2 * i + 8, vreinterpretq_u16_s16(i1));
+    const int16x8_t i0 = CLAMP_16(h0, zero, max);
+    const int16x8_t i1 = CLAMP_16(h1, zero, max);
+    STORE_16(i0, out + 2 * i + 0);
+    STORE_16(i1, out + 2 * i + 8);
   }
   for (; i < len; ++i) {
     const int a0b1 = A[i + 0] + B[i + 1];
