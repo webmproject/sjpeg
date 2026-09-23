@@ -27,6 +27,7 @@
 #include <utility>   // for std::swap
 #include <vector>
 
+#define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -281,6 +282,102 @@ extern void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
                                   int size, int noise_level,
                                   int64_t* score_sum, int64_t* score_num,
                                   int64_t* gray_num);
+#elif defined(SJPEG_USE_NEON)
+// Gather-free NEON variant: NEON has no gather instruction, so instead of
+// vectorizing the 2D table lookup itself (which would need one), the 2D
+// index (idx_a + kRGB3 * idx_b) is computed 8-at-a-time with a vector
+// multiply-accumulate, then the 8 resulting indices are looked up in
+// kSharpnessScore with plain scalar byte loads (no pointer indirection).
+static inline void Process8PixelsNEON(const uint16_t* const row1,
+                                      const uint16_t* const row2,
+                                      uint16_t kRGB3,
+                                      uint16x8_t v_gray_min, uint16x8_t v_s,
+                                      int16x8_t v_noise,
+                                      int16x8_t* const v_gray_cnt,
+                                      int16x8_t* const v_num,
+                                      int32x4_t* const v_sum) {
+  const uint16x8_t r1 = LOAD_16(row1);
+  const uint16x8_t r1s = LOAD_16(row1 + 1);
+  const uint16x8_t r2 = LOAD_16(row2);
+
+  const uint16x8_t diff = vsubq_u16(r1, v_gray_min);
+  const uint16x8_t is_gray = vcltq_u16(diff, v_s);
+  *v_gray_cnt = vsubq_s16(*v_gray_cnt, vreinterpretq_s16_u16(is_gray));
+
+  // row1/row2 already hold packed 3-channel indices in [0, kRGB3), so
+  // idx_a + kRGB3 * idx_b can reach ~kRGB3^2 (117648 for kRGBSize=7):
+  // needs a 32-bit widening multiply-accumulate, not a 16-bit one.
+  const uint16x4_t r1_lo = vget_low_u16(r1), r1_hi = vget_high_u16(r1);
+  const uint16x4_t r1s_lo = vget_low_u16(r1s), r1s_hi = vget_high_u16(r1s);
+  const uint16x4_t r2_lo = vget_low_u16(r2), r2_hi = vget_high_u16(r2);
+  const uint32x4_t idx0_lo = vmovl_u16(r1_lo), idx0_hi = vmovl_u16(r1_hi);
+  const uint32x4_t idx1_lo = vmovl_u16(r1s_lo), idx1_hi = vmovl_u16(r1s_hi);
+
+  uint32_t tmp_ab[8], tmp_ac[8], tmp_bc[8];
+  STORE_16(vmlal_n_u16(idx0_lo, r1s_lo, kRGB3), tmp_ab + 0);
+  STORE_16(vmlal_n_u16(idx0_hi, r1s_hi, kRGB3), tmp_ab + 4);
+  STORE_16(vmlal_n_u16(idx0_lo, r2_lo, kRGB3), tmp_ac + 0);
+  STORE_16(vmlal_n_u16(idx0_hi, r2_hi, kRGB3), tmp_ac + 4);
+  STORE_16(vmlal_n_u16(idx1_lo, r2_lo, kRGB3), tmp_bc + 0);
+  STORE_16(vmlal_n_u16(idx1_hi, r2_hi, kRGB3), tmp_bc + 4);
+
+  auto score_at = [&](int k) -> uint16_t {
+    return (uint16_t)(kSharpnessScore[tmp_ab[k]] + kSharpnessScore[tmp_ac[k]] +
+                      kSharpnessScore[tmp_bc[k]]);
+  };
+
+  // Lane-insert rather than build in a stack array, to avoid a
+  // store-to-load round trip.
+  int16x8_t v_scores = vdupq_n_s16(0);
+  v_scores = vsetq_lane_s16(score_at(0), v_scores, 0);
+  v_scores = vsetq_lane_s16(score_at(1), v_scores, 1);
+  v_scores = vsetq_lane_s16(score_at(2), v_scores, 2);
+  v_scores = vsetq_lane_s16(score_at(3), v_scores, 3);
+  v_scores = vsetq_lane_s16(score_at(4), v_scores, 4);
+  v_scores = vsetq_lane_s16(score_at(5), v_scores, 5);
+  v_scores = vsetq_lane_s16(score_at(6), v_scores, 6);
+  v_scores = vsetq_lane_s16(score_at(7), v_scores, 7);
+
+  const uint16x8_t score_mask = vcgtq_s16(v_scores, v_noise);
+  *v_num = vsubq_s16(*v_num, vreinterpretq_s16_u16(score_mask));
+  const int16x8_t masked_scores =
+      vandq_s16(v_scores, vreinterpretq_s16_u16(score_mask));
+  *v_sum = vaddq_s32(*v_sum, vpaddlq_s16(masked_scores));
+}
+
+void RiskinessScoreRowNEON(const uint16_t* row1, const uint16_t* row2, int size,
+                           int noise_level, int64_t* score_sum,
+                           int64_t* score_num, int64_t* gray_num) {
+  const int s = kRGBSize;                  // shortcut
+  const uint16_t kRGB3 = (uint16_t)(s * s * s);
+  const int gray = (s / 2) * (1 + s) * s;  // gray level for y=0,u=128,v=128
+  const int gray_min = gray - gray % s;    // see RiskinessScoreRow_C above
+
+  const uint16x8_t v_gray_min = vdupq_n_u16((uint16_t)gray_min);
+  const uint16x8_t v_s = vdupq_n_u16((uint16_t)s);
+  const int16x8_t v_noise = vdupq_n_s16((int16_t)noise_level);
+
+  // 8x16-bit lanes hold at most 65535/8 counts each (kMaxDimension row),
+  // well within int16 range; the 4x32-bit score sum stays far under 2^31.
+  int32x4_t v_sum = vdupq_n_s32(0);       // scores above the noise level
+  int16x8_t v_num = vdupq_n_s16(0);       // how many that was
+  int16x8_t v_gray_cnt = vdupq_n_s16(0);  // samples with neutral chroma
+
+  int i = 0;
+  for (; i + 8 <= size; i += 8) {
+    Process8PixelsNEON(row1 + i, row2 + i, kRGB3, v_gray_min, v_s, v_noise,
+                       &v_gray_cnt, &v_num, &v_sum);
+  }
+
+  *score_sum += HorizontalSumS32(v_sum);
+  *score_num += HorizontalSumS16(v_num);
+  *gray_num += HorizontalSumS16(v_gray_cnt);
+
+  if (i < size) {
+    RiskinessScoreRow_C(row1 + i, row2 + i, size - i, noise_level, score_sum,
+                        score_num, gray_num);
+  }
+}
 #endif
 
 RiskinessScoreRowFunc GetRiskinessScoreRowFunc() {
@@ -288,6 +385,10 @@ RiskinessScoreRowFunc GetRiskinessScoreRowFunc() {
   if (SupportsAVX2()) {
     RiskinessScoreInitRowTableAVX2();
     return RiskinessScoreRowAVX2;
+  }
+#elif defined(SJPEG_USE_NEON)
+  if (SupportsNEON()) {
+    return RiskinessScoreRowNEON;
   }
 #endif
   return RiskinessScoreRow_C;
