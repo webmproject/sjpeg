@@ -89,6 +89,9 @@ alignas(32) static const int8_t kRGB24ShufA2[6][32] = {
               -1, -1, 0,  3,  6,  9, 12, 15, -1, -1, -1, -1, -1, -1, -1, -1},
 };
 
+// Signature of the packed-to-planar functions below
+typedef void (*UnpackFuncAVX2)(const uint8_t*, __m256i*, __m256i*, __m256i*);
+
 // Convert 16 packed RGB samples to planar r, g, b.
 static inline void RGB24PackedToPlanar_AVX2(const uint8_t* const rgb,
                                             __m256i* const r, __m256i* const g,
@@ -187,10 +190,9 @@ static inline void ConvertRGBToUVAccumulated_AVX2(const __m256i* const R,
 }
 
 // Convert 16x16 packed pixels to planar YUV420 blocks using pure 256-bit AVX2.
-template <typename PackedToPlanarFunc>
-static inline void Get16x16Block_AVX2_Impl(
-    const uint8_t* data, int step, int16_t* blocks,
-    PackedToPlanarFunc packed_to_planar) {
+template <UnpackFuncAVX2 PackedToPlanar>
+static inline void Get16x16Block_AVX2_Impl(const uint8_t* data, int step,
+                                           int16_t* blocks) {
   const __m256i one = _mm256_set1_epi16(1);
   int16_t* y_left = blocks + 0 * 64;   // y0, then y2
   int16_t* y_right = blocks + 1 * 64;  // y1, then y3
@@ -206,10 +208,10 @@ static inline void Get16x16Block_AVX2_Impl(
       __m256i Y0, Y1;
 
       // Pair 0 (Rows 0 + 1)
-      packed_to_planar(src + 0 * step, &r0, &g0, &b0);
+      PackedToPlanar(src + 0 * step, &r0, &g0, &b0);
       ConvertRGBToY_AVX2(&r0, &g0, &b0, &Y0);
 
-      packed_to_planar(src + 1 * step, &r1, &g1, &b1);
+      PackedToPlanar(src + 1 * step, &r1, &g1, &b1);
       ConvertRGBToY_AVX2(&r1, &g1, &b1, &Y1);
 
       // Paired 256-bit Y stores: saves 4x 128-bit stores + 2x vextracti128
@@ -225,10 +227,10 @@ static inline void Get16x16Block_AVX2_Impl(
       const __m256i b_madd0 = _mm256_madd_epi16(_mm256_add_epi16(b0, b1), one);
 
       // Pair 1 (Rows 2 + 3)
-      packed_to_planar(src + 2 * step, &r0, &g0, &b0);
+      PackedToPlanar(src + 2 * step, &r0, &g0, &b0);
       ConvertRGBToY_AVX2(&r0, &g0, &b0, &Y0);
 
-      packed_to_planar(src + 3 * step, &r1, &g1, &b1);
+      PackedToPlanar(src + 3 * step, &r1, &g1, &b1);
       ConvertRGBToY_AVX2(&r1, &g1, &b1, &Y1);
 
       const __m256i Y_left_23 = _mm256_permute2x128_si256(Y0, Y1, 0x20);
@@ -268,19 +270,19 @@ static inline void Get16x16Block_AVX2_Impl(
 
 // Convert 16x16 RGB samples to YUV420
 void Get16x16Block_AVX2(const uint8_t* data, int step, int16_t* blocks) {
-  Get16x16Block_AVX2_Impl(data, step, blocks, RGB24PackedToPlanar_AVX2);
+  Get16x16Block_AVX2_Impl<RGB24PackedToPlanar_AVX2>(data, step, blocks);
 }
 
 // Convert 16x16 BGRA samples to YUV420
 void Get16x16Block_BGRA_AVX2(const uint8_t* data, int step, int16_t* blocks) {
-  Get16x16Block_AVX2_Impl(data, step, blocks,
-                          XGXA32PackedToPlanar_AVX2</*is_bgra=*/true>);
+  Get16x16Block_AVX2_Impl<XGXA32PackedToPlanar_AVX2</*is_bgra=*/true>>(
+      data, step, blocks);
 }
 
 // Convert 16x16 RGBA samples to YUV420
 void Get16x16Block_RGBA_AVX2(const uint8_t* data, int step, int16_t* blocks) {
-  Get16x16Block_AVX2_Impl(data, step, blocks,
-                          XGXA32PackedToPlanar_AVX2</*is_bgra=*/false>);
+  Get16x16Block_AVX2_Impl<XGXA32PackedToPlanar_AVX2</*is_bgra=*/false>>(
+      data, step, blocks);
 }
 
 // Fused color conversion sharing RG and GB 256-bit unpacks
