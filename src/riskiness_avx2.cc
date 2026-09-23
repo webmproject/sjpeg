@@ -43,19 +43,6 @@ void RiskinessScoreInitRowTableAVX2() {
   });
 }
 
-// Horizontal sum helpers for 128-bit integer vectors.
-static inline int32_t HorizontalSumEpi32(__m128i v) {
-  const __m128i hi = _mm_unpackhi_epi64(v, v);
-  const __m128i sum = _mm_add_epi32(v, hi);
-  const __m128i hi2 = _mm_shuffle_epi32(sum, _MM_SHUFFLE(1, 1, 1, 1));
-  return _mm_cvtsi128_si32(_mm_add_epi32(sum, hi2));
-}
-
-static inline int32_t HorizontalSumEpi16(__m128i v) {
-  const __m128i ones = _mm_set1_epi16(1);
-  return HorizontalSumEpi32(_mm_madd_epi16(v, ones));
-}
-
 // Evaluates 8 pixels of riskiness scores starting at (row1, row2).
 // Computes 3-way pair sharpness scores via 2D row table lookups and vectorizes
 // chroma neutrality tests, noise thresholding, and score accumulation.
@@ -66,8 +53,7 @@ static inline void Process8Pixels(
     __m128i* const sum_vec_32) {
   // 1. Neutral chroma (gray level) test on row1 samples:
   //    gray_min <= idx0 < gray_min + s
-  const __m128i r1_0 =
-      _mm_loadu_si128(reinterpret_cast<const __m128i*>(row1));
+  const __m128i r1_0 = LOAD_16(row1);
   const __m128i ge_mask = _mm_cmpgt_epi16(r1_0, min_16);
   const __m128i lt_mask = _mm_cmpgt_epi16(max_16, r1_0);
   *gray_vec_16 = _mm_sub_epi16(*gray_vec_16, _mm_and_si128(ge_mask, lt_mask));
@@ -130,9 +116,9 @@ void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
                    &gray_vec_16, &num_vec_16, &sum_vec_32);
   }
 
-  *score_sum += HorizontalSumEpi32(sum_vec_32);
-  *score_num += HorizontalSumEpi16(num_vec_16);
-  *gray_num += HorizontalSumEpi16(gray_vec_16);
+  *score_sum += HorizontalSumS32(sum_vec_32);
+  *score_num += HorizontalSumS16(num_vec_16);
+  *gray_num += HorizontalSumS16(gray_vec_16);
 
   if (i < size) {
     RiskinessScoreRow_C(row1 + i, row2 + i, size - i, noise_level,

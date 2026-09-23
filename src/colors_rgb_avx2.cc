@@ -94,23 +94,15 @@ static inline void RGB24PackedToPlanar_AVX2(const uint8_t* const rgb,
                                             __m256i* const r, __m256i* const g,
                                             __m256i* const b) {
   const __m256i zero = _mm256_setzero_si256();
-  const __m256i L0 =
-      _mm256_loadu_si256(reinterpret_cast<const __m256i*>(rgb + 0));
-  const __m256i L1 =
-      _mm256_loadu_si256(reinterpret_cast<const __m256i*>(rgb + 16));
+  const __m256i L0 = LOAD_32(rgb + 0);
+  const __m256i L1 = LOAD_32(rgb + 16);
 
-  const __m256i mr0 =
-      _mm256_load_si256(reinterpret_cast<const __m256i*>(kRGB24ShufA2[0]));
-  const __m256i mr1 =
-      _mm256_load_si256(reinterpret_cast<const __m256i*>(kRGB24ShufA2[1]));
-  const __m256i mg0 =
-      _mm256_load_si256(reinterpret_cast<const __m256i*>(kRGB24ShufA2[2]));
-  const __m256i mg1 =
-      _mm256_load_si256(reinterpret_cast<const __m256i*>(kRGB24ShufA2[3]));
-  const __m256i mb0 =
-      _mm256_load_si256(reinterpret_cast<const __m256i*>(kRGB24ShufA2[4]));
-  const __m256i mb1 =
-      _mm256_load_si256(reinterpret_cast<const __m256i*>(kRGB24ShufA2[5]));
+  const __m256i mr0 = LOAD_ALIGNED_32(kRGB24ShufA2[0]);
+  const __m256i mr1 = LOAD_ALIGNED_32(kRGB24ShufA2[1]);
+  const __m256i mg0 = LOAD_ALIGNED_32(kRGB24ShufA2[2]);
+  const __m256i mg1 = LOAD_ALIGNED_32(kRGB24ShufA2[3]);
+  const __m256i mb0 = LOAD_ALIGNED_32(kRGB24ShufA2[4]);
+  const __m256i mb1 = LOAD_ALIGNED_32(kRGB24ShufA2[5]);
 
   const __m256i r_bytes = _mm256_or_si256(_mm256_shuffle_epi8(L0, mr0),
                                           _mm256_shuffle_epi8(L1, mr1));
@@ -135,13 +127,10 @@ template <bool is_bgra>
 static inline void XGXA32PackedToPlanar_AVX2(const uint8_t* const data,
                                              __m256i* const r, __m256i* const g,
                                              __m256i* const b) {
-  const __m256i in0 =
-      _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + 0));
-  const __m256i in1 =
-      _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + 32));
+  const __m256i in0 = LOAD_32(data + 0);
+  const __m256i in1 = LOAD_32(data + 32);
   const __m256i zero = _mm256_setzero_si256();
-  const __m256i shuf_mask =
-      _mm256_load_si256(reinterpret_cast<const __m256i*>(kShuf4Chan));
+  const __m256i shuf_mask = LOAD_ALIGNED_32(kShuf4Chan);
 
   const __m256i p0 = _mm256_permute2x128_si256(in0, in1, 0x20);
   const __m256i p1 = _mm256_permute2x128_si256(in0, in1, 0x31);
@@ -215,10 +204,8 @@ static inline void Get16x16Block_AVX2_Impl(
       // Paired 256-bit Y stores: saves 4x 128-bit stores + 2x vextracti128
       const __m256i Y_left_01 = _mm256_permute2x128_si256(Y0, Y1, 0x20);
       const __m256i Y_right_01 = _mm256_permute2x128_si256(Y0, Y1, 0x31);
-      _mm256_storeu_si256(reinterpret_cast<__m256i*>(y_left + y_off + 0 * 8),
-                          Y_left_01);
-      _mm256_storeu_si256(reinterpret_cast<__m256i*>(y_right + y_off + 0 * 8),
-                          Y_right_01);
+      STORE_32(Y_left_01, y_left + y_off + 0 * 8);
+      STORE_32(Y_right_01, y_right + y_off + 0 * 8);
 
       const __m256i r_madd0 = _mm256_madd_epi16(_mm256_add_epi16(r0, r1), one);
       const __m256i g_madd0 = _mm256_madd_epi16(_mm256_add_epi16(g0, g1), one);
@@ -233,10 +220,8 @@ static inline void Get16x16Block_AVX2_Impl(
 
       const __m256i Y_left_23 = _mm256_permute2x128_si256(Y0, Y1, 0x20);
       const __m256i Y_right_23 = _mm256_permute2x128_si256(Y0, Y1, 0x31);
-      _mm256_storeu_si256(reinterpret_cast<__m256i*>(y_left + y_off + 2 * 8),
-                          Y_left_23);
-      _mm256_storeu_si256(reinterpret_cast<__m256i*>(y_right + y_off + 2 * 8),
-                          Y_right_23);
+      STORE_32(Y_left_23, y_left + y_off + 2 * 8);
+      STORE_32(Y_right_23, y_right + y_off + 2 * 8);
 
       const __m256i r_madd1 = _mm256_madd_epi16(_mm256_add_epi16(r0, r1), one);
       const __m256i g_madd1 = _mm256_madd_epi16(_mm256_add_epi16(g0, g1), one);
@@ -251,12 +236,8 @@ static inline void Get16x16Block_AVX2_Impl(
       __m256i U256, V256;
       ConvertRGBToUVAccumulated_AVX2(&r_pack, &g_pack, &b_pack, &U256, &V256);
 
-      _mm256_storeu_si256(
-          reinterpret_cast<__m256i*>(u_out),
-          _mm256_permute4x64_epi64(U256, _MM_SHUFFLE(3, 1, 2, 0)));
-      _mm256_storeu_si256(
-          reinterpret_cast<__m256i*>(v_out),
-          _mm256_permute4x64_epi64(V256, _MM_SHUFFLE(3, 1, 2, 0)));
+      STORE_32(_mm256_permute4x64_epi64(U256, _MM_SHUFFLE(3, 1, 2, 0)), u_out);
+      STORE_32(_mm256_permute4x64_epi64(V256, _MM_SHUFFLE(3, 1, 2, 0)), v_out);
 
       u_out += 16;
       v_out += 16;
@@ -338,7 +319,7 @@ static inline void RowToIndex16_AVX2(const uint8_t* rgb, uint16_t* dst,
   RGB24PackedToPlanar_AVX2(rgb, &r, &g, &b);
   ConvertRGBToYUV_Fused_AVX2(&r, &g, &b, &Y, &U, &V);
   const __m256i idx = YUVToIndices_AVX2(Y, U, V, mult, mult1, k255);
-  _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst), idx);
+  STORE_32(idx, dst);
 }
 
 // Reference scalar C implementation in colors_rgb.cc used for trailing pixels.

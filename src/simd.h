@@ -75,11 +75,11 @@
 #if defined(SJPEG_USE_SSSE3)
 #define ABS_16(V) _mm_abs_epi16(V)
 #else
-static inline __m128i Abs16SSE2(__m128i v) {
+static inline __m128i Abs16_SSE2(__m128i v) {
   const __m128i s = _mm_srai_epi16(v, 15);
   return _mm_sub_epi16(_mm_xor_si128(v, s), s);
 }
-#define ABS_16(V) Abs16SSE2(V)
+#define ABS_16(V) Abs16_SSE2(V)
 #endif
 
 // Horizontal-sum reduction of a 128-bit accumulator down to a scalar. Only
@@ -127,7 +127,8 @@ static inline int32_t HorizontalSumS16(__m128i v) {
 
 #if defined(SJPEG_USE_NEON)
 
-#if defined(__cplusplus)
+// NEON loads/stores have no separate aligned-access instructions (unlike
+// SSE2/AVX2), so the ALIGNED variants below just alias the unaligned ones.
 struct NeonVector16 {
   uint8x16_t v;
   operator uint8x16_t() const { return v; }
@@ -142,7 +143,7 @@ struct NeonVector16 {
   SJPEG_NEON16_OP(int64x2_t, s64)
 #undef SJPEG_NEON16_OP
 };
-static inline NeonVector16 Load16Neon(const void* src) {
+static inline NeonVector16 Load16_NEON(const void* src) {
   return NeonVector16{vld1q_u8(reinterpret_cast<const uint8_t*>(src))};
 }
 
@@ -160,16 +161,16 @@ struct NeonVector8 {
   SJPEG_NEON8_OP(int64x1_t, s64)
 #undef SJPEG_NEON8_OP
 };
-static inline NeonVector8 Load8Neon(const void* src) {
+static inline NeonVector8 Load8_NEON(const void* src) {
   return NeonVector8{vld1_u8(reinterpret_cast<const uint8_t*>(src))};
 }
 
-#define SJPEG_STORE_NEON(T16, T8, SUFFIX, PTR_T)      \
-  static inline void Store16Neon(T16 v, void* dst) {  \
-    vst1q_##SUFFIX(reinterpret_cast<PTR_T*>(dst), v); \
-  }                                                   \
-  static inline void Store8Neon(T8 v, void* dst) {    \
-    vst1_##SUFFIX(reinterpret_cast<PTR_T*>(dst), v);  \
+#define SJPEG_STORE_NEON(T16, T8, SUFFIX, PTR_T)       \
+  static inline void Store16_NEON(T16 v, void* dst) {  \
+    vst1q_##SUFFIX(reinterpret_cast<PTR_T*>(dst), v);  \
+  }                                                    \
+  static inline void Store8_NEON(T8 v, void* dst) {    \
+    vst1_##SUFFIX(reinterpret_cast<PTR_T*>(dst), v);   \
   }
 
 SJPEG_STORE_NEON(uint8x16_t, uint8x8_t, u8, uint8_t)
@@ -182,26 +183,26 @@ SJPEG_STORE_NEON(uint64x2_t, uint64x1_t, u64, uint64_t)
 SJPEG_STORE_NEON(int64x2_t, int64x1_t, s64, int64_t)
 #undef SJPEG_STORE_NEON
 
-static inline void Store16Neon(NeonVector16 v, void* dst) {
+static inline void Store16_NEON(NeonVector16 v, void* dst) {
   vst1q_u8(reinterpret_cast<uint8_t*>(dst), v.v);
 }
-static inline void Store8Neon(NeonVector8 v, void* dst) {
+static inline void Store8_NEON(NeonVector8 v, void* dst) {
   vst1_u8(reinterpret_cast<uint8_t*>(dst), v.v);
 }
 
-#define LOAD_16(src) Load16Neon(src)
-#define LOAD_ALIGNED_16(src) Load16Neon(src)
-#define STORE_16(V, dst) Store16Neon((V), (dst))
-#define STORE_ALIGNED_16(V, dst) Store16Neon((V), (dst))
+#define LOAD_16(src) Load16_NEON(src)
+#define LOAD_ALIGNED_16(src) Load16_NEON(src)
+#define STORE_16(V, dst) Store16_NEON((V), (dst))
+#define STORE_ALIGNED_16(V, dst) Store16_NEON((V), (dst))
 
-#define LOAD_64(src) Load8Neon(src)
-#define STORE_64(V, dst) Store8Neon((V), (dst))
+#define LOAD_64(src) Load8_NEON(src)
+#define STORE_64(V, dst) Store8_NEON((V), (dst))
 
-static inline int16x8_t Abs16Neon(int16x8_t v) { return vabsq_s16(v); }
-static inline int16x8_t Abs16Neon(NeonVector16 v) {
+static inline int16x8_t Abs16_NEON(int16x8_t v) { return vabsq_s16(v); }
+static inline int16x8_t Abs16_NEON(NeonVector16 v) {
   return vabsq_s16(static_cast<int16x8_t>(v));
 }
-#define ABS_16(V) Abs16Neon(V)
+#define ABS_16(V) Abs16_NEON(V)
 
 // Horizontal-sum reduction of a NEON accumulator down to a scalar. Only two
 // widths are needed: 32-bit (score sums) and 16-bit (counts, kept signed
@@ -229,23 +230,6 @@ static inline int32_t HorizontalSumS16(int16x8_t v) {
   return vget_lane_s16(sum, 0);
 #endif
 }
-
-#else  // !__cplusplus
-
-#define LOAD_16(src) vld1q_u8(reinterpret_cast<const uint8_t*>(src))
-#define LOAD_ALIGNED_16(src) vld1q_u8(reinterpret_cast<const uint8_t*>(src))
-#define STORE_16(V, dst) \
-  vst1q_u8(reinterpret_cast<uint8_t*>(dst), (uint8x16_t)(V))
-#define STORE_ALIGNED_16(V, dst) \
-  vst1q_u8(reinterpret_cast<uint8_t*>(dst), (uint8x16_t)(V))
-
-#define LOAD_64(src) vld1_u8(reinterpret_cast<const uint8_t*>(src))
-#define STORE_64(V, dst) \
-  vst1_u8(reinterpret_cast<uint8_t*>(dst), (uint8x8_t)(V))
-
-#define ABS_16(V) vabsq_s16(V)
-
-#endif  // __cplusplus
 
 #endif  // SJPEG_USE_NEON
 
