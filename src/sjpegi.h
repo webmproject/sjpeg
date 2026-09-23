@@ -826,8 +826,8 @@ struct Encoder {
   Quantizer quants_[2];  // quant matrices
   int DCs_[3];           // DC predictors
 
-  // DCT coefficients storage, aligned
-  static constexpr size_t ALIGN_CST = 15;
+  // DCT coefficients storage, aligned to 32 bytes
+  static constexpr size_t ALIGN_CST = 31;
   uint8_t* in_blocks_base_;   // base memory for blocks
   int16_t* in_blocks_;        // aligned pointer to in_blocks_base_
   bool have_coeffs_;          // true if the Fourier coefficients are stored
