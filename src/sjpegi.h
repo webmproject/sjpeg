@@ -20,6 +20,7 @@
 #define SJPEG_JPEGI_H_
 
 #include <assert.h>
+#include <functional>
 #include <limits>
 #include <stddef.h>
 #include <stdint.h>
@@ -236,6 +237,8 @@ typedef void (*RGBToIndexRowFunc)(const uint8_t* src, int width,
                                   uint16_t* dst);
 extern RGBToIndexRowFunc GetRowFunc();
 
+class Encoder;
+
 // Enhanced slower RGB->YUV conversion:
 //  y_plane[] has dimension W x H, whereas u_plane[] and v_plane[] have
 //  dimension (W + 1)/2 x (H + 1)/2.
@@ -243,7 +246,8 @@ bool ApplySharpYUVConversion(const uint8_t* const rgb,
                              int W, int H, int stride,
                              uint8_t* y_plane,
                              uint8_t* u_plane,
-                             uint8_t* v_plane);
+                             uint8_t* v_plane,
+                             const Encoder* encoder = nullptr);
 
 // Shared by yuv_convert.cc and yuv_convert_avx2.cc.
 typedef int16_t fixed_t;
@@ -445,7 +449,7 @@ struct Histo {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Encoder {
+class Encoder {
  public:
   // 'memory' can be null (default manager). It is passed at construction,
   // and not later, because sub-classes can allocate in their constructor.
@@ -475,6 +479,15 @@ struct Encoder {
   // pass per-worker storage, everything else passes replicated_buffer_.
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out_blocks,
                           uint8_t* rep_buf) = 0;
+
+  int num_threads() const { return num_threads_; }
+  void SetNumThreads(int num_threads) { num_threads_ = num_threads; }
+
+#if !defined(SJPEG_NO_MULTITHREADING)
+  static int HardwareConcurrency();
+  void RunParallel(int num_threads, int total,
+                   const std::function<void(int, int, int)>& fn) const;
+#endif
 
  private:
   // setters
@@ -617,15 +630,12 @@ struct Encoder {
 
 #if !defined(SJPEG_NO_MULTITHREADING)
   static constexpr int kMinMCUsPerThread = 256;
-  static int HardwareConcurrency();
 
   class ThreadPool;
   struct ThreadPoolDeleter {
     void operator()(ThreadPool* p) const;
   };
   mutable std::unique_ptr<ThreadPool, ThreadPoolDeleter> thread_pool_;
-  void RunParallel(int num_threads, int total,
-                   const std::function<void(int, int, int)>& fn) const;
 
   // Returns the optimal thread count when serial post-processing overhead grows
   // linearly with thread count T, requiring O(T * grain) MCUs per thread.
@@ -927,7 +937,8 @@ struct Encoder {
 extern Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
                                SjpegYUVMode yuv_mode, ByteSink* sink,
                                PixelFormat fmt = kRGBInput,
-                               MemoryManager* memory = nullptr);
+                               MemoryManager* memory = nullptr,
+                               int num_threads = 1);
 
 // Same, for a single-channel (4:0:0) input.
 extern Encoder* GrayEncoderFactory(const uint8_t* gray, int W, int H,

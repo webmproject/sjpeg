@@ -173,8 +173,8 @@ int SjpegFindQuantizer(const std::string& jpeg_data, uint8_t quant[2][64]);
 
 namespace sjpeg {
 
-// Forward declaration of internal struct:
-struct Encoder;
+// Forward declaration of internal class:
+class Encoder;
 
 // interfaces to customize the codec:
 struct SearchHook;
@@ -292,7 +292,7 @@ struct EncoderParam {
 
  protected:
   void Init(float quality_factor);
-  friend struct sjpeg::Encoder;
+  friend class sjpeg::Encoder;
 };
 
 // Same as the first version of SjpegEncode(), except encoding parameters are

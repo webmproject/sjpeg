@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <climits>
 #include <string>
 #include <thread>  // NOLINT
 #include <vector>
@@ -245,6 +246,29 @@ SJPEG_TEST(InvalidArguments) {
   SJPEG_CHECK(!EncodeRGB(rgb, kWidth, 0, param, &out));
   SJPEG_CHECK(!sjpeg::EncodeGray(nullptr, kWidth, kHeight, kWidth, param,
                                  &out));
+
+  uint8_t dummy_y = 0, dummy_u = 0, dummy_v = 0;
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(nullptr, kWidth, kHeight,
+                                              3 * kWidth, &dummy_y, &dummy_u,
+                                              &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), 0, kHeight,
+                                              3 * kWidth, &dummy_y, &dummy_u,
+                                              &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), kWidth, -1,
+                                              3 * kWidth, &dummy_y, &dummy_u,
+                                              &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), kWidth, kHeight,
+                                              3 * kWidth - 1, &dummy_y,
+                                              &dummy_u, &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), kWidth, kHeight,
+                                              INT_MIN, &dummy_y, &dummy_u,
+                                              &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), kWidth, kHeight,
+                                              3 * kWidth, nullptr, &dummy_u,
+                                              &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), 70000, 70000,
+                                              3 * 70000, &dummy_y, &dummy_u,
+                                              &dummy_v));
 }
 
 std::vector<uint8_t> MakePlane(int width, int height, int base) {
@@ -1437,7 +1461,8 @@ SJPEG_TEST(MultiThreaded) {
   for (QuantMode quant : {kBaseline, kRDO, kTrellis}) {
     for (int huffman = 0; huffman <= 1; ++huffman) {
       for (int adaptive = 0; adaptive <= 1; ++adaptive) {
-        for (SjpegYUVMode yuv : {SJPEG_YUV_420, SJPEG_YUV_444, SJPEG_YUV_400}) {
+        for (SjpegYUVMode yuv :
+             {SJPEG_YUV_420, SJPEG_YUV_444, SJPEG_YUV_400, SJPEG_YUV_SHARP}) {
           for (int rows : {1, 2, 3}) {
             sjpeg::EncoderParam param(80.0f);
             param.yuv_mode = yuv;
@@ -1497,7 +1522,8 @@ SJPEG_TEST(MultiThreaded) {
   const std::vector<uint8_t> large_rgb = MakeRGB(kLargeW, kLargeH);
   for (int huffman : {0, 1}) {
     for (int adaptive : {0, 1}) {
-      for (SjpegYUVMode yuv : {SJPEG_YUV_420, SJPEG_YUV_444, SJPEG_YUV_400}) {
+      for (SjpegYUVMode yuv :
+           {SJPEG_YUV_420, SJPEG_YUV_444, SJPEG_YUV_400, SJPEG_YUV_SHARP}) {
         sjpeg::EncoderParam param(80.0f);
         param.yuv_mode = yuv;
         param.Huffman_compress = (huffman == 1);
@@ -1676,6 +1702,60 @@ SJPEG_TEST(MultiThreadedIntervalDefaults) {
   std::string single_interval_mt;
   SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &single_interval_mt));
   SJPEG_CHECK(single_interval_mt == single_interval_serial);
+}
+
+SJPEG_TEST(MultiThreadedSharpYUV) {
+  const struct { int w, h; } kSizes[] = {
+    {157, 101},  // odd prime dimensions
+    {256, 256},  // power-of-two even dimensions
+    {512, 384},  // standard aspect ratio
+  };
+
+  for (const auto& size : kSizes) {
+    const int W = size.w;
+    const int H = size.h;
+    const int uv_w = (W + 1) >> 1;
+    const int uv_h = (H + 1) >> 1;
+    const std::vector<uint8_t> rgb = MakeRGB(W, H);
+
+    // Reference conversion using 1 thread (encoder = nullptr)
+    std::vector<uint8_t> y_ref(W * H), u_ref(uv_w * uv_h), v_ref(uv_w * uv_h);
+    SJPEG_CHECK(sjpeg::ApplySharpYUVConversion(rgb.data(), W, H, 3 * W,
+                                               y_ref.data(), u_ref.data(),
+                                               v_ref.data(), nullptr));
+
+    for (int threads : {2, 3, 4, 8}) {
+      std::string dummy;
+      sjpeg::StringSink sink(&dummy);
+      std::unique_ptr<sjpeg::Encoder> enc(sjpeg::EncoderFactory(
+          rgb.data(), W, H, 3 * W, SJPEG_YUV_420, &sink, sjpeg::kRGBInput,
+          nullptr, threads));
+      SJPEG_CHECK(enc != nullptr);
+
+      std::vector<uint8_t> y(W * H), u(uv_w * uv_h), v(uv_w * uv_h);
+      SJPEG_CHECK(sjpeg::ApplySharpYUVConversion(rgb.data(), W, H, 3 * W,
+                                                 y.data(), u.data(),
+                                                 v.data(), enc.get()));
+      SJPEG_CHECK(y == y_ref);
+      SJPEG_CHECK(u == u_ref);
+      SJPEG_CHECK(v == v_ref);
+    }
+
+    // Also test through the full encoding pipeline.
+    sjpeg::EncoderParam param(85.0f);
+    param.yuv_mode = SJPEG_YUV_SHARP;
+    param.restart_interval_rows = 1;
+    param.num_threads = 1;
+    std::string expected;
+    SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &expected));
+
+    for (int threads : {2, 4, 8}) {
+      param.num_threads = threads;
+      std::string out;
+      SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &out));
+      SJPEG_CHECK(out == expected);
+    }
+  }
 }
 #endif  // !SJPEG_NO_MULTITHREADING
 

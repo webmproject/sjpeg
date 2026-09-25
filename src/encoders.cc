@@ -527,9 +527,11 @@ bool EncodeYUV420(const uint8_t* Y, int Y_stride,
 class EncoderSharp420 final : public EncoderYUV420 {
  public:
   EncoderSharp420(int W, int H, const uint8_t* const rgb, int step,
-                  ByteSink* const sink, MemoryManager* const memory = nullptr)
+                  ByteSink* const sink, MemoryManager* const memory = nullptr,
+                  int num_threads = 1)
       : EncoderYUV420(nullptr, 0, nullptr, 0, nullptr, 0, W, H, sink, memory),
         yuv_memory_(nullptr) {
+    SetNumThreads(num_threads);
     if (W <= 0 || H <= 0 || W > kMaxDimension || H > kMaxDimension) {
       ok_ = false;
       return;
@@ -556,7 +558,8 @@ class EncoderSharp420 final : public EncoderYUV420 {
       ok_ = ApplySharpYUVConversion(rgb, W, H, step,
                                     const_cast<uint8_t*>(y_),
                                     const_cast<uint8_t*>(u_),
-                                    const_cast<uint8_t*>(v_));
+                                    const_cast<uint8_t*>(v_),
+                                    this);
     }
   }
   ~EncoderSharp420() override { Free(yuv_memory_); }
@@ -570,7 +573,8 @@ class EncoderSharp420 final : public EncoderYUV420 {
 
 Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
                         SjpegYUVMode yuv_mode, ByteSink* const sink,
-                        PixelFormat fmt, MemoryManager* const memory) {
+                        PixelFormat fmt, MemoryManager* const memory,
+                        int num_threads) {
   if (yuv_mode == SJPEG_YUV_AUTO) {
     yuv_mode = SjpegRiskiness(rgb, W, H, stride, nullptr);
   }
@@ -579,7 +583,8 @@ Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
   if (yuv_mode == SJPEG_YUV_420) {
     enc = new (std::nothrow) Encoder420(W, H, rgb, stride, sink, fmt, memory);
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
-    enc = new (std::nothrow) EncoderSharp420(W, H, rgb, stride, sink, memory);
+    enc = new (std::nothrow) EncoderSharp420(W, H, rgb, stride, sink, memory,
+                                             num_threads);
   } else if (yuv_mode == SJPEG_YUV_444) {
     enc = new (std::nothrow) Encoder444(W, H, rgb, stride, sink, fmt, memory);
   } else if (yuv_mode == SJPEG_YUV_400) {
