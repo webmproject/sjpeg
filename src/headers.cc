@@ -237,8 +237,8 @@ void Encoder::WriteDRI() {
                                 0xdd,
                                 0x00,
                                 0x04,
-                                static_cast<uint8_t>(interval >> 8),
-                                static_cast<uint8_t>(interval & 0xff)};
+                                (uint8_t)(interval >> 8),
+                                (uint8_t)(interval & 0xff)};
   ok_ = ok_ && bw_.Reserve(sizeof(kDRIHeader));
   if (!ok_) return;
   bw_.PutBytes(kDRIHeader, sizeof(kDRIHeader));

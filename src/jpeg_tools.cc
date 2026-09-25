@@ -45,8 +45,7 @@ const uint8_t* GetSOFData(const uint8_t* src, size_t size) {
   size_t pos = 2;   // skip M_SOI
   while (pos < end && src[pos] != 0xff) { ++pos; }  // search first 0xff marker
   while (pos < end) {
-    const uint32_t marker =
-        static_cast<uint32_t>((src[pos] << 8) | src[pos + 1]);
+    const uint32_t marker = (uint32_t)((src[pos] << 8) | src[pos + 1]);
     if (marker == M_SOF0 || marker == M_SOF1) return src + pos;
     pos += 2 + ((src[pos + 2] << 8) | src[pos + 3]);
   }
@@ -58,7 +57,7 @@ bool SjpegDimensions(const uint8_t* src0, size_t size,
                      int* width, int* height, int* is_yuv420) {
   const uint8_t* const src = GetSOFData(src0, size);
   if (src == nullptr) return false;
-  const size_t left_over = size - static_cast<size_t>(src - src0);
+  const size_t left_over = size - (size_t)(src - src0);
   if (left_over < 8 + 3 * 1) return false;
   if (height != nullptr) *height = (src[5] << 8) | src[6];
   if (width != nullptr) *width = (src[7] << 8) | src[8];
@@ -90,7 +89,7 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size,
   for (; src < end && *src != 0xff; ++src) { /* search first 0xff marker */ }
   int nb_comp = 0;
   while (src < end) {
-    const uint32_t marker = static_cast<uint32_t>((src[0] << 8) | src[1]);
+    const uint32_t marker = (uint32_t)((src[0] << 8) | src[1]);
     const int chunk_size = 2 + ((src[2] << 8) | src[3]);
     if (src + chunk_size > end) {
       break;
@@ -473,11 +472,11 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
     } while (band >= num_bands);
     int j = band * kBandHeight;  // current row
     const int last_row = std::min(j + 1 + kBandHeight, height);
-    cvrt_func(rgb + static_cast<ptrdiff_t>(j) * stride, width, &row1[0]);
+    cvrt_func(rgb + (ptrdiff_t)j * stride, width, &row1[0]);
     while (++j < last_row) {
       // note: cvrt_func() is called height/kBandHeight times too much,
       // but that's ok
-      cvrt_func(rgb + static_cast<ptrdiff_t>(j) * stride, width, &row2[0]);
+      cvrt_func(rgb + (ptrdiff_t)j * stride, width, &row2[0]);
       ScoreRow();
       std::swap(row1, row2);
       ++rows_scored;
@@ -565,7 +564,7 @@ double DCTRiskinessScore(const int16_t yuv[3 * 64], int16_t scores[8 * 8]) {
         total_score += score;
         count += 1.0;
       }
-      scores[I + J * 8] = static_cast<int16_t>(score);
+      scores[I + J * 8] = (int16_t)score;
     }
   }
   if (count > 0) total_score /= count;

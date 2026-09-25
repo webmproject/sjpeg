@@ -260,10 +260,10 @@ size_t Encoder::SliceSlabSize(int first_interval, int end_interval) const {
       (restart_interval_rows_ > 0) ? restart_interval_rows_ : mb_h_;
   const int y_first = first_interval * rows_per_interval;
   const int y_end = std::min(mb_h_, end_interval * rows_per_interval);
-  size_t slab = (y_first == 0 && y_end == mb_h_)
-                    ? static_cast<size_t>(W_) * H_ / 4
-                    : static_cast<size_t>(y_end - y_first) * block_h_ * mb_w_ *
-                          block_w_ / 4;
+  size_t slab =
+      (y_first == 0 && y_end == mb_h_)
+          ? (size_t)W_ * H_ / 4
+          : (size_t)(y_end - y_first) * block_h_ * mb_w_ * block_w_ / 4;
   if (slab < 4096) slab = 4096;
   if (slab > (256 << 10)) slab = 256 << 10;
   return slab;
@@ -353,8 +353,7 @@ const int16_t* Encoder::GetMCUCoeffs(int mb_x, int mb_y, int16_t* scratch,
                                      uint8_t* rep_buf) {
   if (have_coeffs_) {
     // CollectCoeffs() already filled in_blocks_, in MCU raster order.
-    return in_blocks_ +
-           static_cast<size_t>(mb_y * mb_w_ + mb_x) * 64 * mcu_blocks_;
+    return in_blocks_ + (size_t)(mb_y * mb_w_ + mb_x) * 64 * mcu_blocks_;
   }
   TransformMCU(mb_x, mb_y, scratch, rep_buf);
   return scratch;
@@ -362,8 +361,7 @@ const int16_t* Encoder::GetMCUCoeffs(int mb_x, int mb_y, int16_t* scratch,
 
 void Encoder::CollectCoeffsSlice(int y_start, int y_end, uint8_t* rep_buf) {
   assert(use_extra_memory_);
-  int16_t* in =
-      in_blocks_ + static_cast<size_t>(y_start) * mb_w_ * 64 * mcu_blocks_;
+  int16_t* in = in_blocks_ + (size_t)y_start * mb_w_ * 64 * mcu_blocks_;
   for (int mb_y = y_start; mb_y < y_end; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
       TransformMCU(mb_x, mb_y, in, rep_buf);
@@ -392,8 +390,7 @@ bool Encoder::EmitRestartMarker(BitWriter* bw, int interval_idx,
   if (interval_idx >= total_intervals - 1) return true;
   bw->Flush();   // pad to the byte boundary the marker must start on
   if (!bw->ReserveMore(2, slab_size)) return false;
-  const uint8_t rst_marker[2] = {
-      0xff, static_cast<uint8_t>(0xd0 + (interval_idx & 7))};
+  const uint8_t rst_marker[2] = {0xff, (uint8_t)(0xd0 + (interval_idx & 7))};
   bw->PutBytes(rst_marker, 2);
   return true;
 }
@@ -500,7 +497,7 @@ bool Encoder::ReplayScanSlice(int first_interval, int end_interval,
                               BitWriter* bw, size_t slab_size) {
   const size_t blocks_per_interval =
       (restart_interval_rows_ > 0)
-          ? static_cast<size_t>(restart_interval_rows_) * mb_w_ * mcu_blocks_
+          ? (size_t)restart_interval_rows_ * mb_w_ * mcu_blocks_
           : nb_blocks;
   size_t n = 0;
   for (int iv = first_interval; iv < end_interval; ++iv) {
