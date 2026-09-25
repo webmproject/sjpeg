@@ -274,14 +274,14 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
   static const uint16_t kBitWeights0[8] = {1, 2, 4, 8, 16, 32, 64, 128};
   static const uint16_t kBitWeights1[8] = {256,  512,  1024,  2048,
                                            4096, 8192, 16384, 32768};
-  const uint16x8_t weights0 = vld1q_u16(kBitWeights0);
-  const uint16x8_t weights1 = vld1q_u16(kBitWeights1);
+  const uint16x8_t weights0 = LOAD_16(kBitWeights0);
+  const uint16x8_t weights1 = LOAD_16(kBitWeights1);
 
   auto quant8 = [&](int offset, uint16x8_t w) {
-    const uint16x8_t m_bias = vld1q_u16(bias + offset);
-    const uint16x8_t m_mult = vld1q_u16(iquant + offset);
-    const int16x8_t A = vld1q_s16(in + offset);
-    const uint16x8_t B = vreinterpretq_u16_s16(vabsq_s16(A));
+    const uint16x8_t m_bias = LOAD_16(bias + offset);
+    const uint16x8_t m_mult = LOAD_16(iquant + offset);
+    const int16x8_t A = LOAD_16(in + offset);
+    const uint16x8_t B = vreinterpretq_u16_s16(ABS_16(A));
     const int16x8_t sign = vshrq_n_s16(A, 15);
     const uint16x8_t C = vaddq_u16(B, m_bias);
     const uint32x4_t D0 = vmull_u16(vget_low_u16(C), vget_low_u16(m_mult));
@@ -291,22 +291,15 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
         vuzpq_u16(vreinterpretq_u16_u32(D0), vreinterpretq_u16_u32(D1));
     const uint16x8_t F = vshrq_n_u16(E.val[1], AC_BITS);
     const uint16x8_t G = veorq_u16(F, vreinterpretq_u16_s16(sign));  // v ^ mask
-    vst1q_u16(tmp + offset, F);
-    vst1q_u16(masked + offset, G);
+    STORE_16(F, tmp + offset);
+    STORE_16(G, masked + offset);
     return vandq_u16(vtstq_u16(F, F), w);
   };
 
   for (int i = 0; i < 64; i += 16) {
     const uint16x8_t nz =
         vorrq_u16(quant8(i, weights0), quant8(i + 8, weights1));
-#if defined(__aarch64__)
-    const int m16 = vaddvq_u16(nz);
-#else
-    uint16x4_t s = vadd_u16(vget_low_u16(nz), vget_high_u16(nz));
-    s = vpadd_u16(s, s);
-    s = vpadd_u16(s, s);
-    const int m16 = vget_lane_u16(s, 0);
-#endif
+    const uint32_t m16 = HorizontalSumU16(nz);
     nzn |= static_cast<uint64_t>(m16) << i;
   }
 
@@ -754,10 +747,10 @@ static uint32_t QuantizeErrorNEON(const int16_t in[64],
   uint32x4_t sum1 = vdupq_n_u32(0);
   uint32x4_t sum2 = vdupq_n_u32(0);
   for (int i = 0; i < 64; i += 8) {
-    const uint16x8_t m_bias = vld1q_u16(bias + i);
-    const uint16x8_t m_mult = vld1q_u16(iquant + i);
-    const uint16x8_t m_quant = vmovl_u8(vld1_u8(quant + i));
-    const uint16x8_t A = vreinterpretq_u16_s16(vabsq_s16(vld1q_s16(in + i)));
+    const uint16x8_t m_bias = LOAD_16(bias + i);
+    const uint16x8_t m_mult = LOAD_16(iquant + i);
+    const uint16x8_t m_quant = vmovl_u8(LOAD_64(quant + i));
+    const uint16x8_t A = vreinterpretq_u16_s16(ABS_16(LOAD_16(in + i)));
     const uint16x8_t B = vaddq_u16(A, m_bias);
     const uint32x4_t C0 = vmull_u16(vget_low_u16(B), vget_low_u16(m_mult));
     const uint32x4_t C1 = vmull_u16(vget_high_u16(B), vget_high_u16(m_mult));
@@ -771,14 +764,7 @@ static uint32_t QuantizeErrorNEON(const int16_t in[64],
     sum2 = vmlal_u16(sum2, vget_high_u16(G), vget_high_u16(G));
   }
   const uint32x4_t sum3 = vaddq_u32(sum1, sum2);
-#if defined(SJPEG_AARCH64)
-  const uint32_t err = vaddvq_u32(sum3);
-#else
-  const uint64x2_t sum4 = vpaddlq_u32(sum3);
-  const uint64_t sum5 = vgetq_lane_u64(sum4, 0) + vgetq_lane_u64(sum4, 1);
-  const uint32_t err = (uint32_t)sum5;
-#endif
-  return err;
+  return static_cast<uint32_t>(HorizontalSumS32(vreinterpretq_s32_u32(sum3)));
 }
 
 #endif    // SJPEG_USE_NEON
@@ -798,6 +784,15 @@ static uint32_t QuantizeError(const int16_t in[64], const Quantizer* const Q) {
 }
 
 Encoder::QuantizeErrorFunc Encoder::GetQuantizeErrorFunc() {
+#if defined(SJPEG_USE_SSE2)
+  if (SupportsSSE2()) return QuantizeErrorSSE2;
+#elif defined(SJPEG_USE_NEON)
+  if (SupportsNEON()) return QuantizeErrorNEON;
+#endif
+  return QuantizeError;  // default
+}
+
+QuantizeErrorTestFunc GetQuantizeErrorFuncForTest() {
 #if defined(SJPEG_USE_SSE2)
   if (SupportsSSE2()) return QuantizeErrorSSE2;
 #elif defined(SJPEG_USE_NEON)

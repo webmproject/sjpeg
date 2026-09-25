@@ -82,6 +82,9 @@ static inline __m128i Abs16_SSE2(__m128i v) {
 #define ABS_16(V) Abs16_SSE2(V)
 #endif
 
+// Clamp signed 16-bit lanes of V to [lo, hi].
+#define CLAMP_16(V, lo, hi) _mm_min_epi16(_mm_max_epi16((V), (lo)), (hi))
+
 // Horizontal-sum reduction of a 128-bit accumulator down to a scalar. Only
 // two widths are needed: 32-bit (score sums) and 16-bit (counts, kept
 // signed even for conceptually-unsigned counters, since values are bounded
@@ -204,12 +207,14 @@ static inline int16x8_t Abs16_NEON(NeonVector16 v) {
 }
 #define ABS_16(V) Abs16_NEON(V)
 
-// Horizontal-sum reduction of a NEON accumulator down to a scalar. Only two
-// widths are needed: 32-bit (score sums) and 16-bit (counts, kept signed
-// even for conceptually-unsigned counters, since values are bounded well
-// under 2^15 and the bit pattern is the same either way -- this avoids a
-// third, unsigned variant). vaddvq_* is aarch64-only; armv7 NEON falls back
-// to a pairwise-add reduction.
+// Clamp signed 16-bit lanes of V to [lo, hi].
+#define CLAMP_16(V, lo, hi) vminq_s16(vmaxq_s16((V), (lo)), (hi))
+
+// Horizontal-sum reduction down to a scalar (vaddvq_* is aarch64-only;
+// armv7 falls back to pairwise-add). HorizontalSumS32 also serves unsigned
+// 32-bit accumulators via a reinterpret cast, since addition wraps
+// identically either way; HorizontalSumS16 can't (its aarch64 path narrows
+// to 16 bits, so a uint16 caller needs the zero-extending variant below).
 static inline int32_t HorizontalSumS32(int32x4_t v) {
 #if defined(SJPEG_AARCH64)
   return vaddvq_s32(v);
@@ -228,6 +233,17 @@ static inline int32_t HorizontalSumS16(int16x8_t v) {
   sum = vpadd_s16(sum, sum);
   sum = vpadd_s16(sum, sum);
   return vget_lane_s16(sum, 0);
+#endif
+}
+
+static inline uint32_t HorizontalSumU16(uint16x8_t v) {
+#if defined(SJPEG_AARCH64)
+  return vaddvq_u16(v);
+#else
+  uint16x4_t sum = vadd_u16(vget_low_u16(v), vget_high_u16(v));
+  sum = vpadd_u16(sum, sum);
+  sum = vpadd_u16(sum, sum);
+  return vget_lane_u16(sum, 0);
 #endif
 }
 

@@ -76,8 +76,8 @@ void StoreHistoNEON(const int16_t in[64], Histo* const histos, int nb_blocks) {
   const uint16x8_t kMaxHisto = vdupq_n_u16(MAX_HISTO_DCT_COEFF);
   for (int n = 0; n < nb_blocks; ++n, in += 64) {
     for (int i = 0; i < 64; i += 8) {
-      const int16x8_t A = vld1q_s16(in + i);
-      const int16x8_t B = vabsq_s16(A);               // abs(in)
+      const int16x8_t A = LOAD_16(in + i);
+      const int16x8_t B = ABS_16(A);                  // abs(in)
       const uint16x8_t C = vreinterpretq_u16_s16(B);  // signed->unsigned
       const uint16x8_t D = vshrq_n_u16(C, HSHIFT);    // >>= HSHIFT
       const uint16x8_t E = vminq_u16(D, kMaxHisto);   // min(.,kMaxHisto)

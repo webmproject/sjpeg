@@ -959,6 +959,42 @@ SJPEG_TEST(FdctOverflow) {
   SJPEG_CHECK(block[0] == 16256);
 }
 
+#if defined(SJPEG_USE_NEON)
+// QuantizeErrorNEON reduces its uint32x4_t sum via a signed reinterpret
+// cast (see HorizontalSumS32 in simd.h); check that it still reports the
+// right value once the per-block error wraps past 2^31 / 2^32.
+SJPEG_TEST(QuantizeErrorNEONOverflow) {
+  sjpeg::Quantizer Q = {};
+  int16_t in[64];
+  for (int j = 0; j < 64; ++j) {
+    in[j] = 0;
+    Q.quant_[j] = 255;
+    Q.iquant_[j] = 65535;
+    Q.bias_[j] = 65535;
+  }
+
+  // Ground truth: replicate QuantizeErrorNEON's per-lane arithmetic
+  // (including its 16-bit truncation) in plain unsigned C++.
+  uint32_t expected = 0;
+  for (int j = 0; j < 64; ++j) {
+    const uint16_t v0_raw = static_cast<uint16_t>((in[j] < 0) ? -in[j] : in[j]);
+    const uint16_t sum_bias = static_cast<uint16_t>(v0_raw + Q.bias_[j]);
+    const uint32_t prod = static_cast<uint32_t>(sum_bias) * Q.iquant_[j];
+    const uint16_t e = static_cast<uint16_t>(
+        static_cast<uint16_t>(prod >> 16) >> sjpeg::AC_BITS);
+    const uint16_t f = static_cast<uint16_t>(e * Q.quant_[j]);
+    const uint16_t v0 = static_cast<uint16_t>(v0_raw >> sjpeg::AC_BITS);
+    const uint16_t g = (f > v0) ? (f - v0) : (v0 - f);
+    expected += static_cast<uint32_t>(g) * g;
+  }
+  SJPEG_CHECK(expected > (1u << 31));  // actually crosses the sign bit
+
+  const sjpeg::QuantizeErrorTestFunc quantize_error =
+      sjpeg::GetQuantizeErrorFuncForTest();
+  SJPEG_CHECK(quantize_error(in, &Q) == expected);
+}
+#endif  // SJPEG_USE_NEON
+
 SJPEG_TEST(RestartMarkers) {
   const int kWidth = 64, kHeight = 64;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);

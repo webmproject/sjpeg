@@ -282,10 +282,8 @@ void ColumnDct_SSE2(int16_t* in) {
 void RowDct_SSE2(int16_t* in, const __m128i* table1,
                  const __m128i* table2) {
   // load row [0123|4567] as [0123|7654]
-  __m128i m0 =
-      _mm_shufflehi_epi16(*reinterpret_cast<__m128i*>(in + 0 * 8), 0x1b);
-  __m128i m2 =
-      _mm_shufflehi_epi16(*reinterpret_cast<__m128i*>(in + 1 * 8), 0x1b);
+  __m128i m0 = _mm_shufflehi_epi16(LOAD_ALIGNED_16(in + 0 * 8), 0x1b);
+  __m128i m2 = _mm_shufflehi_epi16(LOAD_ALIGNED_16(in + 1 * 8), 0x1b);
 
   // we process two rows in parallel
   __m128i m4 = m0;
@@ -426,14 +424,14 @@ static void Dct_NEON(int16_t* in) {
   ////////////////////
   // vertical pass
   ////////////////////
-  const int16x8_t m0 = vld1q_s16(in + 0 * 8);
-  const int16x8_t m1 = vld1q_s16(in + 1 * 8);
-  const int16x8_t m2 = vld1q_s16(in + 2 * 8);
-  const int16x8_t m3 = vld1q_s16(in + 3 * 8);
-  const int16x8_t m4 = vld1q_s16(in + 4 * 8);
-  const int16x8_t m5 = vld1q_s16(in + 5 * 8);
-  const int16x8_t m6 = vld1q_s16(in + 6 * 8);
-  const int16x8_t m7 = vld1q_s16(in + 7 * 8);
+  const int16x8_t m0 = LOAD_16(in + 0 * 8);
+  const int16x8_t m1 = LOAD_16(in + 1 * 8);
+  const int16x8_t m2 = LOAD_16(in + 2 * 8);
+  const int16x8_t m3 = LOAD_16(in + 3 * 8);
+  const int16x8_t m4 = LOAD_16(in + 4 * 8);
+  const int16x8_t m5 = LOAD_16(in + 5 * 8);
+  const int16x8_t m6 = LOAD_16(in + 6 * 8);
+  const int16x8_t m7 = LOAD_16(in + 7 * 8);
 
   BUTTERFLY(A0, A7, m0, m7);
   BUTTERFLY(A2, A5, m2, m5);
@@ -501,9 +499,9 @@ static void Dct_NEON(int16_t* in) {
   // in[0] = C4*(a0+a1+a2+a3), in[4] = C4*(a0-a1-a2+a3)
   // in[2] = C2*(a0-a3) + C6*(a1-a2), in[6] = C6*(a0-a3) - C2*(a1-a2)
   // Compute the shared products once, share them between 2 outputs each.
-  const int16x8_t kC2 = vld1q_s16(kTable1);
-  const int16x8_t kC4 = vld1q_s16(kTable3);
-  const int16x8_t kC6 = vld1q_s16(kTable5);
+  const int16x8_t kC2 = LOAD_16(kTable1);
+  const int16x8_t kC4 = LOAD_16(kTable3);
+  const int16x8_t kC6 = LOAD_16(kTable5);
 
   const int16x8_t d03 = vsubq_s16(a0, a3);
   const int16x8_t d12 = vsubq_s16(a1, a2);
@@ -533,10 +531,10 @@ static void Dct_NEON(int16_t* in) {
   int16x8_t out6 = PackS32(out6_lo, out6_hi);
 
   // odd part
-  const int16x8_t kC1 = vld1q_s16(kTable0);
-  const int16x8_t kC3 = vld1q_s16(kTable2);
-  const int16x8_t kC5 = vld1q_s16(kTable4);
-  const int16x8_t kC7 = vld1q_s16(kTable6);
+  const int16x8_t kC1 = LOAD_16(kTable0);
+  const int16x8_t kC3 = LOAD_16(kTable2);
+  const int16x8_t kC5 = LOAD_16(kTable4);
+  const int16x8_t kC7 = LOAD_16(kTable6);
 
   MULT_DCL_32(out1_lo, out1_hi, b0, kC1);
   MULT_DCL_32(out3_lo, out3_hi, b0, kC3);
@@ -567,14 +565,14 @@ static void Dct_NEON(int16_t* in) {
   Transpose8x8(&out0, &out1, &out2, &out3, &out4, &out5, &out6, &out7);
 
   // and storage.
-  vst1q_s16(&in[0 * 8], out0);
-  vst1q_s16(&in[1 * 8], out1);
-  vst1q_s16(&in[2 * 8], out2);
-  vst1q_s16(&in[3 * 8], out3);
-  vst1q_s16(&in[4 * 8], out4);
-  vst1q_s16(&in[5 * 8], out5);
-  vst1q_s16(&in[6 * 8], out6);
-  vst1q_s16(&in[7 * 8], out7);
+  STORE_16(out0, &in[0 * 8]);
+  STORE_16(out1, &in[1 * 8]);
+  STORE_16(out2, &in[2 * 8]);
+  STORE_16(out3, &in[3 * 8]);
+  STORE_16(out4, &in[4 * 8]);
+  STORE_16(out5, &in[5 * 8]);
+  STORE_16(out6, &in[6 * 8]);
+  STORE_16(out7, &in[7 * 8]);
 }
 
 static void FdctNEON(int16_t* coeffs, int num_blocks) {
