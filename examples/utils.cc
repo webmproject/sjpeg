@@ -44,7 +44,7 @@ std::string ReadFile(const char filename[]) {
   } else {
     do {
       if (fseek(f, 0, SEEK_END) < 0) break;
-      const int file_size = ftell(f);
+      const long file_size = ftell(f);
       if (file_size < 0) break;
       if (fseek(f, 0, SEEK_SET) < 0) break;
       data.resize(file_size);

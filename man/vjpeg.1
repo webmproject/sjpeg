@@ -1,5 +1,5 @@
 .\"                                      Hey, EMACS: -*- nroff -*-
-.TH VJPEG 1 "Aug 21, 2026"
+.TH VJPEG 1 "Sep 25, 2026"
 .SH NAME
 vjpeg \- visual tool to experience the compression parameters available in sjpeg
 .SH SYNOPSIS
@@ -34,6 +34,12 @@ Specify the compression factor between 0 and 100. The default
 is 75.
 A small factor produces a smaller file with lower quality.
 .TP
+.B \-rdo
+Enable rate-distortion optimization.
+.TP
+.B \-trellis
+Enable trellis quantization (overrides \-rdo).
+.TP
 .B \-info
 Overlay some file information on the display.
 .TP
@@ -67,13 +73,17 @@ The available key shortcuts are:
 .IP
    'b' ............... toggle adaptive bias
 .IP
+   'd' ............... toggle rate-distortion optimization
+.IP
    'l' ............... toggle quantization limitation
 .IP
-   't' ............... toggle trellis-based quantization
+   't' ............... toggle trellis-based quantization (overrides 'd')
 .IP
    'e' ............... show error map
 .IP
    'r' ............... show riskiness map
+.IP
+   'c' ............... show bias activity map (flat/busy)
 .IP
    'm' ............... print the source quantization matrices to the console
 .IP

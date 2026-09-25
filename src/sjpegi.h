@@ -57,35 +57,13 @@
 // along with sjpeg's only use of <thread>. num_threads is then ignored and
 // encoding always runs on the calling thread.
 
-#if defined(__SSE2__)
-#define SJPEG_USE_SSE2
-#endif
-
-#if defined(__SSSE3__)
-#define SJPEG_USE_SSSE3
-#endif
-
-#if defined(__AVX2__)
-#define SJPEG_USE_AVX2
-#endif
-
-// Gather-based AVX2 variant of the Sharp RGB->YUV gamma-table lookups
-// Bit-exact with C-variant, ~1.15x faster.
-#define SJPEG_USE_AVX2_YUV_GATHER
-
-#if defined(__ARM_NEON__) || defined(__aarch64__)
-#define SJPEG_USE_NEON
-#endif
-
-#if defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC)
-#define SJPEG_AARCH64
-#endif
-
+// SIMD feature-detection macros (SJPEG_USE_SSE2/SSSE3/AVX2/NEON,
+// SJPEG_AARCH64) and the intrinsic headers they gate live in simd.h; only
+// files that define SJPEG_NEED_ASM_HEADERS before including this one pull
+// them in.
 #if defined(SJPEG_NEED_ASM_HEADERS)
 #include "simd.h"
 #endif    // SJPEG_NEED_ASM_HEADERS
-
-#include <assert.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -413,7 +391,6 @@ struct DCTCoeffs {
   int16_t nb_coeffs_;  // total number of non-zero AC coeffs
   uint16_t dc_code_;   // DC code (4bits for length, 12bits for suffix)
   int8_t idx_;         // component idx
-  int8_t bias_;        // perceptual bias
 };
 
 // Histogram of transform coefficients, for adaptive quant matrices
@@ -627,6 +604,10 @@ class Encoder {
   void SinglePassScanOptimized();  // optimize the Huffman table + finalize scan
 
   void SinglePassEncode();         // non-iterating encoding pass
+  // WriteSOF()/WriteDRI() + the optimize_size_ scan dispatch. Shared by
+  // SinglePassEncode()'s baseline path and LoopScan()'s serial PSNR-target
+  // finalize step.
+  void WriteBaselineAndScan();
 
 #if !defined(SJPEG_NO_MULTITHREADING)
   static constexpr int kMinMCUsPerThread = 256;
@@ -727,6 +708,7 @@ class Encoder {
                                         const Quantizer* const Q);
   static QuantizeErrorFunc quantize_error_;
   static QuantizeErrorFunc GetQuantizeErrorFunc();
+  friend QuantizeErrorTestFunc GetQuantizeErrorFuncForTest();
 
   void CodeBlock(const DCTCoeffs* coeffs, const RunLevel* rl) {
     CodeBlock(coeffs, rl, &bw_);
@@ -781,6 +763,10 @@ class Encoder {
                                        int sub_h, uint8_t* rep_buf);
   // set blocks that are totally outside of the picture to an average value
   void AverageExtraLuma(int sub_w, int sub_h, int16_t* out);
+  // Replicate (if clipped) & convert a 16x16 luma block at MCU (mb_x,mb_y)
+  // into out[0..3]. Shared by the NV12/NV21 and direct-YUV420 encoders.
+  void GetLumaBlock16x16(const uint8_t* y, int y_step, int mb_x, int mb_y,
+                         bool clipped, int16_t* out, uint8_t* rep_buf);
   uint8_t replicated_buffer_[4 * 16 * 16];  // tmp buffer for replication
   int pix_step_ = 3;  // bytes per input pixel (3=RGB, 4=BGRA/RGBA)
 

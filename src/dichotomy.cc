@@ -221,15 +221,7 @@ void Encoder::LoopScan() {
         ReplaySlicesMultiThreaded(search_threads, total_intervals, &chunks);
       } else {
         WriteDQT();
-        WriteSOF();
-        WriteDRI();
-        if (optimize_size_) {
-          SinglePassScanOptimized();
-        } else {
-          WriteDHT();
-          WriteSOS();
-          SinglePassScan();
-        }
+        WriteBaselineAndScan();
       }
     } else
 #endif

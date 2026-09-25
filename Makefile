@@ -78,7 +78,9 @@ endif
 
 AR = ar
 ARFLAGS = r
+ifeq ($(origin CXX), default)
 CXX = g++
+endif
 CXXFLAGS = -Isrc/ -Wall $(EXTRA_FLAGS)
 ifeq ($(DEBUG), 1)
   CXXFLAGS += -g
@@ -254,6 +256,7 @@ DIST_FILES= \
          src/riskiness_avx2.cc  \
          src/md5sum.h \
          src/score_7.cc  \
+         src/simd.h  \
          src/sjpeg.h  \
          src/sjpegi.h  \
          src/yuv_convert.cc \

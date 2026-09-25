@@ -28,6 +28,8 @@
 #include <thread>  // NOLINT
 #include <vector>
 
+// Needed for the SJPEG_USE_NEON guard around QuantizeErrorNEONOverflow below.
+#define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 #include "sjpeg.h"
 
@@ -1058,32 +1060,6 @@ SJPEG_TEST(RestartMarkers) {
     SJPEG_CHECK(HasSize(out, kWidth, kHeight));
   }
 
-  // Test 2: restart_interval_rows = 1 in YUV420 -> DRI = 4 MCUs per row, RST0
-  // present
-  {
-    sjpeg::EncoderParam param(85.0f);
-    param.restart_interval_rows = 1;
-    param.yuv_mode = SJPEG_YUV_420;
-    std::string out;
-    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
-    SJPEG_CHECK(HasMarker(out, kMarkerByteDRI));
-    SJPEG_CHECK(ExtractDRI(out) == 4);
-    SJPEG_CHECK(HasMarker(out, kMarkerByteRST0));
-    SJPEG_CHECK(HasSize(out, kWidth, kHeight));
-  }
-
-  // Test 3: restart_interval_rows = 2 in YUV420 -> DRI = 8 MCUs
-  {
-    sjpeg::EncoderParam param(85.0f);
-    param.restart_interval_rows = 2;
-    param.yuv_mode = SJPEG_YUV_420;
-    std::string out;
-    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
-    SJPEG_CHECK(HasMarker(out, kMarkerByteDRI));
-    SJPEG_CHECK(ExtractDRI(out) == 8);
-    SJPEG_CHECK(HasSize(out, kWidth, kHeight));
-  }
-
   // Number of MCUs per row, which is what DRI counts: 16x16 MCUs in 4:2:0,
   // 8x8 otherwise.
   auto MCUsPerRow = [](int w, SjpegYUVMode yuv_mode) {
@@ -1091,8 +1067,9 @@ SJPEG_TEST(RestartMarkers) {
     return (w + block_w - 1) / block_w;
   };
 
-  // Test 4: Decodability across resolutions, intervals, YUV modes, and Huffman
-  // modes. DRI must hold the exact MCU count matching the requested rows.
+  // Test 2: Decodability across resolutions, intervals, YUV modes, and
+  // Huffman modes. DRI must hold the exact MCU count matching the requested
+  // rows, and restarts (RST0..) must actually be emitted whenever DRI is.
   const int dimensions[][2] = {{16, 16}, {64, 64}, {127, 93}, {320, 240}};
   const int intervals[] = {0, 1, 2, 4};
   const SjpegYUVMode yuv_modes[] = {SJPEG_YUV_420, SJPEG_YUV_444,
@@ -1116,6 +1093,13 @@ SJPEG_TEST(RestartMarkers) {
           if (restart > 0) {
             SJPEG_CHECK(HasMarker(out, kMarkerByteDRI));
             SJPEG_CHECK(ExtractDRI(out) == restart * MCUsPerRow(w, yuv_modes[y]));
+            // A restart marker only shows up between intervals: skip when the
+            // interval spans the whole picture (a single MCU row here).
+            const int block = (yuv_modes[y] == SJPEG_YUV_420) ? 16 : 8;
+            const int mcu_rows = (h + block - 1) / block;
+            if (restart < mcu_rows) {
+              SJPEG_CHECK(HasMarker(out, kMarkerByteRST0));
+            }
           } else {
             SJPEG_CHECK(!HasMarker(out, kMarkerByteDRI));
           }
@@ -1124,7 +1108,7 @@ SJPEG_TEST(RestartMarkers) {
     }
   }
 
-  // Test 5: the multi-pass target-size/PSNR search path writes its own
+  // Test 3: the multi-pass target-size/PSNR search path writes its own
   // headers and stores DC deltas ahead of the final scan, so it needs DRI
   // and the interval DC resets wired up independently of the single-pass one.
   {
@@ -1155,7 +1139,7 @@ SJPEG_TEST(RestartMarkers) {
     }
   }
 
-  // Test 6: DRI's interval field is 16 bits, so a row-based interval that
+  // Test 4: DRI's interval field is 16 bits, so a row-based interval that
   // would exceed 0xffff MCUs is clamped down to whole rows. It must never
   // wrap (which silently desynchronizes the decoder) nor reach zero (which
   // means 'no restarts' while markers are still being emitted). The image is
@@ -1187,7 +1171,7 @@ SJPEG_TEST(RestartMarkers) {
     }
   }
 
-  // Test 7: trellis-based quantization (methods 7 and 8) substitutes its own
+  // Test 5: trellis-based quantization (methods 7 and 8) substitutes its own
   // quantizer but reaches the very same scan loops, through either
   // SinglePassScan() or SinglePassScanOptimized()/FinalPassScan() depending on
   // Huffman_compress. Restart markers must survive both.
@@ -1216,7 +1200,7 @@ SJPEG_TEST(RestartMarkers) {
     }
   }
 
-  // Test 8: a negative interval is meaningless; every consumer guards on
+  // Test 6: a negative interval is meaningless; every consumer guards on
   // '> 0', so it must behave exactly like 'disabled'.
   {
     const int w = 64, h = 64;
@@ -1234,7 +1218,7 @@ SJPEG_TEST(RestartMarkers) {
     }
   }
 
-  // Test 9: the extremes of the format. kMaxDimension is 0xffff, so 65535 is
+  // Test 7: the extremes of the format. kMaxDimension is 0xffff, so 65535 is
   // the largest side Encode() accepts.
   {
     // Count the RST markers. Unambiguous: 0xff in entropy-coded data is always
@@ -1907,6 +1891,277 @@ SJPEG_TEST(AdaptiveBias) {
   SJPEG_CHECK(
       sjpeg::ClassifyActivity((sjpeg::kActivityLo + sjpeg::kActivityHi) / 2) ==
       sjpeg::BlockActivityTier::kNormalBlock);
+}
+
+// EncodeGray() is only exercised on failure paths elsewhere: check a real
+// successful grayscale encode, for both output overloads.
+SJPEG_TEST(EncodeGray) {
+  const int kWidth = 32, kHeight = 24;
+  const std::vector<uint8_t> gray = MakePlane(kWidth, kHeight, 90);
+  const sjpeg::EncoderParam param(80.f);
+  std::string out;
+  SJPEG_CHECK(sjpeg::EncodeGray(gray.data(), kWidth, kHeight, kWidth, param,
+                                &out));
+  SJPEG_CHECK(HasSize(out, kWidth, kHeight));
+  uint8_t quant[2][64];
+  SJPEG_CHECK(SjpegFindQuantizer(out, quant) == 1);  // single-component YUV400
+
+  std::string out2;
+  SJPEG_CHECK(sjpeg::EncodeGray(gray.data(), kWidth, kHeight, kWidth, param,
+                                sjpeg::MakeByteSink(&out2).get()));
+  SJPEG_CHECK(out2 == out);
+}
+
+// SetQuantization() installs a custom matrix, scaled by 'reduction'; only the
+// auto-derived SetQuality() path was covered elsewhere.
+SJPEG_TEST(CustomQuantization) {
+  uint8_t m[2][64];
+  memset(m[0], 20, 64);
+  memset(m[1], 30, 64);
+  const int kWidth = 24, kHeight = 24;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+
+  sjpeg::EncoderParam param;
+  param.SetQuantization(m);  // reduction defaults to 100: matrix unchanged
+  param.adaptive_quantization = false;
+  std::string out;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+  uint8_t quant[2][64];
+  SJPEG_CHECK(SjpegFindQuantizer(out, quant) == 2);
+  SJPEG_CHECK(memcmp(quant[0], m[0], 64) == 0);
+  SJPEG_CHECK(memcmp(quant[1], m[1], 64) == 0);
+
+  // reduction < 100 scales the matrix coarser (larger quant values).
+  sjpeg::EncoderParam param2;
+  param2.SetQuantization(m, 50.f);
+  param2.adaptive_quantization = false;
+  std::string out2;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param2, &out2));
+  uint8_t quant2[2][64];
+  SJPEG_CHECK(SjpegFindQuantizer(out2, quant2) == 2);
+  SJPEG_CHECK(quant2[0][0] == 40 && quant2[1][0] == 60);
+}
+
+// SetMetadata() (exif/iccp/app_markers/xmp) had zero coverage: check the
+// payloads actually land in the bitstream, and that ResetMetadata() drops
+// them again.
+SJPEG_TEST(Metadata) {
+  const int kWidth = 16, kHeight = 16;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  sjpeg::EncoderParam param(80.f);
+  param.exif = "exif-payload";
+  param.iccp = "iccp-payload";
+  // app_markers is written to the bitstream as-is, so it must already be a
+  // well-formed marker: 0xff, marker byte, big-endian length (incl. itself).
+  const std::string app_payload = "app-marker-payload";
+  param.app_markers.push_back(static_cast<char>(0xff));
+  param.app_markers.push_back(static_cast<char>(0xe4));  // APP4
+  const uint16_t app_len = static_cast<uint16_t>(app_payload.size() + 2);
+  param.app_markers.push_back(static_cast<char>(app_len >> 8));
+  param.app_markers.push_back(static_cast<char>(app_len & 0xff));
+  param.app_markers += app_payload;
+  param.xmp = "xmp-payload";
+
+  std::string out;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+  SJPEG_CHECK(HasSize(out, kWidth, kHeight));
+  SJPEG_CHECK(out.find("exif-payload") != std::string::npos);
+  SJPEG_CHECK(out.find("iccp-payload") != std::string::npos);
+  SJPEG_CHECK(out.find("app-marker-payload") != std::string::npos);
+  SJPEG_CHECK(out.find("xmp-payload") != std::string::npos);
+
+  param.ResetMetadata();
+  std::string out2;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out2));
+  SJPEG_CHECK(HasSize(out2, kWidth, kHeight));
+  SJPEG_CHECK(out2.find("exif-payload") == std::string::npos);
+  SJPEG_CHECK(out2.find("iccp-payload") == std::string::npos);
+  SJPEG_CHECK(out2.find("app-marker-payload") == std::string::npos);
+  SJPEG_CHECK(out2.find("xmp-payload") == std::string::npos);
+}
+
+// SetMinQuantization()/SetLimitQuantization() install a floor under quant_[];
+// neither had any coverage.
+SJPEG_TEST(MinQuantization) {
+  const int kWidth = 24, kHeight = 24;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+
+  // Capture a coarse (low-quality) matrix, to be used as a floor.
+  const sjpeg::EncoderParam floor_param(10.f);
+  uint8_t floor_matrix[2][64];
+  memcpy(floor_matrix[0], floor_param.GetQuantMatrix(0), 64);
+  memcpy(floor_matrix[1], floor_param.GetQuantMatrix(1), 64);
+
+  // Prove the floor is meaningful: an unfloored fine matrix goes below it.
+  const sjpeg::EncoderParam param_nolimit(95.f);
+  SJPEG_CHECK(param_nolimit.GetQuantMatrix(0)[0] < floor_matrix[0][0]);
+
+  // A fine (high-quality) matrix floored at the coarse one must never go
+  // below it.
+  sjpeg::EncoderParam param(95.f);
+  param.adaptive_quantization = false;
+  param.SetMinQuantization(floor_matrix);
+  std::string out;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+  uint8_t quant[2][64];
+  SJPEG_CHECK(SjpegFindQuantizer(out, quant) == 2);
+  for (size_t i = 0; i < 64; ++i) {
+    SJPEG_CHECK(quant[0][i] >= floor_matrix[0][i]);
+    SJPEG_CHECK(quant[1][i] >= floor_matrix[1][i]);
+  }
+
+  // SetLimitQuantization(true) captures the *current* quant_ as its own
+  // floor: a no-op clamp, so the encoded matrix is unaffected.
+  sjpeg::EncoderParam param2(95.f);
+  param2.adaptive_quantization = false;
+  param2.SetLimitQuantization(true);
+  std::string out2;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param2, &out2));
+  uint8_t quant2[2][64];
+  SJPEG_CHECK(SjpegFindQuantizer(out2, quant2) == 2);
+  SJPEG_CHECK(memcmp(quant2[0], param2.GetQuantMatrix(0), 64) == 0);
+}
+
+// qmin/qmax bracket the multi-pass quality search; never varied elsewhere.
+SJPEG_TEST(TargetSizeQualityBracket) {
+  const int W = 64, H = 64;
+  const std::vector<uint8_t> rgb = MakeRGB(W, H);
+
+  // An absurdly small target pushes the search down against qmin. Adaptive
+  // quantization is disabled: it would perturb the matrix per-block on top
+  // of the search's own quality value, independently of qmin/qmax.
+  sjpeg::EncoderParam param(80.f);
+  param.yuv_mode = SJPEG_YUV_420;
+  param.adaptive_quantization = false;
+  param.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
+  param.target_value = 1.f;
+  param.passes = 12;
+  param.qmin = 50.f;
+  param.qmax = 55.f;
+  std::string out;
+  SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &out));
+  uint8_t quant[2][64];
+  SJPEG_CHECK(SjpegFindQuantizer(out, quant) >= 1);
+  const float q = SjpegEstimateQuality(quant[0], false);
+  SJPEG_CHECK(q >= param.qmin - 1.f && q <= param.qmax + 1.f);
+
+  // An absurdly large target pushes the search up against qmax instead.
+  sjpeg::EncoderParam param2(80.f);
+  param2.yuv_mode = SJPEG_YUV_420;
+  param2.adaptive_quantization = false;
+  param2.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
+  param2.target_value = 1e9f;
+  param2.passes = 12;
+  param2.qmin = 50.f;
+  param2.qmax = 55.f;
+  std::string out2;
+  SJPEG_CHECK(EncodeRGB(rgb, W, H, param2, &out2));
+  uint8_t quant2[2][64];
+  SJPEG_CHECK(SjpegFindQuantizer(out2, quant2) >= 1);
+  const float q2 = SjpegEstimateQuality(quant2[0], false);
+  SJPEG_CHECK(q2 >= param2.qmin - 1.f && q2 <= param2.qmax + 1.f);
+  SJPEG_CHECK(q2 > q);  // the oversized-target search ends up at the high end
+}
+
+// qdelta_max_luma/qdelta_max_chroma bound adaptive quantization's per-block
+// search; neither was ever varied from its default.
+SJPEG_TEST(QDeltaMax) {
+  // A smooth gradient: the adaptive search skips a channel outright when
+  // size and distortion don't correlate well (see kCorrelationThreshold in
+  // histogram.cc), which noisy MakeRGB() content triggers for chroma.
+  const int W = 128, H = 128;
+  std::vector<uint8_t> rgb(3 * static_cast<size_t>(W) * H);
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      uint8_t* const p = &rgb[3 * (x + static_cast<size_t>(y) * W)];
+      p[0] = static_cast<uint8_t>(128 + 100 * sin(x * 0.1));
+      p[1] = static_cast<uint8_t>(128 + 100 * sin(y * 0.13));
+      p[2] = static_cast<uint8_t>(128 + 100 * sin((x + y) * 0.07));
+    }
+  }
+
+  const auto encode_chroma = [&](int delta_chroma) {
+    sjpeg::EncoderParam param(75.f);
+    param.adaptive_quantization = true;
+    param.qdelta_max_chroma = delta_chroma;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &out));
+    return out;
+  };
+  SJPEG_CHECK(encode_chroma(0) != encode_chroma(12));
+
+  const auto encode_luma = [&](int delta_luma) {
+    sjpeg::EncoderParam param(75.f);
+    param.adaptive_quantization = true;
+    param.qdelta_max_luma = delta_luma;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &out));
+    return out;
+  };
+  SJPEG_CHECK(encode_luma(0) != encode_luma(12));
+}
+
+// A custom SearchHook subclass: only the internal default hook was ever
+// exercised elsewhere.
+class CountingHook : public sjpeg::SearchHook {
+ public:
+  bool Setup(const sjpeg::EncoderParam& param) override {
+    ++num_setup;
+    return sjpeg::SearchHook::Setup(param);
+  }
+  void NextMatrix(int idx, uint8_t dst[64]) override {
+    ++num_next_matrix;
+    sjpeg::SearchHook::NextMatrix(idx, dst);
+  }
+  bool Update(float result) override {
+    ++num_updates;
+    return sjpeg::SearchHook::Update(result);
+  }
+  int num_setup = 0;
+  int num_next_matrix = 0;
+  int num_updates = 0;
+};
+
+SJPEG_TEST(SearchHook) {
+  const int W = 64, H = 64;
+  const std::vector<uint8_t> rgb = MakeRGB(W, H);
+  sjpeg::EncoderParam param(60.f);
+  param.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
+  param.target_value = 1000.f;
+  param.passes = 8;
+  CountingHook hook;
+  param.search_hook = &hook;
+  std::string out;
+  SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &out));
+  SJPEG_CHECK(HasSize(out, W, H));
+  SJPEG_CHECK(hook.num_setup == 1);
+  SJPEG_CHECK(hook.num_updates >= 1);
+  SJPEG_CHECK(hook.num_next_matrix >= hook.num_updates);
+}
+
+// EncoderParam(quality)'s clamp on out-of-range values: only SjpegQuantMatrix
+// (a different function) had its 0..100 sweep covered.
+SJPEG_TEST(QualityConstructorClamp) {
+  const sjpeg::EncoderParam neg(-10.f);
+  const sjpeg::EncoderParam zero(0.f);
+  SJPEG_CHECK(memcmp(neg.GetQuantMatrix(0), zero.GetQuantMatrix(0), 64) == 0);
+  SJPEG_CHECK(memcmp(neg.GetQuantMatrix(1), zero.GetQuantMatrix(1), 64) == 0);
+
+  const sjpeg::EncoderParam over(150.f);
+  const sjpeg::EncoderParam hundred(100.f);
+  SJPEG_CHECK(memcmp(over.GetQuantMatrix(0), hundred.GetQuantMatrix(0), 64) ==
+              0);
+  SJPEG_CHECK(memcmp(over.GetQuantMatrix(1), hundred.GetQuantMatrix(1), 64) ==
+              0);
+
+  // And it must actually be usable for encoding, not just an inert matrix.
+  const int W = 16, H = 16;
+  const std::vector<uint8_t> rgb = MakeRGB(W, H);
+  std::string out;
+  SJPEG_CHECK(EncodeRGB(rgb, W, H, neg, &out));
+  SJPEG_CHECK(HasSize(out, W, H));
+  SJPEG_CHECK(EncodeRGB(rgb, W, H, over, &out));
+  SJPEG_CHECK(HasSize(out, W, H));
 }
 
 }  // namespace
