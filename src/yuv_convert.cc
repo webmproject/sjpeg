@@ -22,6 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
+#include <climits>
+#include <functional>
 #include <memory>
 #include <mutex>  // NOLINT
 #include <new>
@@ -589,37 +592,40 @@ static void InterpolateTwoRows(const fixed_y_t* const best_y,
   }
 }
 
-static void ConvertWRGBToYUV(const fixed_y_t* best_y,
-                             const fixed_t* best_uv,
-                             int width, int height,
-                             uint8_t* y_plane,
-                             uint8_t* u_plane, uint8_t* v_plane) {
+static void ConvertWRGBToYUVSlice(const fixed_y_t* best_y,
+                                  const fixed_t* best_uv,
+                                  int width, int height,
+                                  size_t j_uv_start, size_t j_uv_end,
+                                  uint8_t* y_plane,
+                                  uint8_t* u_plane, uint8_t* v_plane) {
   const size_t w = ((size_t)width + 1) & ~1ULL;
-  const size_t h = ((size_t)height + 1) & ~1ULL;
   const size_t uv_w = w >> 1;
-  const size_t uv_h = h >> 1;
-  for (size_t j = 0; j < (size_t)height; ++j) {
-    const size_t off = (j >> 1) * 3 * uv_w;
-    for (size_t i = 0; i < (size_t)width; ++i) {
+  const size_t row_elems = 3 * uv_w;
+  const size_t j_y_start = j_uv_start * 2;
+  const size_t j_y_end = std::min(static_cast<size_t>(height), j_uv_end * 2);
+
+  for (size_t j = j_y_start; j < j_y_end; ++j) {
+    const size_t off = (j >> 1) * row_elems;
+    uint8_t* const dst_y = y_plane + j * width;
+    for (size_t i = 0; i < static_cast<size_t>(width); ++i) {
       const int W = best_y[i + j * w];
       const int r = best_uv[off + (i >> 1) + 0 * uv_w] + W;
       const int g = best_uv[off + (i >> 1) + 1 * uv_w] + W;
       const int b = best_uv[off + (i >> 1) + 2 * uv_w] + W;
-      y_plane[i] = ConvertRGBToY(r, g, b);
+      dst_y[i] = ConvertRGBToY(r, g, b);
     }
-    y_plane += width;
   }
-  for (size_t j = 0; j < uv_h; ++j) {
+  for (size_t j = j_uv_start; j < j_uv_end; ++j) {
+    uint8_t* const dst_u = u_plane + j * uv_w;
+    uint8_t* const dst_v = v_plane + j * uv_w;
     for (size_t i = 0; i < uv_w; ++i) {
-      const size_t off = i + j * 3 * uv_w;
+      const size_t off = i + j * row_elems;
       const int r = best_uv[off + 0 * uv_w];
       const int g = best_uv[off + 1 * uv_w];
       const int b = best_uv[off + 2 * uv_w];
-      u_plane[i] = ConvertRGBToU(r, g, b);
-      v_plane[i] = ConvertRGBToV(r, g, b);
+      dst_u[i] = ConvertRGBToU(r, g, b);
+      dst_v[i] = ConvertRGBToV(r, g, b);
     }
-    u_plane += uv_w;
-    v_plane += uv_w;
   }
 }
 
@@ -628,110 +634,233 @@ static void ConvertWRGBToYUV(const fixed_y_t* best_y,
 
 static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
                            int stride, uint8_t* y_plane, uint8_t* u_plane,
-                           uint8_t* v_plane) {
-  // we expand the right/bottom border if needed
+                           uint8_t* v_plane, const Encoder* encoder) {
+  if (width <= 0 || height <= 0 ||
+      width > kMaxDimension || height > kMaxDimension) {
+    return false;
+  }
+  // We expand the right/bottom border if needed.
   const size_t w = ((size_t)width + 1) & ~1ULL;
   const size_t h = ((size_t)height + 1) & ~1ULL;
   const size_t uv_w = w >> 1;
   const size_t uv_h = h >> 1;
+  const size_t num_pairs = (height + 1) / 2;
   uint64_t prev_diff_y_sum = ~0ULL;
+
+#if !defined(SJPEG_NO_MULTITHREADING)
+  const int max_threads = static_cast<int>(num_pairs);
+  const int num_threads =
+      (encoder != nullptr)
+          ? std::max(1, std::min(encoder->num_threads(), max_threads))
+          : 1;
+#else
+  const int num_threads = 1;
+#endif
 
   InitGammaTablesF();
   InitFunctionPointers();
 
+  const size_t row_elems = 3 * uv_w;
+  const size_t per_thread_elems = (8 * w) + (3 * row_elems);
+
   // Single memory chunk allocation to avoid allocator lock contention and heap
-  // fragmentation
-  // 64-bit intermediate: size_t is only 32-bit on a 32-bit build, and this sum
-  // can overflow it well before reaching kMaxDimension (0xffff) on each side.
-  const uint64_t total_elems64 = ((uint64_t)w * 3 * 2) + ((uint64_t)w * h) +
-                                 ((uint64_t)w * h) + ((uint64_t)w * 2) +
-                                 ((uint64_t)uv_w * 3 * uv_h) +
-                                 ((uint64_t)uv_w * 3 * uv_h) +
-                                 ((uint64_t)uv_w * 3 * 1);
+  // fragmentation.
+  // We allocate 4 extra rows (kNumIterations) for best_uv to perform shifted
+  // iterations without a second buffer.
+  const uint64_t total_elems64 =
+      ((uint64_t)w * h) +                                // best_y
+      ((uint64_t)w * h) +                                // target_y
+      ((uint64_t)(kNumIterations + uv_h) * row_elems) +  // best_uv
+      ((uint64_t)uv_h * row_elems) +                     // target_uv
+      ((uint64_t)num_threads * per_thread_elems);        // per-thread scratch
   if (total_elems64 > SIZE_MAX / sizeof(uint16_t)) return false;
   const size_t total_elems = (size_t)total_elems64;
   std::unique_ptr<uint16_t[]> arena(new (std::nothrow) uint16_t[total_elems]);
   if (arena == nullptr) return false;
 
   uint16_t* ptr = arena.get();
-  fixed_y_t* const tmp_buffer = ptr;
-  ptr += w * 3 * 2;
   fixed_y_t* const best_y = ptr;
   ptr += w * h;
   fixed_y_t* const target_y = ptr;
   ptr += w * h;
-  fixed_y_t* const best_rgb_y = ptr;
-  ptr += w * 2;
-  fixed_t* const best_uv = (fixed_t*)ptr;
-  ptr += uv_w * 3 * uv_h;
+  fixed_t* const best_uv_alloc = (fixed_t*)ptr;
+  ptr += (kNumIterations + uv_h) * row_elems;
   fixed_t* const target_uv = (fixed_t*)ptr;
-  ptr += uv_w * 3 * uv_h;
-  fixed_t* const best_rgb_uv = (fixed_t*)ptr;
-  assert(ptr + (uv_w * 3 * 1) == arena.get() + total_elems);
-  const uint64_t diff_y_threshold = (uint64_t)(3.0 * w * h);
+  ptr += uv_h * row_elems;
+  uint16_t* const thread_scratch_base = ptr;
+  ptr += num_threads * per_thread_elems;
+  assert(ptr == arena.get() + total_elems);
+
+  // Origin for pass 0: shifted by kNumIterations rows so negative row offsets
+  // remain in-bounds.
+  fixed_t* const best_uv_origin = best_uv_alloc + kNumIterations * row_elems;
+  const uint64_t diff_y_threshold = 3ULL * w * h;
 
   assert(width >= kMinDimensionIterativeConversion);
   assert(height >= kMinDimensionIterativeConversion);
 
+  auto get_thread_scratch = [&](int t,
+                                fixed_y_t** src1,
+                                fixed_y_t** src2,
+                                fixed_y_t** best_rgb_y,
+                                fixed_t** best_rgb_uv,
+                                fixed_t** head_buffer) {
+    uint16_t* p =
+        thread_scratch_base + static_cast<size_t>(t) * per_thread_elems;
+    *src1 = p;
+    p += 3 * w;
+    *src2 = p;
+    p += 3 * w;
+    *best_rgb_y = p;
+    p += 2 * w;
+    *best_rgb_uv = reinterpret_cast<fixed_t*>(p);
+    p += row_elems;
+    *head_buffer = reinterpret_cast<fixed_t*>(p);
+  };
+
+  auto run_parallel = [&](int total,
+                          const std::function<void(int, int, int)>& fn) {
+#if !defined(SJPEG_NO_MULTITHREADING)
+    if (encoder != nullptr && num_threads > 1) {
+      encoder->RunParallel(num_threads, total, fn);
+      return;
+    }
+#endif
+    fn(0, 0, total);
+  };
+
   // Import RGB samples to W/RGB representation.
-  for (size_t j = 0; j < (size_t)height; j += 2) {
-    const bool is_last_row = (j == (size_t)height - 1);
-    fixed_y_t* const src1 = &tmp_buffer[0 * w];
-    fixed_y_t* const src2 = &tmp_buffer[3 * w];
-    const ptrdiff_t rgb_off = static_cast<ptrdiff_t>(j) * stride;
-    const size_t y_off = j * w;
-    const size_t uv_off = (j >> 1) * 3 * uv_w;
+  run_parallel(num_pairs, [&](int t, int p_start, int p_end) {
+    const size_t j_start = p_start * 2;
+    const size_t j_end =
+        std::min(static_cast<size_t>(height), static_cast<size_t>(p_end * 2));
 
-    // prepare two rows of input
-    kImportOneRow(rgb + rgb_off, width, src1);
-    if (!is_last_row) {
-      kImportOneRow(rgb + rgb_off + stride, width, src2);
-    } else {
-      memcpy(src2, src1, 3 * w * sizeof(*src2));
-    }
-    kStoreGray(src1, &best_y[y_off + 0], w);
-    kStoreGray(src2, &best_y[y_off + w], w);
-    kUpdateW(src1, &target_y[y_off + 0], w);
-    kUpdateW(src2, &target_y[y_off + w], w);
-    kUpdateChroma(src1, src2, &target_uv[uv_off], uv_w);
-    memcpy(&best_uv[uv_off], &target_uv[uv_off], 3 * uv_w * sizeof(best_uv[0]));
-  }
+    fixed_y_t *src1, *src2, *best_rgb_y;
+    fixed_t *best_rgb_uv, *head_buffer;
+    get_thread_scratch(t, &src1, &src2, &best_rgb_y, &best_rgb_uv,
+                       &head_buffer);
 
-  // Iterate and resolve clipping conflicts.
-  for (int iter = 0; iter < kNumIterations; ++iter) {
-    const fixed_t* cur_uv = &best_uv[0];
-    const fixed_t* prev_uv = &best_uv[0];
-    uint64_t diff_y_sum = 0;
-
-    for (size_t j = 0; j < h; j += 2) {
-      const size_t uv_off = (j >> 1) * 3 * uv_w;
+    for (size_t j = j_start; j < j_end; j += 2) {
+      const bool is_last_row = (j == (size_t)height - 1);
+      const ptrdiff_t rgb_off = static_cast<ptrdiff_t>(j) * stride;
       const size_t y_off = j * w;
-      fixed_y_t* const src1 = &tmp_buffer[0 * w];
-      fixed_y_t* const src2 = &tmp_buffer[3 * w];
-      const fixed_t* const next_uv = cur_uv + ((j < h - 2) ? 3 * uv_w : 0);
-      InterpolateTwoRows(&best_y[y_off], prev_uv, cur_uv, next_uv, (int)w, src1,
-                         src2);
-      prev_uv = cur_uv;
-      cur_uv = next_uv;
+      const size_t uv_off = (j >> 1) * row_elems;
 
-      kUpdateW(src1, &best_rgb_y[0 * w], (int)w);
-      kUpdateW(src2, &best_rgb_y[1 * w], (int)w);
-      kUpdateChroma(src1, src2, &best_rgb_uv[0], (int)uv_w);
-
-      // update two rows of Y and one row of RGB
-      diff_y_sum += kSharpUpdateY(&target_y[y_off], &best_rgb_y[0],
-                                  &best_y[y_off], (int)(2 * w));
-      kSharpUpdateRGB(&target_uv[uv_off], &best_rgb_uv[0], &best_uv[uv_off],
-                      (int)(3 * uv_w));
+      kImportOneRow(rgb + rgb_off, width, src1);
+      if (is_last_row) {
+        memcpy(src2, src1, 3 * w * sizeof(*src2));
+      } else {
+        kImportOneRow(rgb + rgb_off + stride, width, src2);
+      }
+      kStoreGray(src1, &best_y[y_off + 0], w);
+      kStoreGray(src2, &best_y[y_off + w], w);
+      kUpdateW(src1, &target_y[y_off + 0], w);
+      kUpdateW(src2, &target_y[y_off + w], w);
+      kUpdateChroma(src1, src2, &target_uv[uv_off], uv_w);
+      memcpy(&best_uv_origin[uv_off], &target_uv[uv_off],
+             row_elems * sizeof(best_uv_origin[0]));
     }
-    // test exit condition
+  });
+
+  const ptrdiff_t row_stride = static_cast<ptrdiff_t>(row_elems);
+  int current_offset_rows = 0;
+  struct SliceRange {
+    int p_start;
+    int p_end;
+  };
+  std::vector<SliceRange> slices(num_threads, {0, 0});
+  std::vector<uint64_t> thread_diffs(num_threads, 0);
+
+  // Iterate and resolve clipping conflicts using shifted iterations.
+  for (int iter = 0; iter < kNumIterations; ++iter) {
+    const int in_offset = current_offset_rows;
+    const int out_offset = current_offset_rows - 1;
+
+    fixed_t* const cur_in = best_uv_origin + in_offset * row_stride;
+    fixed_t* const cur_out = best_uv_origin + out_offset * row_stride;
+
+    std::fill(thread_diffs.begin(), thread_diffs.end(), 0);
+
+    run_parallel(num_pairs, [&](int t, int p_start, int p_end) {
+      slices[t] = {p_start, p_end};
+      const size_t J_start = p_start;
+      const size_t J_end = p_end;
+
+      fixed_y_t *src1, *src2, *best_rgb_y;
+      fixed_t *best_rgb_uv, *head_buffer;
+      get_thread_scratch(t, &src1, &src2, &best_rgb_y, &best_rgb_uv,
+                         &head_buffer);
+
+      uint64_t local_diff = 0;
+      for (size_t J = J_start; J < J_end; ++J) {
+        const size_t prev_J = (J > 0) ? J - 1 : 0;
+        const size_t next_J = (J < uv_h - 1) ? J + 1 : J;
+        const fixed_t* const prev_uv = &cur_in[prev_J * row_elems];
+        const fixed_t* const cur_uv  = &cur_in[J      * row_elems];
+        const fixed_t* const next_uv = &cur_in[next_J * row_elems];
+
+        const size_t uv_off = J * row_elems;
+        const size_t y_off = (J << 1) * w;
+
+        InterpolateTwoRows(&best_y[y_off], prev_uv, cur_uv, next_uv, (int)w,
+                           src1, src2);
+        kUpdateW(src1, &best_rgb_y[0 * w], (int)w);
+        kUpdateW(src2, &best_rgb_y[1 * w], (int)w);
+        kUpdateChroma(src1, src2, &best_rgb_uv[0], (int)uv_w);
+
+        local_diff += kSharpUpdateY(&target_y[y_off], &best_rgb_y[0],
+                                    &best_y[y_off], (int)(2 * w));
+
+        // For threads t > 0, buffer the first 2 rows of the slice in local
+        // scratch to prevent overwriting boundary rows needed by thread t - 1.
+        fixed_t* dst_ptr;
+        if (t > 0 && (J - J_start < 2)) {
+          dst_ptr = head_buffer + (J - J_start) * row_elems;
+        } else {
+          dst_ptr = &cur_out[uv_off];
+        }
+
+        memcpy(dst_ptr, &cur_in[uv_off], row_elems * sizeof(fixed_t));
+        kSharpUpdateRGB(&target_uv[uv_off], &best_rgb_uv[0], dst_ptr,
+                        (int)row_elems);
+      }
+      thread_diffs[t] = local_diff;
+    });
+
+    // Barrier complete. Flush buffered head rows for helper threads.
+    if (num_threads > 1) {
+      for (int t = 1; t < num_threads; ++t) {
+        const int count = std::min(2, slices[t].p_end - slices[t].p_start);
+        if (count > 0) {
+          fixed_y_t *src1, *src2, *best_rgb_y;
+          fixed_t *best_rgb_uv, *head_buffer;
+          get_thread_scratch(t, &src1, &src2, &best_rgb_y, &best_rgb_uv,
+                             &head_buffer);
+          memcpy(&cur_out[static_cast<size_t>(slices[t].p_start) * row_elems],
+                 head_buffer,
+                 static_cast<size_t>(count) * row_elems * sizeof(fixed_t));
+        }
+      }
+    }
+
+    uint64_t diff_y_sum = 0;
+    for (int t = 0; t < num_threads; ++t) {
+      diff_y_sum += thread_diffs[t];
+    }
+
+    current_offset_rows = out_offset;
     if (diff_y_sum < diff_y_threshold) break;
     if (iter > 0 && diff_y_sum > prev_diff_y_sum) break;
     prev_diff_y_sum = diff_y_sum;
   }
-  // final reconstruction
-  ConvertWRGBToYUV(&best_y[0], &best_uv[0], width, height,
-                   y_plane, u_plane, v_plane);
+
+  // Final reconstruction.
+  fixed_t* const final_best_uv =
+      best_uv_origin + current_offset_rows * row_stride;
+  run_parallel(uv_h, [&](int /*t*/, int p_start, int p_end) {
+    ConvertWRGBToYUVSlice(&best_y[0], final_best_uv, width, height,
+                          p_start, p_end, y_plane, u_plane, v_plane);
+  });
   return true;
 }
 
@@ -742,24 +871,37 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
 
 bool sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb, int W, int H,
                                     int stride, uint8_t* y_plane,
-                                    uint8_t* u_plane, uint8_t* v_plane) {
+                                    uint8_t* u_plane, uint8_t* v_plane,
+                                    const Encoder* encoder) {
+  if (rgb == nullptr || y_plane == nullptr || u_plane == nullptr ||
+      v_plane == nullptr) {
+    return false;
+  }
+  if (W <= 0 || H <= 0 || W > kMaxDimension || H > kMaxDimension) {
+    return false;
+  }
+  if (stride == INT_MIN) return false;
+  const int abs_stride = std::abs(stride);
+  if (abs_stride < 3 * W) return false;
+
   if (W <= kMinDimensionIterativeConversion ||
       H <= kMinDimensionIterativeConversion) {
     const int uv_w = (W + 1) >> 1;
     for (int y = 0; y < H; y += 2) {
-      const uint8_t* const rgb1 = rgb + y * stride;
+      const uint8_t* const rgb1 = rgb + static_cast<ptrdiff_t>(y) * stride;
       const uint8_t* const rgb2 = (y < H - 1) ? rgb1 + stride : rgb1;
-      ConvertRowToY(rgb1, W, &y_plane[y * W]);
+      ConvertRowToY(rgb1, W, &y_plane[static_cast<size_t>(y) * W]);
       if (y < H - 1) {
-        ConvertRowToY(rgb2, W, &y_plane[(y + 1) * W]);
+        ConvertRowToY(rgb2, W, &y_plane[static_cast<size_t>(y + 1) * W]);
       }
       ConvertRowToUV(rgb1, rgb2, W,
-                     &u_plane[(y >> 1) * uv_w],
-                     &v_plane[(y >> 1) * uv_w]);
+                     &u_plane[static_cast<size_t>(y >> 1) * uv_w],
+                     &v_plane[static_cast<size_t>(y >> 1) * uv_w]);
     }
     return true;
   } else {
-    return PreprocessARGB(rgb, W, H, stride, y_plane, u_plane, v_plane);
+    return PreprocessARGB(rgb, W, H, stride, y_plane, u_plane, v_plane,
+                          encoder);
   }
 }
 

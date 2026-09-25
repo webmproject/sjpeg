@@ -151,6 +151,22 @@ void EncoderParam::ResetMetadata() {
   xmp_split_point = 0u;
 }
 
+namespace {
+
+int GetNumThreads(const EncoderParam& param) {
+#if defined(SJPEG_NO_MULTITHREADING)
+  (void)param;
+  return 1;
+#else
+  if (param.num_threads < 0) {
+    return Encoder::HardwareConcurrency();
+  }
+  return std::max(1, param.num_threads);
+#endif
+}
+
+}  // namespace
+
 bool Encoder::InitFromParam(const EncoderParam& param) {
   SetQuantMatrices(param.quant_);
   if (param.use_min_quant_) {
@@ -187,14 +203,8 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   }
 
   restart_interval_rows_ = param.restart_interval_rows;
-#if defined(SJPEG_NO_MULTITHREADING)
-  num_threads_ = 1;
-#else
-  if (param.num_threads < 0) {
-    num_threads_ = HardwareConcurrency();
-  } else {
-    num_threads_ = std::max(1, param.num_threads);
-  }
+  num_threads_ = GetNumThreads(param);
+#if !defined(SJPEG_NO_MULTITHREADING)
   // Parallel coding needs somewhere to slice the scan, so ask for the finest
   // granularity unless the caller picked one.
   if (num_threads_ > 1) {
@@ -212,9 +222,10 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
   if (rgb == nullptr || sink == nullptr) return false;
   if (width <= 0 || height <= 0 || std::abs(stride) < 3 * width) return false;
 
+  const int num_threads = GetNumThreads(param);
   Encoder* const enc = EncoderFactory(rgb, width, height, stride,
                                       param.yuv_mode, sink, kRGBInput,
-                                      param.memory);
+                                      param.memory, num_threads);
   return FinishEncoding(enc, param);
 }
 
@@ -249,8 +260,9 @@ bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
     }
     return Encode(rgb.get(), width, height, rgb_stride, param, sink);
   }
+  const int num_threads = GetNumThreads(param);
   Encoder* const enc = EncoderFactory(bgra, width, height, stride, mode, sink,
-                                      kBGRAInput, param.memory);
+                                      kBGRAInput, param.memory, num_threads);
   return FinishEncoding(enc, param);
 }
 
@@ -276,8 +288,9 @@ bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
     }
     return Encode(rgb.get(), width, height, rgb_stride, param, sink);
   }
+  const int num_threads = GetNumThreads(param);
   Encoder* const enc = EncoderFactory(rgba, width, height, stride, mode, sink,
-                                      kRGBAInput, param.memory);
+                                      kRGBAInput, param.memory, num_threads);
   return FinishEncoding(enc, param);
 }
 
