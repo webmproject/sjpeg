@@ -1035,7 +1035,7 @@ SJPEG_TEST(RestartMarkers) {
     return false;
   };
 
-  auto ExtractDRI = [](const std::string& jpeg) -> uint16_t {
+  auto ExtractDRI = [&kMarkerByteDRI](const std::string& jpeg) -> uint16_t {
     const uint8_t* data = reinterpret_cast<const uint8_t*>(jpeg.data());
     const size_t size = jpeg.size();
     for (size_t i = 0; i + 5 < size; ++i) {
