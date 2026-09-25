@@ -91,13 +91,19 @@
 
 namespace sjpeg {
 
+#if defined(__has_builtin)
+#define SJPEG_HAS_BUILTIN(x) __has_builtin(x)
+#else
+#define SJPEG_HAS_BUILTIN(x) 0
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////
 // Safe integer arithmetic helpers for buffer sizing and allocations.
 
 #if (defined(__GNUC__) && __GNUC__ >= 5) || \
-    (defined(__clang__) && defined(__has_builtin) && \
-     __has_builtin(__builtin_mul_overflow) && \
-     __has_builtin(__builtin_add_overflow))
+    (defined(__clang__) && \
+     SJPEG_HAS_BUILTIN(__builtin_mul_overflow) && \
+     SJPEG_HAS_BUILTIN(__builtin_add_overflow))
 #define SJPEG_HAS_BUILTIN_OVERFLOW 1
 #endif
 
@@ -320,12 +326,6 @@ BlockActivityTier ClassifyActivity(uint32_t activity);
 // Classify an 8x8 block from its DCT coefficients.
 BlockActivityTier ClassifyBlockActivity(const int16_t in[64],
                                         uint32_t* score = nullptr);
-
-#if defined(__has_builtin)
-#define SJPEG_HAS_BUILTIN(x) __has_builtin(x)
-#else
-#define SJPEG_HAS_BUILTIN(x) 0
-#endif
 
 #if SJPEG_HAS_BUILTIN(__builtin_clz) || \
     (defined(__GNUC__) && \
