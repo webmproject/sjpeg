@@ -104,6 +104,23 @@ void SetAverage(int DC, int16_t* const out) {
 
 }   // namespace
 
+void Encoder::GetLumaBlock16x16(const uint8_t* y, int y_step, int mb_x,
+                                int mb_y, bool clipped, int16_t* out,
+                                uint8_t* rep_buf) {
+  const uint8_t* Y1 = y + (mb_x + mb_y * y_step) * 16;
+  if (clipped) {
+    Y1 = GetReplicatedYSamples(Y1, y_step, W_ - mb_x * 16, H_ - mb_y * 16,
+                               rep_buf);
+    y_step = 16;
+  }
+  const uint8_t* const Y2 = Y1 + 8 * y_step;
+  Convert8To16b(Y1 + 0, y_step, out + 0 * 64);
+  Convert8To16b(Y1 + 8, y_step, out + 1 * 64);
+  Convert8To16b(Y2 + 0, y_step, out + 2 * 64);
+  Convert8To16b(Y2 + 8, y_step, out + 3 * 64);
+  if (clipped) AverageExtraLuma(W_ - mb_x * 16, H_ - mb_y * 16, out);
+}
+
 void Encoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
   // out[] points to four 8x8 blocks. When one of these blocks is totally
   // outside of the frame, we set it flat to the average value of the previous
@@ -188,21 +205,22 @@ class Encoder420 final : public Encoder {
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// sub-class for YUV 4:4:4 version
+// sub-class for YUV 4:4:4 and 4:0:0 versions (both are single 8x8-block MCUs,
+// differing only in nb_comps_/mcu_blocks_, set via InitComponents())
 
-class Encoder444 final : public Encoder {
+class EncoderRGB final : public Encoder {
  public:
-  Encoder444(int W, int H, const uint8_t* const rgb, int step,
-             ByteSink* const sink, PixelFormat fmt = kRGBInput,
+  EncoderRGB(SjpegYUVMode yuv_mode, int W, int H, const uint8_t* const rgb,
+             int step, ByteSink* const sink, PixelFormat fmt = kRGBInput,
              MemoryManager* const memory = nullptr)
-      : Encoder(SJPEG_YUV_444, W, H, sink, memory), rgb_(rgb), step_(step) {
+      : Encoder(yuv_mode, W, H, sink, memory), rgb_(rgb), step_(step) {
     ok_ = (rgb != nullptr);
     if (fmt != kRGBInput) {
       pix_step_ = 4;
       get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
     }
   }
-  ~Encoder444() override {}
+  ~EncoderRGB() override {}
 
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
@@ -210,40 +228,6 @@ class Encoder444 final : public Encoder {
     int step = step_;
     if (clipped) {
       rgb = GetReplicatedSamples(rgb, step, W_ - mb_x * 8, H_ - mb_y * 8, 8, 8,
-                                 rep_buf);
-      step = pix_step_ * 8;
-    }
-    get_yuv_block_(rgb, step, out);
-  }
-
- protected:
-  const uint8_t* const rgb_;   // input samples
-  int step_;
-};
-
-////////////////////////////////////////////////////////////////////////////////
-// sub-class for YUV 4:0:0 version
-
-class Encoder400 final : public Encoder {
- public:
-  Encoder400(int W, int H, const uint8_t* const src, int step,
-             ByteSink* const sink, PixelFormat fmt = kRGBInput,
-             MemoryManager* const memory = nullptr)
-      : Encoder(SJPEG_YUV_400, W, H, sink, memory), rgb_(src), step_(step) {
-    ok_ = (src != nullptr);
-    if (fmt != kRGBInput) {
-      pix_step_ = 4;
-      get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
-    }
-  }
-  ~Encoder400() override {}
-
-  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
-                  uint8_t* rep_buf) override {
-    const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 8;
-    int step = step_;
-    if (clipped) {
-      rgb = GetReplicatedSamples(rgb, step_, W_ - mb_x * 8, H_ - mb_y * 8, 8, 8,
                                  rep_buf);
       step = pix_step_ * 8;
     }
@@ -306,21 +290,7 @@ class EncoderNV12 final : public Encoder {
  protected:
   void GetYSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                    uint8_t* rep_buf) {
-    const uint8_t* Y1 = y_ + (mb_x + mb_y * y_step_) * 16;
-    int y_step = y_step_;
-    if (clipped) {
-      Y1 = GetReplicatedYSamples(Y1, y_step, W_ - mb_x * 16, H_ - mb_y * 16,
-                                 rep_buf);
-      y_step = 16;
-    }
-    const uint8_t* Y2 = Y1 + 8 * y_step;
-    Convert8To16b(Y1 + 0, y_step, out + 0 * 64);
-    Convert8To16b(Y1 + 8, y_step, out + 1 * 64);
-    Convert8To16b(Y2 + 0, y_step, out + 2 * 64);
-    Convert8To16b(Y2 + 8, y_step, out + 3 * 64);
-    if (clipped) {
-      AverageExtraLuma(W_ - mb_x * 16, H_ - mb_y * 16, out);
-    }
+    GetLumaBlock16x16(y_, y_step_, mb_x, mb_y, clipped, out, rep_buf);
   }
   void GetUVSamples(int mb_x, int mb_y, bool clipped, int16_t* const U,
                     int16_t* const V, uint8_t* rep_buf) {
@@ -468,21 +438,7 @@ class EncoderYUV420 : public Encoder {
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
     // Luma
-    const uint8_t* Y1 = y_ + (mb_x + mb_y * y_step_) * 16;
-    int y_step = y_step_;
-    if (clipped) {
-      Y1 = GetReplicatedYSamples(Y1, y_step, W_ - mb_x * 16, H_ - mb_y * 16,
-                                 rep_buf);
-      y_step = 16;
-    }
-    const uint8_t* const Y2 = Y1 + 8 * y_step;
-    Convert8To16b(Y1 + 0, y_step, out + 0 * 64);
-    Convert8To16b(Y1 + 8, y_step, out + 1 * 64);
-    Convert8To16b(Y2 + 0, y_step, out + 2 * 64);
-    Convert8To16b(Y2 + 8, y_step, out + 3 * 64);
-    if (clipped) {
-      AverageExtraLuma(W_ - mb_x * 16, H_ - mb_y * 16, out);
-    }
+    GetLumaBlock16x16(y_, y_step_, mb_x, mb_y, clipped, out, rep_buf);
     // U/V
     const uint8_t* U = u_ + (mb_x + mb_y * u_step_) * 8;
     const uint8_t* V = v_ + (mb_x + mb_y * v_step_) * 8;
@@ -585,10 +541,9 @@ Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
     enc = new (std::nothrow) EncoderSharp420(W, H, rgb, stride, sink, memory,
                                              num_threads);
-  } else if (yuv_mode == SJPEG_YUV_444) {
-    enc = new (std::nothrow) Encoder444(W, H, rgb, stride, sink, fmt, memory);
-  } else if (yuv_mode == SJPEG_YUV_400) {
-    enc = new (std::nothrow) Encoder400(W, H, rgb, stride, sink, fmt, memory);
+  } else if (yuv_mode == SJPEG_YUV_444 || yuv_mode == SJPEG_YUV_400) {
+    enc = new (std::nothrow) EncoderRGB(yuv_mode, W, H, rgb, stride, sink,
+                                        fmt, memory);
   }
   if (enc == nullptr || !enc->Ok()) {
     delete enc;

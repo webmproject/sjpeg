@@ -38,6 +38,11 @@
 #define SJPEG_USE_NEON
 #endif
 
+#if !defined(SJPEG_AARCH64) && \
+    (defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC))
+#define SJPEG_AARCH64
+#endif
+
 // Architecture-specific intrinsic headers.
 #if defined(SJPEG_USE_AVX2)
 #include <immintrin.h>
