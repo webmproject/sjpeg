@@ -22,15 +22,20 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if !defined(SJPEG_USE_SSE2) && defined(__SSE2__)
+
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+#define SJPEG_MSC_X86 1
+#endif
+
+#if !defined(SJPEG_USE_SSE2) && (defined(__SSE2__) || SJPEG_MSC_X86)
 #define SJPEG_USE_SSE2
 #endif
 
-#if !defined(SJPEG_USE_SSSE3) && defined(__SSSE3__)
+#if !defined(SJPEG_USE_SSSE3) && (defined(__SSSE3__) || SJPEG_MSC_X86)
 #define SJPEG_USE_SSSE3
 #endif
 
-#if !defined(SJPEG_USE_AVX2) && defined(__AVX2__)
+#if !defined(SJPEG_USE_AVX2) && (defined(__AVX2__) || SJPEG_MSC_X86)
 #define SJPEG_USE_AVX2
 #endif
 
