@@ -72,9 +72,9 @@ uint64_t SharpUpdateY_AVX2(const uint16_t* ref, const uint16_t* src,
          tmp[6] + tmp[7];
   for (; i < len; ++i) {
     const int diff_y = ref[i] - src[i];
-    const int new_y = static_cast<int>(dst[i]) + diff_y;
+    const int new_y = (int)dst[i] + diff_y;
     dst[i] = clip_y(new_y);
-    diff += static_cast<uint64_t>(abs(diff_y));
+    diff += (uint64_t)abs(diff_y);
   }
   return diff;
 }

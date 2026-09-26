@@ -137,7 +137,7 @@ static void InitGammaTablesF() {
         const double a_rec = 1. / (1. + a);
         value = pow(a_rec * (g + a), gamma);
       }
-      kGammaToLinearTab[v] = static_cast<uint32_t>(value * final_scale + .5);
+      kGammaToLinearTab[v] = (uint32_t)(value * final_scale + .5);
     }
     for (v = 0; v <= GAMMA_TABLE_SIZE; ++v) {
       const double g = scale * v;
@@ -147,7 +147,7 @@ static void InitGammaTablesF() {
       } else {
         value = (1. + a) * pow(g, 1. / gamma) - a;
       }
-      kLinearToGammaTab[v] = static_cast<uint32_t>(MAX_Y_T * value);
+      kLinearToGammaTab[v] = (uint32_t)(MAX_Y_T * value);
     }
     // to prevent small rounding errors to cause read-overflow:
     kLinearToGammaTab[GAMMA_TABLE_SIZE + 1] =
@@ -227,7 +227,7 @@ static uint64_t SharpUpdateY_C(const uint16_t* ref, const uint16_t* src,
   uint64_t diff = 0;
   for (int i = 0; i < len; ++i) {
     const int diff_y = ref[i] - src[i];
-    const int new_y = static_cast<int>(dst[i]) + diff_y;
+    const int new_y = (int)dst[i] + diff_y;
     dst[i] = clip_y(new_y);
     diff += (uint64_t)abs(diff_y);
   }
@@ -296,7 +296,7 @@ static uint64_t SharpUpdateY_SSE2(const uint16_t* ref, const uint16_t* src,
   diff = tmp[3] + tmp[2] + tmp[1] + tmp[0];
   for (; i < len; ++i) {
     const int diff_y = ref[i] - src[i];
-    const int new_y = static_cast<int>(dst[i]) + diff_y;
+    const int new_y = (int)dst[i] + diff_y;
     dst[i] = clip_y(new_y);
     diff += (uint64_t)abs(diff_y);
   }
@@ -391,9 +391,9 @@ static uint64_t SharpUpdateY_NEON(const uint16_t* ref, const uint16_t* src,
   uint64_t diff = vgetq_lane_u64(sum, 0) + vgetq_lane_u64(sum, 1);
   for (; i < len; ++i) {
     const int diff_y = ref[i] - src[i];
-    const int new_y = static_cast<int>(dst[i]) + diff_y;
+    const int new_y = (int)dst[i] + diff_y;
     dst[i] = clip_y(new_y);
-    diff += static_cast<uint64_t>(abs(diff_y));
+    diff += (uint64_t)abs(diff_y);
   }
   return diff;
 }
@@ -602,12 +602,12 @@ static void ConvertWRGBToYUVSlice(const fixed_y_t* best_y,
   const size_t uv_w = w >> 1;
   const size_t row_elems = 3 * uv_w;
   const size_t j_y_start = j_uv_start * 2;
-  const size_t j_y_end = std::min(static_cast<size_t>(height), j_uv_end * 2);
+  const size_t j_y_end = std::min((size_t)height, j_uv_end * 2);
 
   for (size_t j = j_y_start; j < j_y_end; ++j) {
     const size_t off = (j >> 1) * row_elems;
     uint8_t* const dst_y = y_plane + j * width;
-    for (size_t i = 0; i < static_cast<size_t>(width); ++i) {
+    for (size_t i = 0; i < (size_t)width; ++i) {
       const int W = best_y[i + j * w];
       const int r = best_uv[off + (i >> 1) + 0 * uv_w] + W;
       const int g = best_uv[off + (i >> 1) + 1 * uv_w] + W;
@@ -648,7 +648,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
   uint64_t prev_diff_y_sum = ~0ULL;
 
 #if !defined(SJPEG_NO_MULTITHREADING)
-  const int max_threads = static_cast<int>(num_pairs);
+  const int max_threads = (int)num_pairs;
   const int num_threads =
       (encoder != nullptr)
           ? std::max(1, std::min(encoder->num_threads(), max_threads))
@@ -706,7 +706,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
                                 fixed_t** best_rgb_uv,
                                 fixed_t** head_buffer) {
     uint16_t* p =
-        thread_scratch_base + static_cast<size_t>(t) * per_thread_elems;
+        thread_scratch_base + (size_t)t * per_thread_elems;
     *src1 = p;
     p += 3 * w;
     *src2 = p;
@@ -733,7 +733,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
   run_parallel(num_pairs, [&](int t, int p_start, int p_end) {
     const size_t j_start = p_start * 2;
     const size_t j_end =
-        std::min(static_cast<size_t>(height), static_cast<size_t>(p_end * 2));
+        std::min((size_t)height, (size_t)(p_end * 2));
 
     fixed_y_t *src1, *src2, *best_rgb_y;
     fixed_t *best_rgb_uv, *head_buffer;
@@ -742,7 +742,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
 
     for (size_t j = j_start; j < j_end; j += 2) {
       const bool is_last_row = (j == (size_t)height - 1);
-      const ptrdiff_t rgb_off = static_cast<ptrdiff_t>(j) * stride;
+      const ptrdiff_t rgb_off = (ptrdiff_t)j * stride;
       const size_t y_off = j * w;
       const size_t uv_off = (j >> 1) * row_elems;
 
@@ -762,7 +762,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
     }
   });
 
-  const ptrdiff_t row_stride = static_cast<ptrdiff_t>(row_elems);
+  const ptrdiff_t row_stride = (ptrdiff_t)row_elems;
   int current_offset_rows = 0;
   struct SliceRange {
     int p_start;
@@ -836,9 +836,9 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
           fixed_t *best_rgb_uv, *head_buffer;
           get_thread_scratch(t, &src1, &src2, &best_rgb_y, &best_rgb_uv,
                              &head_buffer);
-          memcpy(&cur_out[static_cast<size_t>(slices[t].p_start) * row_elems],
+          memcpy(&cur_out[(size_t)slices[t].p_start * row_elems],
                  head_buffer,
-                 static_cast<size_t>(count) * row_elems * sizeof(fixed_t));
+                 (size_t)count * row_elems * sizeof(fixed_t));
         }
       }
     }
@@ -888,15 +888,15 @@ bool sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb, int W, int H,
       H <= kMinDimensionIterativeConversion) {
     const int uv_w = (W + 1) >> 1;
     for (int y = 0; y < H; y += 2) {
-      const uint8_t* const rgb1 = rgb + static_cast<ptrdiff_t>(y) * stride;
+      const uint8_t* const rgb1 = rgb + (ptrdiff_t)y * stride;
       const uint8_t* const rgb2 = (y < H - 1) ? rgb1 + stride : rgb1;
-      ConvertRowToY(rgb1, W, &y_plane[static_cast<size_t>(y) * W]);
+      ConvertRowToY(rgb1, W, &y_plane[(size_t)y * W]);
       if (y < H - 1) {
-        ConvertRowToY(rgb2, W, &y_plane[static_cast<size_t>(y + 1) * W]);
+        ConvertRowToY(rgb2, W, &y_plane[(size_t)(y + 1) * W]);
       }
       ConvertRowToUV(rgb1, rgb2, W,
-                     &u_plane[static_cast<size_t>(y >> 1) * uv_w],
-                     &v_plane[static_cast<size_t>(y >> 1) * uv_w]);
+                     &u_plane[(size_t)(y >> 1) * uv_w],
+                     &v_plane[(size_t)(y >> 1) * uv_w]);
     }
     return true;
   } else {
