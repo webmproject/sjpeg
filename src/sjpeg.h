@@ -86,6 +86,9 @@ typedef enum {
 //  coefficients, at the expense of being ~15% slower, but will still use some
 //  memory for the Huffman size-optimization. Eventually, method 6 will use
 //  a minimal amount of RAM, but will be must slower.
+//  Methods 7 and 8 behave like methods 4 and 6 respectively, but additionally
+//  use trellis-based quantization for better rate-distortion at extra CPU
+//  cost.
 //  To recap:
 //     method                     | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 //     ---------------------------+---+---+---+---+---+---+---+---+---|

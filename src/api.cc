@@ -238,6 +238,32 @@ size_t Encode(const uint8_t* rgb, int width, int height, int stride,
   return size;
 }
 
+namespace {
+
+// converts a 4-channel buffer to a scratch RGB plane, for the AUTO/SHARP
+// fallback path. r_idx/b_idx select which source channel feeds R and B.
+// Both call sites pass literal constants for them, so this inlines to the
+// same code two separate hand-written loops would produce.
+bool ConvertToRGB(const uint8_t* src, int width, int height, int stride,
+                   int r_idx, int b_idx, std::unique_ptr<uint8_t[]>* const rgb,
+                   int* const rgb_stride) {
+  *rgb_stride = 3 * width;
+  rgb->reset(new (std::nothrow) uint8_t[(size_t)*rgb_stride * height]);
+  if (*rgb == nullptr) return false;
+  for (int y = 0; y < height; ++y) {
+    const uint8_t* s = src + static_cast<ptrdiff_t>(y) * stride;
+    uint8_t* d = rgb->get() + (size_t)y * *rgb_stride;
+    for (int x = 0; x < width; ++x, s += 4, d += 3) {
+      d[0] = s[r_idx];
+      d[1] = s[1];
+      d[2] = s[b_idx];
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
 bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
                 const EncoderParam& param, ByteSink* sink) {
   if (bgra == nullptr || sink == nullptr) return false;
@@ -245,18 +271,11 @@ bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
   const SjpegYUVMode mode = param.yuv_mode;
   if (mode == SJPEG_YUV_AUTO || mode == SJPEG_YUV_SHARP) {
     // Fallback: convert to a scratch RGB plane and reuse the RGB path.
-    const int rgb_stride = 3 * width;
-    std::unique_ptr<uint8_t[]> rgb(new (std::nothrow)
-                                       uint8_t[(size_t)rgb_stride * height]);
-    if (rgb == nullptr) return false;
-    for (int y = 0; y < height; ++y) {
-      const uint8_t* s = bgra + static_cast<ptrdiff_t>(y) * stride;
-      uint8_t* d = rgb.get() + (size_t)y * rgb_stride;
-      for (int x = 0; x < width; ++x, s += 4, d += 3) {
-        d[0] = s[2];
-        d[1] = s[1];
-        d[2] = s[0];
-      }
+    int rgb_stride;
+    std::unique_ptr<uint8_t[]> rgb;
+    if (!ConvertToRGB(bgra, width, height, stride,
+                      /*r_idx=*/2, /*b_idx=*/0, &rgb, &rgb_stride)) {
+      return false;
     }
     return Encode(rgb.get(), width, height, rgb_stride, param, sink);
   }
@@ -273,18 +292,11 @@ bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
   const SjpegYUVMode mode = param.yuv_mode;
   if (mode == SJPEG_YUV_AUTO || mode == SJPEG_YUV_SHARP) {
     // Fallback: convert to a scratch RGB plane and reuse the RGB path.
-    const int rgb_stride = 3 * width;
-    std::unique_ptr<uint8_t[]> rgb(new (std::nothrow)
-                                       uint8_t[(size_t)rgb_stride * height]);
-    if (rgb == nullptr) return false;
-    for (int y = 0; y < height; ++y) {
-      const uint8_t* s = rgba + static_cast<ptrdiff_t>(y) * stride;
-      uint8_t* d = rgb.get() + (size_t)y * rgb_stride;
-      for (int x = 0; x < width; ++x, s += 4, d += 3) {
-        d[0] = s[0];
-        d[1] = s[1];
-        d[2] = s[2];
-      }
+    int rgb_stride;
+    std::unique_ptr<uint8_t[]> rgb;
+    if (!ConvertToRGB(rgba, width, height, stride,
+                      /*r_idx=*/0, /*b_idx=*/2, &rgb, &rgb_stride)) {
+      return false;
     }
     return Encode(rgb.get(), width, height, rgb_stride, param, sink);
   }

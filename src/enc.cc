@@ -677,6 +677,10 @@ void Encoder::SinglePassEncode() {
 #endif
 
   // baseline coding
+  WriteBaselineAndScan();
+}
+
+void Encoder::WriteBaselineAndScan() {
   WriteSOF();
   WriteDRI();
 

@@ -230,6 +230,10 @@ void Encoder::CollectHistogramsMultiThreaded(int num_threads) {
     uint8_t rep_buf[4 * 16 * 16];
     CollectHistogramsSlice(y_start, y_end, dst_histos, mcu_scratch, rep_buf);
   });
+  // If RunParallel() failed before running any worker (SetError() below the
+  // ThreadPool allocation), histos_ was never reset and workers[] holds
+  // uninitialized memory: skip the merge rather than fold garbage in.
+  if (!ok_) return;
 
   for (int q = 0; q < num_histos; ++q) {
     int* const dst = &histos_[q].counts_[0][0];
@@ -249,6 +253,9 @@ void Encoder::CollectCoeffsMultiThreaded(int num_threads) {
     uint8_t rep_buf[4 * 16 * 16];
     CollectCoeffsSlice(y_start, y_end, rep_buf);
   });
+  // Same failure mode as CollectHistogramsMultiThreaded() above: don't claim
+  // in_blocks_ holds valid coefficients if no worker actually ran.
+  if (!ok_) return;
   have_coeffs_ = true;
 }
 
