@@ -288,9 +288,11 @@ void RowDct_SSE2(int16_t* in, const __m128i* table1,
   // we process two rows in parallel
   __m128i m4 = m0;
   // => x0 x1 x2 x3 | x0' x1' x2' x3'
-  m0 = (__m128i)_mm_shuffle_ps((__m128)m0, (__m128)m2, 0x44);
+  m0 = _mm_castps_si128(
+      _mm_shuffle_ps(_mm_castsi128_ps(m0), _mm_castsi128_ps(m2), 0x44));
   // => x7 x6 x5 x4 | x7' x6' x5' x4'
-  m4 = (__m128i)_mm_shuffle_ps((__m128)m4, (__m128)m2, 0xee);
+  m4 = _mm_castps_si128(
+      _mm_shuffle_ps(_mm_castsi128_ps(m4), _mm_castsi128_ps(m2), 0xee));
 
   // initial butterfly
   m2 = m0;
