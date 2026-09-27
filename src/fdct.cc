@@ -169,7 +169,7 @@ void ColumnDct(int16_t* in) {
 
 // We don't really need to round before descaling, since we
 // still have 4 bits of precision left as final scaled output.
-#define DESCALE(a)  static_cast<int16_t>((a) >> 16)
+#define DESCALE(a)  (int16_t)((a) >> 16)
 
 static void RowDct(int16_t* in, const int16_t*table) {
   // The Fourier transform is an unitary operator, so we're basically
