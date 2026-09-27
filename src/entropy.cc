@@ -158,6 +158,17 @@ void Encoder::ResetDCs() {
   }
 }
 
+// Codes one block's DC symbol. Shared by CodeBlock()/CodeBlockDC().
+static inline void CodeDC(uint16_t dc_code, const uint32_t* const dc_codes,
+                          BitWriter* const bw) {
+  const int dc_len = dc_code & 0x0f;
+  const uint32_t code = dc_codes[dc_len];
+  bw->PutPackedCode(code);
+  if (dc_len > 0) {
+    bw->PutBits(dc_code >> 4, dc_len);
+  }
+}
+
 // Codes one block's AC run-level list (windowed[Ss,Se] for progressive, or
 // the full block for baseline). Shared by CodeBlock()/CodeBlockACWindowed().
 static inline void CodeACRunLevels(const RunLevel* const rl, int n,
@@ -190,13 +201,7 @@ void Encoder::CodeBlock(const DCTCoeffs* const coeffs, const RunLevel* const rl,
   const int idx = coeffs->idx_;
   const int q_idx = quant_idx_[idx];
 
-  // DC coefficient symbol
-  const int dc_len = coeffs->dc_code_ & 0x0f;
-  const uint32_t code = dc_codes_[q_idx][dc_len];
-  bw->PutPackedCode(code);
-  if (dc_len > 0) {
-    bw->PutBits(coeffs->dc_code_ >> 4, dc_len);
-  }
+  CodeDC(coeffs->dc_code_, dc_codes_[q_idx], bw);
 
   // AC coeffs
   const uint32_t* const codes = ac_codes_[q_idx];
@@ -481,12 +486,7 @@ void Encoder::AddEntropyStatsDC(const DCTCoeffs* const coeffs) {
 
 void Encoder::CodeBlockDC(const DCTCoeffs* const coeffs) {
   const int q_idx = quant_idx_[coeffs->idx_];
-  const int dc_len = coeffs->dc_code_ & 0x0f;
-  const uint32_t code = dc_codes_[q_idx][dc_len];
-  bw_.PutPackedCode(code);
-  if (dc_len > 0) {
-    bw_.PutBits(coeffs->dc_code_ >> 4, dc_len);
-  }
+  CodeDC(coeffs->dc_code_, dc_codes_[q_idx], &bw_);
 }
 
 // Builds an optimal table from freq[] and its codes[], in one go. Shared by

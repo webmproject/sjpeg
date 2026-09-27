@@ -793,12 +793,7 @@ Encoder::QuantizeErrorFunc Encoder::GetQuantizeErrorFunc() {
 }
 
 QuantizeErrorTestFunc GetQuantizeErrorFuncForTest() {
-#if defined(SJPEG_USE_SSE2)
-  if (SupportsSSE2()) return QuantizeErrorSSE2;
-#elif defined(SJPEG_USE_NEON)
-  if (SupportsNEON()) return QuantizeErrorNEON;
-#endif
-  return QuantizeError;  // default
+  return Encoder::GetQuantizeErrorFunc();
 }
 
 }    // namespace sjpeg
