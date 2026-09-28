@@ -147,6 +147,8 @@ static inline int32_t HorizontalSumS16(__m128i v) {
 struct NeonVector16 {
   uint8x16_t v;
   operator uint8x16_t() const { return v; }
+// skip the duplicates since MSVC aliases all these types to the same union
+#if !defined(_MSC_VER) || defined(__clang__)
 #define SJPEG_NEON16_OP(T, S) \
   operator T() const { return vreinterpretq_##S##_u8(v); }
   SJPEG_NEON16_OP(int8x16_t, s8)
@@ -157,6 +159,7 @@ struct NeonVector16 {
   SJPEG_NEON16_OP(uint64x2_t, u64)
   SJPEG_NEON16_OP(int64x2_t, s64)
 #undef SJPEG_NEON16_OP
+#endif  // !_MSC_VER || __clang__
 };
 static inline NeonVector16 Load16_NEON(const void* src) {
   return NeonVector16{vld1q_u8(reinterpret_cast<const uint8_t*>(src))};
@@ -165,6 +168,7 @@ static inline NeonVector16 Load16_NEON(const void* src) {
 struct NeonVector8 {
   uint8x8_t v;
   operator uint8x8_t() const { return v; }
+#if !defined(_MSC_VER) || defined(__clang__)
 #define SJPEG_NEON8_OP(T, S) \
   operator T() const { return vreinterpret_##S##_u8(v); }
   SJPEG_NEON8_OP(int8x8_t, s8)
@@ -175,6 +179,7 @@ struct NeonVector8 {
   SJPEG_NEON8_OP(uint64x1_t, u64)
   SJPEG_NEON8_OP(int64x1_t, s64)
 #undef SJPEG_NEON8_OP
+#endif  // !_MSC_VER || __clang__
 };
 static inline NeonVector8 Load8_NEON(const void* src) {
   return NeonVector8{vld1_u8(reinterpret_cast<const uint8_t*>(src))};
