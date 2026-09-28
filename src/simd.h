@@ -41,7 +41,9 @@
 #define SJPEG_USE_AVX2
 #endif
 
-#if !defined(SJPEG_USE_NEON) && (defined(__ARM_NEON__) || defined(__aarch64__))
+#if !defined(SJPEG_USE_NEON) &&                                          \
+    (defined(__ARM_NEON__) || defined(__aarch64__) || defined(_M_ARM) || \
+     defined(_M_ARM64) || defined(_M_ARM64EC))
 #define SJPEG_USE_NEON
 #endif
 
@@ -194,6 +196,7 @@ static inline NeonVector8 Load8_NEON(const void* src) {
   }
 
 SJPEG_STORE_NEON(uint8x16_t, uint8x8_t, u8, uint8_t)
+#if !defined(_MSC_VER) || defined(__clang__)
 SJPEG_STORE_NEON(int8x16_t, int8x8_t, s8, int8_t)
 SJPEG_STORE_NEON(uint16x8_t, uint16x4_t, u16, uint16_t)
 SJPEG_STORE_NEON(int16x8_t, int16x4_t, s16, int16_t)
@@ -201,6 +204,7 @@ SJPEG_STORE_NEON(uint32x4_t, uint32x2_t, u32, uint32_t)
 SJPEG_STORE_NEON(int32x4_t, int32x2_t, s32, int32_t)
 SJPEG_STORE_NEON(uint64x2_t, uint64x1_t, u64, uint64_t)
 SJPEG_STORE_NEON(int64x2_t, int64x1_t, s64, int64_t)
+#endif  // !_MSC_VER || __clang__
 #undef SJPEG_STORE_NEON
 
 static inline void Store16_NEON(NeonVector16 v, void* dst) {
