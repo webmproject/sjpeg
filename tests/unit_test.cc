@@ -1037,6 +1037,11 @@ SJPEG_TEST(RestartMarkers) {
     return false;
   };
 
+  // capture kept for MSVC
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-lambda-capture"
+#endif
   auto ExtractDRI = [&kMarkerByteDRI](const std::string& jpeg) -> uint16_t {
     const uint8_t* data = reinterpret_cast<const uint8_t*>(jpeg.data());
     const size_t size = jpeg.size();
@@ -1048,6 +1053,9 @@ SJPEG_TEST(RestartMarkers) {
     }
     return 0;
   };
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
   // Test 1: restart_interval_rows = 0 -> no DRI marker
   {
