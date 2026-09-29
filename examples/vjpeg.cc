@@ -27,11 +27,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <string.h>  // IWYU pragma: keep
 
-#include <cmath>
-#include <vector>
-using std::vector;
+#include <vector>  // IWYU pragma: keep
 
 #if defined(SJPEG_HAVE_OPENGL) && \
     (defined(HAVE_GLUT_GLUT_H) || defined(HAVE_GL_GLUT_H))

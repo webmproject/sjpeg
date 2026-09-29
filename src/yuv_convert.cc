@@ -17,13 +17,14 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
-#include <math.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <mutex>  // NOLINT
@@ -260,8 +261,7 @@ void SharpUpdateRGB_AVX2(const int16_t* ref, const int16_t* src, int16_t* dst,
 void SharpFilterRow_AVX2(const int16_t* A, const int16_t* B, int len,
                          const uint16_t* best_y, uint16_t* out);
 void StoreGray_AVX2(const fixed_y_t* rgb, fixed_y_t* y, int w);
-void ImportOneRow_AVX2(const uint8_t* rgb, int pic_width,
-                       fixed_y_t* dst);
+void ImportOneRow_AVX2(const uint8_t* rgb, int pic_width, fixed_y_t* dst);
 void UpdateW_AVX2(const fixed_y_t* src, fixed_y_t* dst, int w);
 void UpdateChroma_AVX2(const fixed_y_t* src1, const fixed_y_t* src2,
                        fixed_t* dst, size_t uv_w);

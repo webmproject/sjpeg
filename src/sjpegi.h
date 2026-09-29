@@ -29,7 +29,6 @@
 #include <vector>
 
 #if !defined(SJPEG_NO_MULTITHREADING)
-#include <functional>
 #include <memory>
 #endif
 
@@ -62,8 +61,8 @@
 // files that define SJPEG_NEED_ASM_HEADERS before including this one pull
 // them in.
 #if defined(SJPEG_NEED_ASM_HEADERS)
-#include "simd.h"
-#endif  // SJPEG_NEED_ASM_HEADERS
+#include "simd.h"  // IWYU pragma: export
+#endif             // SJPEG_NEED_ASM_HEADERS
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -234,8 +233,7 @@ typedef uint16_t fixed_y_t;
 // Import one RGB row into planar fixed_y_t format starting at column start_x.
 void ImportOneRow_C(const uint8_t* rgb, int start_x, int pic_width,
                     fixed_y_t* dst);
-void ImportOneRow_C(const uint8_t* rgb, int pic_width,
-                    fixed_y_t* dst);
+void ImportOneRow_C(const uint8_t* rgb, int pic_width, fixed_y_t* dst);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Generic sample-replication function. Replicate sub_w x sub_h area of 'src'
@@ -259,8 +257,7 @@ extern float GetQFactor(float q);  // convert quality factor -> scale factor
 extern void CopyQuantMatrix(const uint8_t in[64], uint8_t out[64]);
 extern void SetQuantMatrix(const uint8_t in[64], float q_factor,
                            uint8_t out[64]);
-extern void SetMinQuantMatrix(const uint8_t* m, uint8_t out[64],
-                              int tolerance);
+extern void SetMinQuantMatrix(const uint8_t* m, uint8_t out[64], int tolerance);
 extern void SetDefaultMinQuantMatrix(uint8_t out[64]);
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -525,14 +522,12 @@ class Encoder {
   void CompileEntropyStatsDC();  // builds dc_codes_[] from freq_dc_[] directly
 
   // Restricts a block's RunLevel list to window [Ss,Se]; see entropy.cc.
-  static int WindowRunLevels(const DCTCoeffs* coeffs,
-                             const RunLevel* rl, int Ss, int Se,
-                             RunLevel* out, bool* out_has_eob);
+  static int WindowRunLevels(const DCTCoeffs* coeffs, const RunLevel* rl,
+                             int Ss, int Se, RunLevel* out, bool* out_has_eob);
 
   void ResetEntropyStatsAC();  // resets prog_planes_->freq_ac only
   // WindowRunLevels()'s explicit entries only; has_eob (EOBn) is separate.
-  void AddEntropyStatsACWindowed(const RunLevel* windowed,
-                                 int nb_windowed);
+  void AddEntropyStatsACWindowed(const RunLevel* windowed, int nb_windowed);
   void CodeBlockACWindowed(const RunLevel* windowed, int nb_windowed);
   // EOBn run-length coding across empty blocks; see entropy.cc.
   void AddEntropyStatsEOBRun(int run);
@@ -584,8 +579,7 @@ class Encoder {
 
   // 2-pass Huffman optimizing scan
   void ResetEntropyStats();
-  void AddEntropyStats(const DCTCoeffs* coeffs,
-                       const RunLevel* run_levels);
+  void AddEntropyStats(const DCTCoeffs* coeffs, const RunLevel* run_levels);
   // Same, into the supplied histograms rather than freq_ac_/freq_dc_. The
   // parallel scan tallies into per-worker copies and sums them afterwards.
   static void AddEntropyStats(const DCTCoeffs* coeffs,
@@ -676,21 +670,18 @@ class Encoder {
   static QuantizeBlockFunc GetQuantizeBlockFunc();
 
   static int TrellisQuantizeBlock(const int16_t in[64], int idx,
-                                  const Quantizer* Q,
-                                  DCTCoeffs* out, RunLevel* rl);
+                                  const Quantizer* Q, DCTCoeffs* out,
+                                  RunLevel* rl);
 
   static int AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
-                                       const Quantizer* Q,
-                                       DCTCoeffs* out,
+                                       const Quantizer* Q, DCTCoeffs* out,
                                        RunLevel* rl);
 
-  static int RDOQuantizeBlock(const int16_t in[64], int idx,
-                              const Quantizer* Q, DCTCoeffs* out,
-                              RunLevel* rl);
+  static int RDOQuantizeBlock(const int16_t in[64], int idx, const Quantizer* Q,
+                              DCTCoeffs* out, RunLevel* rl);
 
   static int RDOAdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
-                                          const Quantizer* Q,
-                                          DCTCoeffs* out,
+                                          const Quantizer* Q, DCTCoeffs* out,
                                           RunLevel* rl);
 
   // Picks quantize_block_ / TrellisQuantizeBlock / RDOQuantizeBlock /

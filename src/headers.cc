@@ -16,12 +16,14 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <assert.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <algorithm>
+#include <string>
 
 #include "md5sum.h"
 #include "sjpegi.h"

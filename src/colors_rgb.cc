@@ -20,6 +20,7 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <assert.h>
 #include <string.h>
 
 #include <cstdint>

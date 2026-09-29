@@ -20,6 +20,7 @@
 #include "./utils.h"
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -32,6 +33,7 @@
 #endif               // SJPEG_HAVE_PNG
 
 #include "../src/md5sum.h"
+#include "sjpeg.h"
 
 using sjpeg::EncoderParam;
 using std::vector;

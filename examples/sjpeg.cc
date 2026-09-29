@@ -23,6 +23,7 @@
 #include "sjpeg.h"
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -349,7 +350,8 @@ int main(int argc, char* argv[]) {
   }
 
   if (estimate) {
-    const int q = is_jpeg ? SjpegEstimateQuality(quant_matrices[0], false) : 100;
+    const int q =
+        is_jpeg ? SjpegEstimateQuality(quant_matrices[0], false) : 100;
     fprintf(stdout, "%d\n", q);
     return 0;
   }

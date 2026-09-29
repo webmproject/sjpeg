@@ -23,6 +23,7 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
+#include <stdint.h>
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"

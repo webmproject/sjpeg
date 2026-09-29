@@ -18,7 +18,14 @@
 
 #include "bit_writer.h"
 
+#include <assert.h>
+#include <stdint.h>
 #include <string.h>
+
+#include <memory>
+#include <new>
+#include <string>
+#include <vector>
 
 #include "sjpeg.h"
 

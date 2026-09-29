@@ -24,14 +24,9 @@
 #include <string.h>  // for memcpy / memset
 
 #include <algorithm>
-#include <cstdlib>
-#include <memory>
 #include <mutex>  // NOLINT
-#include <new>
 #include <string>
 #include <vector>
-
-#include "bit_writer.h"
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"

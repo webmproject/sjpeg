@@ -18,6 +18,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <stdint.h>
+
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 

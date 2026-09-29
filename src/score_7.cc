@@ -16,6 +16,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <stdint.h>
+
 #include "./sjpegi.h"
 
 namespace sjpeg {

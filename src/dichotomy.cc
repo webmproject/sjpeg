@@ -23,7 +23,6 @@
 #include <stdlib.h>
 
 #if !defined(SJPEG_NO_MULTITHREADING)
-#include <algorithm>
 #include <vector>
 #endif
 

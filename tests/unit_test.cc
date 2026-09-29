@@ -23,6 +23,7 @@
 #include <string.h>
 
 #include <climits>
+#include <memory>
 #include <string>
 #include <thread>  // NOLINT
 #include <vector>
@@ -171,7 +172,7 @@ SJPEG_TEST(Threads) {
   std::vector<std::string> out(kNumThreads);
   std::vector<std::thread> threads;
   threads.reserve(kNumThreads);
-for (int t = 0; t < kNumThreads; ++t) {
+  for (int t = 0; t < kNumThreads; ++t) {
     threads.push_back(std::thread([&, t]() {
       sjpeg::EncoderParam param(72.f);
       param.yuv_mode = SJPEG_YUV_SHARP;
