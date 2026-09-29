@@ -73,11 +73,11 @@ struct Params {
   uint8_t quant[2][64];
   bool limit_quantization;
   sjpeg::EncoderParam param;
-  vector<uint8_t> rgb;      // original samples
-  vector<uint8_t> out_rgb;  // recompressed samples
-  vector<uint8_t> map;      // error map
-  vector<uint8_t> alt;      // alternate comparison picture
-  size_t alt_size;          // size of the alternate picture
+  std::vector<uint8_t> rgb;      // original samples
+  std::vector<uint8_t> out_rgb;  // recompressed samples
+  std::vector<uint8_t> map;      // error map
+  std::vector<uint8_t> alt;      // alternate comparison picture
+  size_t alt_size;               // size of the alternate picture
   int width, height;
   int is_yuv420;
   int viewport_width, viewport_height;
@@ -109,7 +109,7 @@ static void PrintString(const std::string& text) {
   for (size_t i = 0; i < text.size(); ++i) glutBitmapCharacter(font, text[i]);
 }
 
-static void PrintMessages(const vector<std::string>& msg, float color[4],
+static void PrintMessages(const std::vector<std::string>& msg, float color[4],
                           bool draw_background = false) {
   if (msg.empty()) return;
 
@@ -159,7 +159,7 @@ static const int kFadeDecr = 5;
 static const int kFadeMs = 3000 / kFadeDecr;
 
 static void PrintInfo() {
-  vector<std::string> msg;
+  std::vector<std::string> msg;
   float color[4] = {0.90f, 0.90f, 0.90f, 1.0f};
 
   if (kParams.show == 3) {
