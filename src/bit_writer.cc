@@ -81,7 +81,7 @@ std::shared_ptr<ByteSink> MakeByteSink(std::string* const output) {
 }
 
 // specialization for vector<uint8_t>
-template<>
+template <>
 std::shared_ptr<ByteSink> MakeByteSink(std::vector<uint8_t>* const output) {
   return std::shared_ptr<ByteSink>(new (std::nothrow) VectorSink(output));
 }
@@ -97,7 +97,7 @@ BitWriter::BitWriter(ByteSink* const sink) : sink_(sink), buf_(nullptr) {
 }
 
 bool BitWriter::CommitFailed() {
-  sink_->Reset();   // this can free the memory buf_ points to
+  sink_->Reset();  // this can free the memory buf_ points to
   buf_ = nullptr;
   byte_pos_ = 0;
   reserved_ = 0;
@@ -129,6 +129,6 @@ void BitCounter::AddBits(const uint32_t bits, size_t nbits) {
     bit_pos_ -= 8;
   }
 }
-#endif    // !defined(SJPEG_HAVE_64BIT)
+#endif  // !defined(SJPEG_HAVE_64BIT)
 
-}   // namespace sjpeg
+}  // namespace sjpeg

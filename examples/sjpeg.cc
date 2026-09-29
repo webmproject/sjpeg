@@ -31,19 +31,19 @@
 
 #include "utils.h"
 
-using std::vector;
 using sjpeg::EncoderParam;
+using std::vector;
 
 #if !defined(ALT_HOOK_CLASS)
-#define ALT_HOOK_CLASS sjpeg::SearchHook   // fall back to default search
+#define ALT_HOOK_CLASS sjpeg::SearchHook  // fall back to default search
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
 static void PrintMatrix(const char name[], const uint8_t m[64],
                         bool for_chroma) {
-  fprintf(stdout, " %s quantization matrix (estimated quality: %.1f)\n",
-          name, SjpegEstimateQuality(m, for_chroma));
+  fprintf(stdout, " %s quantization matrix (estimated quality: %.1f)\n", name,
+          SjpegEstimateQuality(m, for_chroma));
   for (int j = 0; j < 8; ++j) {
     for (int i = 0; i < 8; ++i) fprintf(stdout, "%3d ", m[i + j * 8]);
     fprintf(stdout, "\n");
@@ -68,17 +68,16 @@ static void PrintMetadataInfo(const EncoderParam& param) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-static const char* kYUVModeNames[] = {
-  "automatic", "YUV420", "SharpYUV420", "YUV444", "YUV400"
-};
-static const char* kNoYes[2] = { "no", "yes" };
+static const char* kYUVModeNames[] = {"automatic", "YUV420", "SharpYUV420",
+                                      "YUV444", "YUV400"};
+static const char* kNoYes[2] = {"no", "yes"};
 
 // '-progressive' shortcut values; see the progressive_luma_split doc comment
 // in src/sjpeg.h for how these were picked.
 static const int kProgressiveLumaSplit = 2;
 static const int kProgressiveChromaSplit = 8;
 
-int main(int argc, char * argv[]) {
+int main(int argc, char* argv[]) {
   const char* input_file = nullptr;
   const char* output_file = nullptr;
   const char* xmp_file = nullptr;
@@ -99,64 +98,73 @@ int main(int argc, char * argv[]) {
   float riskiness = 0;
   SjpegYUVMode yuv_mode_rec = SJPEG_YUV_AUTO;
   const char* const usage =
-    "sjpeg: Commandline utility to recompress or compress pictures to JPEG.\n"
-    "Usage:  sjpeg infile [-o outfile.jpg] [-q quality] ...\n"
-    "  -q <float> ...... Quality factor in [0..100] range.\n"
-    "                    Value of 100 gives the best quality, largest file.\n"
-    "                    Default value is 75.\n"
-    "  -r <float> ...... Reduction factor in [0..100] range.\n"
-    "                    Default value is 100. Lower value will reduce the \n"
-    "                    file size.\n"
-    "  -o filename ..... specifies the output file name.\n"
-    "  -size <int> ..... target size\n"
-    "  -psnr <float> ... target YUV-PSNR\n"
-    "  -estimate ....... Just estimate and print the JPEG source quality.\n"
-    "  -i .............. Just print some information about the input file.\n"
-    "  -xmp <file> ....| Specify the output's metadata with the supplied\n"
-    "  -exif <file> ...| file's content. Warning, this may discard the\n"
-    "  -icc <file> ....| source's content!\n"
-    "  -version ........ Print the version and exit.\n"
-    "  -quiet .......... Quiet mode. Just save the file.\n"
-    "  -short .......... Print shorter 1-line info.\n"
-    "  -crc / -md5 ..... Just print the output checksum or MD5 sum and exit.\n"
-    "\n"
-    "Advanced options:\n"
-    "  -yuv_mode .......... YUV mode to use:\n"
-    "                       0: automatic decision (default)\n"
-    "                       1: use YUV 4:2:0\n"
-    "                       2: use 'Sharp' YUV 4:2:0 conversion\n"
-    "                       3: use YUV 4:4:4 (full resolution for U/V planes)\n"
-    "                       4: use YUV 4:0:0 (grayscale, only luma plane)\n"
-    "  -no_limit .......... If true, allow the quality factor to be larger\n"
-    "                       than the original (JPEG input only)\n"
-    "  -no_optim .......... Don't use Huffman optimization (=faster)\n"
-    "  -no_adapt .......... Don't use adaptive quantization (=faster)\n"
-    "  -adapt_bias ........ Use adaptive quantization bias (=slower)\n"
-    "  -rdo ............... Use rate-distortion optimization\n"
-    "  -trellis ........... use trellis-based quantization (=slower, overrides -rdo)\n"
-    "  -progressive ....... shortcut for '-prog 2,8'\n"
-    "  -prog <int>[,<int>]. Progressive encoding: AC spectral split point for\n"
-    "                       luma (1..63), and optionally for chroma\n"
-    "                       (default: 8). Disabled by default. '2,8' is a\n"
-    "                       good starting point. Ineffective with multi-pass\n"
-    "                       (-pass/-size/-psnr).\n"
-    "  -no_metadata ....... Ignore metadata from the source\n"
-    "  -pass <int> ........ number of passes for -size or -psnr (default: 10)\n"
-    "  -qmin <float> ...... minimum acceptable quality factor during search\n"
-    "  -qmax <float> ...... maximum acceptable quality factor during search\n"
-    "  -tolerance <float> . tolerance for convergence during search\n"
-    "  -restart <int> ..... restart interval in MCU rows (default: 0; <= 0 means\n"
-    "                       off if single-threaded, automatic if multi-threaded)\n"
-    "  -threads <int> ..... number of threads to use (default: 1; -1 for all\n"
-    "                       available cores; baseline encoding only)\n"
-    "\n"
-    "  -gray .............. shortcut for '-yuv_mode 4'\n"
-    "  -444 ............... shortcut for '-yuv_mode 3'\n"
-    "  -sharp ............. shortcut for '-yuv_mode 2'\n"
-    "  -420 ............... shortcut for '-yuv_mode 1'\n"
-    "\n"
-    "If the input format is JPEG, the recompression will not go beyond the\n"
-    "original quality, *except* if '-no_limit' option is used.\n";
+      "sjpeg: Commandline utility to recompress or compress pictures to JPEG.\n"
+      "Usage:  sjpeg infile [-o outfile.jpg] [-q quality] ...\n"
+      "  -q <float> ...... Quality factor in [0..100] range.\n"
+      "                    Value of 100 gives the best quality, largest file.\n"
+      "                    Default value is 75.\n"
+      "  -r <float> ...... Reduction factor in [0..100] range.\n"
+      "                    Default value is 100. Lower value will reduce the \n"
+      "                    file size.\n"
+      "  -o filename ..... specifies the output file name.\n"
+      "  -size <int> ..... target size\n"
+      "  -psnr <float> ... target YUV-PSNR\n"
+      "  -estimate ....... Just estimate and print the JPEG source quality.\n"
+      "  -i .............. Just print some information about the input file.\n"
+      "  -xmp <file> ....| Specify the output's metadata with the supplied\n"
+      "  -exif <file> ...| file's content. Warning, this may discard the\n"
+      "  -icc <file> ....| source's content!\n"
+      "  -version ........ Print the version and exit.\n"
+      "  -quiet .......... Quiet mode. Just save the file.\n"
+      "  -short .......... Print shorter 1-line info.\n"
+      "  -crc / -md5 ..... Just print the output checksum or MD5 sum and "
+      "exit.\n"
+      "\n"
+      "Advanced options:\n"
+      "  -yuv_mode .......... YUV mode to use:\n"
+      "                       0: automatic decision (default)\n"
+      "                       1: use YUV 4:2:0\n"
+      "                       2: use 'Sharp' YUV 4:2:0 conversion\n"
+      "                       3: use YUV 4:4:4 (full resolution for U/V "
+      "planes)\n"
+      "                       4: use YUV 4:0:0 (grayscale, only luma plane)\n"
+      "  -no_limit .......... If true, allow the quality factor to be larger\n"
+      "                       than the original (JPEG input only)\n"
+      "  -no_optim .......... Don't use Huffman optimization (=faster)\n"
+      "  -no_adapt .......... Don't use adaptive quantization (=faster)\n"
+      "  -adapt_bias ........ Use adaptive quantization bias (=slower)\n"
+      "  -rdo ............... Use rate-distortion optimization\n"
+      "  -trellis ........... use trellis-based quantization (=slower, "
+      "overrides -rdo)\n"
+      "  -progressive ....... shortcut for '-prog 2,8'\n"
+      "  -prog <int>[,<int>]. Progressive encoding: AC spectral split point "
+      "for\n"
+      "                       luma (1..63), and optionally for chroma\n"
+      "                       (default: 8). Disabled by default. '2,8' is a\n"
+      "                       good starting point. Ineffective with "
+      "multi-pass\n"
+      "                       (-pass/-size/-psnr).\n"
+      "  -no_metadata ....... Ignore metadata from the source\n"
+      "  -pass <int> ........ number of passes for -size or -psnr (default: "
+      "10)\n"
+      "  -qmin <float> ...... minimum acceptable quality factor during search\n"
+      "  -qmax <float> ...... maximum acceptable quality factor during search\n"
+      "  -tolerance <float> . tolerance for convergence during search\n"
+      "  -restart <int> ..... restart interval in MCU rows (default: 0; <= 0 "
+      "means\n"
+      "                       off if single-threaded, automatic if "
+      "multi-threaded)\n"
+      "  -threads <int> ..... number of threads to use (default: 1; -1 for "
+      "all\n"
+      "                       available cores; baseline encoding only)\n"
+      "\n"
+      "  -gray .............. shortcut for '-yuv_mode 4'\n"
+      "  -444 ............... shortcut for '-yuv_mode 3'\n"
+      "  -sharp ............. shortcut for '-yuv_mode 2'\n"
+      "  -420 ............... shortcut for '-yuv_mode 1'\n"
+      "\n"
+      "If the input format is JPEG, the recompression will not go beyond the\n"
+      "original quality, *except* if '-no_limit' option is used.\n";
 
   // in order to gather information, plug a search hook
   ALT_HOOK_CLASS hook;
@@ -278,10 +286,8 @@ int main(int argc, char * argv[]) {
       print_md5 = true;
     } else if (!strcmp(argv[c], "-version")) {
       const uint32_t version = SjpegVersion();
-      fprintf(stdout, "%d.%d.%d\n",
-              (version >> 16) & 0xff,
-              (version >>  8) & 0xff,
-              (version >>  0) & 0xff);
+      fprintf(stdout, "%d.%d.%d\n", (version >> 16) & 0xff,
+              (version >> 8) & 0xff, (version >> 0) & 0xff);
       return 0;
     } else {
       input_file = argv[c];
@@ -301,35 +307,39 @@ int main(int argc, char * argv[]) {
       (param.progressive_luma_split < 64) && param.passes <= 1;
   if (param.restart_interval_rows > 0 && use_progressive) {
     if (!quiet && !short_output) {
-      fprintf(stdout, "Warning! -restart is ignored with progressive"
-                      " encoding (-progressive / -prog).\n");
-      fprintf(stdout, "         Restart markers are not currently supported"
-                      " for progressive JPEGs.\n\n");
+      fprintf(stdout,
+              "Warning! -restart is ignored with progressive"
+              " encoding (-progressive / -prog).\n");
+      fprintf(stdout,
+              "         Restart markers are not currently supported"
+              " for progressive JPEGs.\n\n");
     }
   }
   // Read input file into the buffer in_bytes[]
   const std::string input = ReadFile(input_file);
-  if (input.size() == 0) return 1;
+  if (input.empty()) return 1;
 
   const ImageType input_type = GuessImageType(input);
   uint8_t quant_matrices[2][64];
-  const int nb_matrices =
-    (input_type == SJPEG_JPEG) ? SjpegFindQuantizer(input, quant_matrices)
-                               : 0;
+  const int nb_matrices = (input_type == SJPEG_JPEG)
+                              ? SjpegFindQuantizer(input, quant_matrices)
+                              : 0;
   const bool is_jpeg = (input_type == SJPEG_JPEG) && (nb_matrices > 0);
   if (use_reduction && !is_jpeg) {
     if (!quiet && !short_output) {
-      fprintf(stdout, "Warning! reduction factor (-r option) disabled"
-                      " (only applies to JPEG source).\n");
-      fprintf(stdout, "         Please use the -q option to set the"
-                      " quality factor.\n\n");
+      fprintf(stdout,
+              "Warning! reduction factor (-r option) disabled"
+              " (only applies to JPEG source).\n");
+      fprintf(stdout,
+              "         Please use the -q option to set the"
+              " quality factor.\n\n");
     }
     use_reduction = false;
   }
-  if (use_reduction) {   // use 'reduction' factor for JPEG source
+  if (use_reduction) {  // use 'reduction' factor for JPEG source
     param.SetQuantization(quant_matrices, reduction);
     param.SetLimitQuantization(true);
-  } else {    // the '-q' option has been used.
+  } else {  // the '-q' option has been used.
     param.SetQuality(quality);
     if (is_jpeg) {
       param.SetMinQuantization(quant_matrices);
@@ -339,13 +349,13 @@ int main(int argc, char * argv[]) {
   }
 
   if (estimate) {
-    const int q = is_jpeg ? SjpegEstimateQuality(quant_matrices[0], 0) : 100;
+    const int q = is_jpeg ? SjpegEstimateQuality(quant_matrices[0], false) : 100;
     fprintf(stdout, "%d\n", q);
     return 0;
   }
   int W, H;
   vector<uint8_t> in_bytes = ReadImage(input, &W, &H, &param);
-  if (in_bytes.size() == 0) return 1;
+  if (in_bytes.empty()) return 1;
 
   if (xmp_file != nullptr) param.xmp = ReadFile(xmp_file);
   if (icc_file != nullptr) param.iccp = ReadFile(icc_file);
@@ -353,10 +363,8 @@ int main(int argc, char * argv[]) {
 
   if (!short_output && !quiet && !print_crc && !print_md5) {
     fprintf(stdout, "Input [%s]: %s (%u bytes, %.2f bpp, %d x %d)\n",
-            ImageTypeName(input_type), input_file,
-            (uint32_t)input.size(),
-            8.f * input.size() / (W * H),
-            W, H);
+            ImageTypeName(input_type), input_file, (uint32_t)input.size(),
+            8.f * input.size() / (W * H), W, H);
     if (info) {
       yuv_mode_rec = SjpegRiskiness(&in_bytes[0], W, H, 3 * W, &riskiness);
       fprintf(stdout, "Riskiness:   %.1f (recommended yuv_mode: %s)\n",
@@ -374,7 +382,7 @@ int main(int argc, char * argv[]) {
       PrintMetadataInfo(param);
     }
   }
-  if (info && !print_crc && !print_md5) return 0;   // done
+  if (info && !print_crc && !print_md5) return 0;  // done
 
   // finish setting up the quantization matrices
   if (limit_quantization == false) param.SetLimitQuantization(false);
@@ -403,19 +411,17 @@ int main(int argc, char * argv[]) {
   if (!short_output && !quiet) {
     const bool show_reduction = use_reduction && !use_search;
     yuv_mode_rec = SjpegRiskiness(&in_bytes[0], W, H, 3 * W, &riskiness);
-    fprintf(stdout, "new size:    %u bytes (%.2f bpp, %.2lf%% of original)\n"
-                    "%s%.1f (adaptive: %s, Huffman: %s)\n"
-                    "yuv mode:    %s (riskiness: %.1lf%%)\n"
-                    "elapsed:     %d ms\n",
-                    (uint32_t)out.size(),
-                    8.f * out.size() / (W * H),
-                    100. * out.size() / input.size(),
-                    show_reduction ? "reduction:   r=" : "quality:     q=",
-                    show_reduction ? reduction : quality,
-                    kNoYes[param.adaptive_quantization],
-                    kNoYes[param.Huffman_compress],
-                    kYUVModeNames[yuv_mode_rec], riskiness,
-                    (int)(1000. * encode_time));
+    fprintf(stdout,
+            "new size:    %u bytes (%.2f bpp, %.2lf%% of original)\n"
+            "%s%.1f (adaptive: %s, Huffman: %s)\n"
+            "yuv mode:    %s (riskiness: %.1lf%%)\n"
+            "elapsed:     %d ms\n",
+            (uint32_t)out.size(), 8.f * out.size() / (W * H),
+            100. * out.size() / input.size(),
+            show_reduction ? "reduction:   r=" : "quality:     q=",
+            show_reduction ? reduction : quality,
+            kNoYes[param.adaptive_quantization], kNoYes[param.Huffman_compress],
+            kYUVModeNames[yuv_mode_rec], riskiness, (int)(1000. * encode_time));
     if (use_search) {  // print final values
       fprintf(stdout, "passes:      %d\n", hook.pass + 1);
       fprintf(stdout, "final value: %.1f\n", hook.value);
@@ -423,16 +429,14 @@ int main(int argc, char * argv[]) {
     }
     PrintMetadataInfo(param);
   } else if (!quiet) {
-    fprintf(stdout, "%u %u %.2lf %%\n",
-            (uint32_t)input.size(),
-            (uint32_t)out.size(),
-            100. * out.size() / input.size());
+    fprintf(stdout, "%u %u %.2lf %%\n", (uint32_t)input.size(),
+            (uint32_t)out.size(), 100. * out.size() / input.size());
   }
 
   // Save the result.
   if (output_file != nullptr && !SaveFile(output_file, out, quiet)) return 1;
 
-  return 0;     // ok.
+  return 0;  // ok.
 }
 
 ///////////////////////////////////////////////////////////////////////////////

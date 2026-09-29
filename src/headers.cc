@@ -17,13 +17,14 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
+
 #include <algorithm>
 
-#include "sjpegi.h"
 #include "md5sum.h"
+#include "sjpegi.h"
 
 namespace sjpeg {
 
@@ -34,7 +35,7 @@ void Encoder::Put16b(uint32_t size) {
 
 void Encoder::Put32b(uint32_t size) {
   Put16b(size >> 16);
-  Put16b(size >>  0);
+  Put16b(size >> 0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -46,12 +47,12 @@ void Encoder::Put32b(uint32_t size) {
 // accounting for the 0xff?? startcode size.
 
 static const uint8_t kHeaderAPP0[] = {
-  0xff, 0xd8,                     // SOI
-  0xff, 0xe0, 0x00, 0x10,         // APP0
-  0x4a, 0x46, 0x49, 0x46, 0x00,   // 'JFIF'
-  0x01, 0x01,                     // v1.01
-  0x00, 0x00, 0x01, 0x00, 0x01,   // aspect ratio = 1:1
-  0x00, 0x00                      // thumbnail width/height
+    0xff, 0xd8,                    // SOI
+    0xff, 0xe0, 0x00, 0x10,        // APP0
+    0x4a, 0x46, 0x49, 0x46, 0x00,  // 'JFIF'
+    0x01, 0x01,                    // v1.01
+    0x00, 0x00, 0x01, 0x00, 0x01,  // aspect ratio = 1:1
+    0x00, 0x00                     // thumbnail width/height
 };
 
 void Encoder::WriteAPP0() {  // SOI + APP0
@@ -61,7 +62,7 @@ void Encoder::WriteAPP0() {  // SOI + APP0
 }
 
 bool Encoder::WriteAPPMarkers(const std::string& data) {
-  if (data.size() == 0) return true;
+  if (data.empty()) return true;
   const size_t data_size = data.size();
   ok_ = ok_ && bw_.Reserve(data_size);
   if (!ok_) return false;
@@ -70,7 +71,7 @@ bool Encoder::WriteAPPMarkers(const std::string& data) {
 }
 
 bool Encoder::WriteEXIF(const std::string& data) {
-  if (data.size() == 0) return true;
+  if (data.empty()) return true;
   const uint8_t kEXIF[] = "Exif\0";
   const size_t kEXIF_len = 6;  // includes the \0's
   const size_t data_size = data.size() + kEXIF_len + 2;
@@ -85,7 +86,7 @@ bool Encoder::WriteEXIF(const std::string& data) {
 }
 
 bool Encoder::WriteICCP(const std::string& data) {
-  if (data.size() == 0) return true;
+  if (data.empty()) return true;
   size_t data_size = data.size();
   const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data.data());
   const uint8_t kICCP[] = "ICC_PROFILE";
@@ -115,7 +116,7 @@ bool Encoder::WriteICCP(const std::string& data) {
 bool Encoder::WriteXMPExtended(const std::string& data) {
   const size_t kMainSize = 65503;
   if (data.size() < kMainSize) return true;  // too short! should be a main XMP
-  if (data.size() > (1u << 31)) return false;   // too large
+  if (data.size() > (1u << 31)) return false;  // too large
   size_t split = (xmp_split_ == 0) ? kMainSize : xmp_split_;
   split = std::min(split, data.size());
   // search for the extension tag
@@ -163,11 +164,11 @@ bool Encoder::WriteXMPExtended(const std::string& data) {
 }
 
 bool Encoder::WriteXMP(const std::string& data) {
-  if (data.size() == 0) return true;
+  if (data.empty()) return true;
   const uint8_t kXMP[] = "http://ns.adobe.com/xap/1.0/";
   const size_t kXMP_size = sizeof(kXMP);
   const size_t data_size = 2 + data.size() + kXMP_size;
-  if (data_size <= 0xffff) {   // don't use extended XMP if small enough data
+  if (data_size <= 0xffff) {  // don't use extended XMP if small enough data
     ok_ = ok_ && bw_.Reserve(data_size + 2);
     if (!ok_) return false;
     Put16b(0xffe1);
@@ -183,7 +184,7 @@ bool Encoder::WriteXMP(const std::string& data) {
 void Encoder::WriteDQT() {
   const int num_matrices = (yuv_mode_ == SJPEG_YUV_400) ? 1 : 2;
   const size_t data_size = num_matrices * 65 + 2;
-  const uint8_t kDQTHeader[] = { 0xff, 0xdb, 0x00, (uint8_t)data_size };
+  const uint8_t kDQTHeader[] = {0xff, 0xdb, 0x00, (uint8_t)data_size};
   ok_ = ok_ && bw_.Reserve(data_size + 2);
   if (!ok_) return;
   bw_.PutBytes(kDQTHeader, sizeof(kDQTHeader));
@@ -200,14 +201,17 @@ void Encoder::WriteDQT() {
 
 #define DATA_16b(X) ((uint8_t)((X) >> 8)), ((uint8_t)((X) & 0xff))
 
-void Encoder::WriteSOF(bool progressive) {   // SOF
+void Encoder::WriteSOF(bool progressive) {  // SOF
   const size_t data_size = 3 * nb_comps_ + 8;
   assert(data_size <= 255);
   const uint8_t kHeader[] = {
-    0xff, (uint8_t)(progressive ? 0xc2 : 0xc0), DATA_16b(data_size),  // SOF
-    0x08,                                    // 8bits/components
-    DATA_16b(H_), DATA_16b(W_),              // height, width
-    (uint8_t)nb_comps_                       // number of components
+      0xff,
+      (uint8_t)(progressive ? 0xc2 : 0xc0),
+      DATA_16b(data_size),  // SOF
+      0x08,                 // 8bits/components
+      DATA_16b(H_),
+      DATA_16b(W_),       // height, width
+      (uint8_t)nb_comps_  // number of components
   };
   ok_ = ok_ && bw_.Reserve(data_size + 2);
   if (!ok_) return;
@@ -222,8 +226,8 @@ void Encoder::WriteSOF(bool progressive) {   // SOF
 void Encoder::WriteDHT() {
   InitCodes(false);
   const int nb_tables = (nb_comps_ == 1 ? 1 : 2);
-  for (int c = 0; c < nb_tables; ++c) {   // luma, chroma
-    for (int type = 0; type <= 1; ++type) {               // dc, ac
+  for (int c = 0; c < nb_tables; ++c) {      // luma, chroma
+    for (int type = 0; type <= 1; ++type) {  // dc, ac
       WriteOneDHT(type, c, Huffman_tables_[type * 2 + c]);
     }
   }
@@ -247,7 +251,7 @@ void Encoder::WriteDRI() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void Encoder::WriteSOS() {   // SOS
+void Encoder::WriteSOS() {  // SOS
   ScanComponent comps[MAX_COMP];
   for (int c = 0; c < nb_comps_; ++c) {
     comps[c] = {c, quant_idx_[c], quant_idx_[c]};
@@ -271,13 +275,12 @@ void Encoder::WriteOneDHT(int table_class, int table_id,
   bw_.PutBytes(table->syms_, table->nb_syms_);
 }
 
-void Encoder::WriteProgSOS(const ScanComponent* comps, int nb_comps,
-                           int Ss, int Se) {
+void Encoder::WriteProgSOS(const ScanComponent* comps, int nb_comps, int Ss,
+                           int Se) {
   const size_t data_size = 3 + nb_comps * 2 + 3;
   assert(data_size <= 255);
-  const uint8_t kHeader[] = {
-      0xff, 0xda, DATA_16b(data_size), (uint8_t)nb_comps
-  };
+  const uint8_t kHeader[] = {0xff, 0xda, DATA_16b(data_size),
+                             (uint8_t)nb_comps};
   ok_ = ok_ && bw_.Reserve(data_size + 2);
   if (!ok_) return;
   bw_.PutBytes(kHeader, sizeof(kHeader));
@@ -287,12 +290,12 @@ void Encoder::WriteProgSOS(const ScanComponent* comps, int nb_comps,
   }
   bw_.PutByte((uint8_t)Ss);
   bw_.PutByte((uint8_t)Se);
-  bw_.PutByte(0x00);        // Ah/Al: no successive approximation in this mode
+  bw_.PutByte(0x00);  // Ah/Al: no successive approximation in this mode
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void Encoder::WriteEOI() {   // EOI
+void Encoder::WriteEOI() {  // EOI
   if (ok_) bw_.Flush();
   ok_ = ok_ && bw_.Reserve(2);
   if (!ok_) return;
@@ -304,4 +307,4 @@ void Encoder::WriteEOI() {   // EOI
 
 #undef DATA_16b
 
-}    // namespace sjpeg
+}  // namespace sjpeg

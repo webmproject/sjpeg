@@ -48,9 +48,7 @@ static const uint64_t kOmittedChannels = 0x0000000000000103ULL;
 ////////////////////////////////////////////////////////////////////////////////
 // Histogram
 
-void Encoder::ResetHisto() {
-  memset(histos_, 0, sizeof(histos_));
-}
+void Encoder::ResetHisto() { memset(histos_, 0, sizeof(histos_)); }
 
 #if defined(SJPEG_USE_SSE2)
 void StoreHistoSSE2(const int16_t in[64], Histo* const histos, int nb_blocks) {
@@ -60,7 +58,7 @@ void StoreHistoSSE2(const int16_t in[64], Histo* const histos, int nb_blocks) {
     for (int i = 0; i < 64; i += 8) {
       const __m128i A = LOAD_16(in + i);
       const __m128i C = ABS_16(A);
-      const __m128i D = _mm_srli_epi16(C, HSHIFT);              // >>= HSHIFT
+      const __m128i D = _mm_srli_epi16(C, HSHIFT);  // >>= HSHIFT
       const __m128i E = _mm_min_epi16(D, kMaxHisto);
       STORE_16(E, tmp + i);
     }
@@ -111,7 +109,7 @@ void StoreHisto(const int16_t in[64], Histo* const histos, int nb_blocks) {
 #if defined(SJPEG_HAVE_AVX2)
 // defined in histogram_avx2.cc, built separately with -mavx2 (see Makefile)
 // so this file itself doesn't need an AVX2 target.
-extern void StoreHistoAVX2(const int16_t in[64], Histo* const histos,
+extern void StoreHistoAVX2(const int16_t in[64], Histo* histos,
                            int nb_blocks);
 #endif
 
@@ -128,11 +126,9 @@ Encoder::StoreHistoFunc Encoder::GetStoreHistoFunc() {
 }
 
 const float Encoder::kHistoWeight[QSIZE] = {
-  // Gaussian with sigma ~= 3
-  0, 0, 0, 0, 0,
-  1,   5,  16,  43,  94, 164, 228, 255, 228, 164,  94,  43,  16,   5,   1,
-  0, 0, 0, 0, 0
-};
+    // Gaussian with sigma ~= 3
+    0,   0,   0,  0,  0,  1, 5, 16, 43, 94, 164, 228, 255,
+    228, 164, 94, 43, 16, 5, 1, 0,  0,  0,  0,   0};
 
 void Encoder::AnalyseHisto() {
   // A bit of theory and background: for each sub-band i in [0..63], we pick a
@@ -190,7 +186,7 @@ void Encoder::AnalyseHisto() {
     assert(QDELTA_MAX >= qdelta_max_luma_);
     assert(QDELTA_MAX >= qdelta_max_chroma_);
     const int delta_max =
-      ((idx == 0) ? qdelta_max_luma_ : qdelta_max_chroma_) - QDELTA_MIN;
+        ((idx == 0) ? qdelta_max_luma_ : qdelta_max_chroma_) - QDELTA_MIN;
     assert(delta_max < QSIZE);
     float sizes[64][QSIZE];
     float distortions[64][QSIZE];
@@ -225,8 +221,8 @@ void Encoder::AnalyseHisto() {
       // accumulators for averaged values.
       double sw = 0., sx = 0.;
       double sxx = 0., syy1 = 0.;
-      double sy1 = 0., sxy1 = 0.;   // accumulators for distortion cloud
-      double sy2 = 0., sxy2 = 0.;   // accumulators for size cloud
+      double sy1 = 0., sxy1 = 0.;  // accumulators for distortion cloud
+      double sy2 = 0., sxy2 = 0.;  // accumulators for size cloud
       for (int delta = 0; delta < QSIZE; ++delta) {
         double bsum = 0., dsum = 0.;
         const int dq = dq0 + (delta + QDELTA_MIN);
@@ -255,18 +251,18 @@ void Encoder::AnalyseHisto() {
                 dsum += h[i] * v * v;
               }
             }
-          }   // end of 'i' loop
+          }  // end of 'i' loop
           distortions[pos][delta] = static_cast<float>(dsum);
           sizes[pos][delta] = static_cast<float>(bsum);
-          const double w = kHistoWeight[delta];   // Gaussian weight
+          const double w = kHistoWeight[delta];  // Gaussian weight
           if (w > 0.) {
             const double x = static_cast<double>(delta + QDELTA_MIN);
-            sw   += w;
-            sx   += w * x;
-            sxx  += w * x * x;
-            sy1  += w * dsum;
+            sw += w;
+            sx += w * x;
+            sxx += w * x * x;
+            sy1 += w * dsum;
             syy1 += w * dsum * dsum;
-            sy2  += w * bsum;
+            sy2 += w * bsum;
             sxy1 += w * dsum * x;
             sxy2 += w * bsum * x;
           }
@@ -277,8 +273,8 @@ void Encoder::AnalyseHisto() {
       }
       // filter channels according to correlation factor.
       const double cov_xy1 = sw * sxy1 - sx * sy1;
-      if (cov_xy1 * cov_xy1 < r_limit *
-                              (sw * sxx - sx * sx) * (sw * syy1 - sy1 * sy1)) {
+      if (cov_xy1 * cov_xy1 <
+          r_limit * (sw * sxx - sx * sx) * (sw * syy1 - sy1 * sy1)) {
         omit_channels |= 1ULL << pos;
         continue;
       }
@@ -309,8 +305,8 @@ void Encoder::AnalyseHisto() {
       int best_dq = 0;
       for (int delta = 0; delta <= delta_max; ++delta) {
         if (distortions[pos][delta] < FLT_MAX) {
-          const float score = distortions[pos][delta]
-                            + lambda * sizes[pos][delta];
+          const float score =
+              distortions[pos][delta] + lambda * sizes[pos][delta];
           if (score < best_score) {
             best_score = score;
             best_dq = delta + QDELTA_MIN;
@@ -350,8 +346,7 @@ void Encoder::CollectHistogramsSlice(int y_start, int y_end, Histo histos[2],
 void Encoder::CollectHistograms() {
 #if !defined(SJPEG_NO_MULTITHREADING)
   // Progressive mode isn't parallelized: cap to 1 slice when it applies.
-  const int num_slices =
-      (prog_luma_split_ != 64) ? 1 : GetNumSlices(mb_h_);
+  const int num_slices = (prog_luma_split_ != 64) ? 1 : GetNumSlices(mb_h_);
   if (num_slices > 1) {
     CollectHistogramsMultiThreaded(num_slices);
     return;
@@ -362,4 +357,4 @@ void Encoder::CollectHistograms() {
   have_coeffs_ = use_extra_memory_;
 }
 
-}    // namespace sjpeg
+}  // namespace sjpeg

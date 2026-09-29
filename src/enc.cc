@@ -36,7 +36,7 @@
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
-using namespace sjpeg;   // for the plain-C entry points at the end
+using namespace sjpeg;  // for the plain-C entry points at the end
 
 namespace sjpeg {
 
@@ -55,7 +55,7 @@ const int kDefaultDeltaMaxChroma = 1;
 
 static struct DefaultMemory : public MemoryManager {
  public:
-  ~DefaultMemory() override {}
+  ~DefaultMemory() override = default;
   void* Alloc(size_t size) override { return malloc(size); }
   void Free(void* const ptr) override { free(ptr); }
 } kDefaultMemory;
@@ -100,7 +100,7 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink,
 
 Encoder::~Encoder() {
   Free(all_run_levels_);
-  DeallocateBlocks();   // clean-up leftovers in case of we had an error
+  DeallocateBlocks();  // clean-up leftovers in case of we had an error
 #if !defined(SJPEG_NO_PROGRESSIVE)
   DeallocateProgPlanes();
 #endif
@@ -134,8 +134,8 @@ void Encoder::SetCompressionMethod(int method) {
   use_adaptive_quant_ = (method >= 3);
   optimize_size_ = (method != 0) && (method != 3);
   use_extra_memory_ = (method == 3) || (method == 4) || (method == 7);
-  reuse_run_levels_ = (method == 1) || (method == 4) || (method == 5)
-                   || (method == 7);
+  reuse_run_levels_ =
+      (method == 1) || (method == 4) || (method == 5) || (method == 7);
   use_trellis_ = (method >= 7);
 }
 
@@ -144,8 +144,9 @@ void Encoder::SetRDO(bool use_rdo) { use_rdo_ = use_rdo; }
 void Encoder::SetProgressive(int luma_split, int chroma_split) {
 #if !defined(SJPEG_NO_PROGRESSIVE)
   luma_split = (luma_split < 1) ? 1 : (luma_split > 64) ? 64 : luma_split;
-  chroma_split = (chroma_split < 1) ? 1 : (chroma_split > 64) ? 64
-                                                              : chroma_split;
+  chroma_split = (chroma_split < 1)    ? 1
+                 : (chroma_split > 64) ? 64
+                                       : chroma_split;
   prog_luma_split_ = luma_split;
   prog_chroma_split_ = chroma_split;
   // use_extra_memory_/reuse_run_levels_ are baseline-only; EncodeProgressive()
@@ -158,11 +159,19 @@ void Encoder::SetProgressive(int luma_split, int chroma_split) {
 
 void Encoder::SetMetadata(const std::string& data, MetadataType type) {
   switch (type) {
-    case ICC: iccp_ = data; break;
-    case EXIF: exif_ = data; break;
-    case XMP: xmp_ = data; break;
+    case ICC:
+      iccp_ = data;
+      break;
+    case EXIF:
+      exif_ = data;
+      break;
+    case XMP:
+      xmp_ = data;
+      break;
     default:
-    case MARKERS: app_markers_ = data; break;
+    case MARKERS:
+      app_markers_ = data;
+      break;
   }
 }
 
@@ -183,7 +192,7 @@ void Encoder::SetQuantizationDeltas(int qdelta_luma, int qdelta_chroma) {
 // CPU support
 
 extern bool ForceSlowCImplementation;
-bool ForceSlowCImplementation = false;   // undocumented! for tests.
+bool ForceSlowCImplementation = false;  // undocumented! for tests.
 
 bool SupportsSSE2() {
   if (ForceSlowCImplementation) return false;
@@ -270,9 +279,7 @@ size_t Encoder::SliceSlabSize(int first_interval, int end_interval) const {
 }
 
 #if defined(SJPEG_NO_MULTITHREADING)
-int Encoder::GetNumSlices(int /*cap*/, int /*grain*/) const {
-  return 1;
-}
+int Encoder::GetNumSlices(int /*cap*/, int /*grain*/) const { return 1; }
 #endif  // SJPEG_NO_MULTITHREADING
 
 bool Encoder::ReserveSlab() {
@@ -282,8 +289,8 @@ bool Encoder::ReserveSlab() {
   // the image rather than being fixed: at a flat 256k, a 64x64 thumbnail whose
   // JPEG is 3kB holds half a megabyte of capacity, and a string never gives it
   // back.
-  ok_ = ok_ && bw_.ReserveMore(kMaxMCUSize,
-                               SliceSlabSize(0, TotalRestartIntervals()));
+  ok_ = ok_ &&
+        bw_.ReserveMore(kMaxMCUSize, SliceSlabSize(0, TotalRestartIntervals()));
   return ok_;
 }
 
@@ -326,7 +333,7 @@ bool Encoder::AllocateBlocks(size_t num_blocks) {
 
 void Encoder::DeallocateBlocks() {
   FreePtr(&in_blocks_base_);
-  in_blocks_ = nullptr;          // sanity
+  in_blocks_ = nullptr;  // sanity
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -390,7 +397,7 @@ void Encoder::CollectCoeffs() {
 bool Encoder::EmitRestartMarker(BitWriter* bw, int interval_idx,
                                 int total_intervals, size_t slab_size) {
   if (interval_idx >= total_intervals - 1) return true;
-  bw->Flush();   // pad to the byte boundary the marker must start on
+  bw->Flush();  // pad to the byte boundary the marker must start on
   if (!bw->ReserveMore(2, slab_size)) return false;
   const uint8_t rst_marker[2] = {
       0xff, static_cast<uint8_t>(0xd0 + (interval_idx & 7))};
@@ -408,7 +415,7 @@ bool Encoder::CodeScanSlice(int first_interval, int end_interval,
   RunLevel run_levels[64];
 
   for (int iv = first_interval; iv < end_interval; ++iv) {
-    int DCs[3] = {0, 0, 0};   // this restart interval's DC predictors
+    int DCs[3] = {0, 0, 0};  // this restart interval's DC predictors
     const int y_end = std::min(mb_h_, (iv + 1) * rows_per_interval);
     for (int mb_y = iv * rows_per_interval; mb_y < y_end; ++mb_y) {
       for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
@@ -434,10 +441,8 @@ bool Encoder::CodeScanSlice(int first_interval, int end_interval,
 bool Encoder::QuantizeScanSlice(int first_interval, int end_interval,
                                 DCTCoeffs* coeffs,
                                 std::vector<RunLevel>* rl_vec,
-                                size_t* out_nb_rl,
-                                uint32_t freq_ac[2][256 + 1],
-                                uint32_t freq_dc[2][12 + 1],
-                                int16_t* scratch,
+                                size_t* out_nb_rl, uint32_t freq_ac[2][256 + 1],
+                                uint32_t freq_dc[2][12 + 1], int16_t* scratch,
                                 uint8_t* rep_buf) {
   const int rows_per_interval =
       (restart_interval_rows_ > 0) ? restart_interval_rows_ : mb_h_;
@@ -450,7 +455,7 @@ bool Encoder::QuantizeScanSlice(int first_interval, int end_interval,
   size_t nb_rl = 0;
 
   for (int iv = first_interval; iv < end_interval; ++iv) {
-    int DCs[3] = {0, 0, 0};   // this restart interval's DC predictors
+    int DCs[3] = {0, 0, 0};  // this restart interval's DC predictors
     const int y_end = std::min(mb_h_, (iv + 1) * rows_per_interval);
     for (int mb_y = iv * rows_per_interval; mb_y < y_end; ++mb_y) {
       for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
@@ -470,12 +475,12 @@ bool Encoder::QuantizeScanSlice(int first_interval, int end_interval,
           for (int i = 0; i < nb_blocks_[c]; ++i) {
             DCTCoeffs* const cur_coeffs =
                 reuse_run_levels ? coeffs : &single_coeff;
-            RunLevel* const rl =
-                !reuse_run_levels ? fixed_rl :
-                (rl_vec != nullptr) ? &(*rl_vec)[nb_rl] :
-                all_run_levels_ + nb_rl;
-            const int dc = quantize_block(in, c, &quants_[q_idx],
-                                          cur_coeffs, rl);
+            RunLevel* const rl = !reuse_run_levels ? fixed_rl
+                                 : (rl_vec != nullptr)
+                                     ? &(*rl_vec)[nb_rl]
+                                     : all_run_levels_ + nb_rl;
+            const int dc =
+                quantize_block(in, c, &quants_[q_idx], cur_coeffs, rl);
             cur_coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs[c]);
             if (collect_stats) {
               AddEntropyStats(cur_coeffs, rl, freq_ac[q_idx], freq_dc[q_idx]);
@@ -523,8 +528,7 @@ bool Encoder::ReplayScanSlice(int first_interval, int end_interval,
 void Encoder::SinglePassScan() {
   const int total_intervals = TotalRestartIntervals();
 #if !defined(SJPEG_NO_MULTITHREADING)
-  const int num_slices =
-      GetNumSlices(total_intervals, have_coeffs_ ? 64 : 0);
+  const int num_slices = GetNumSlices(total_intervals, have_coeffs_ ? 64 : 0);
   if (num_slices > 1) {
     SinglePassScanMultiThreaded(num_slices, total_intervals);
     return;
@@ -538,7 +542,7 @@ void Encoder::SinglePassScan() {
 }
 
 void Encoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
-  DeallocateBlocks();     // we can free up some coeffs memory at this point
+  DeallocateBlocks();  // we can free up some coeffs memory at this point
   assert(reuse_run_levels_);
   const int total_intervals = TotalRestartIntervals();
   if (!ReplayScanSlice(0, total_intervals, total_intervals, nb_mbs, coeffs,
@@ -553,8 +557,7 @@ void Encoder::FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs) {
 void Encoder::SinglePassScanOptimized() {
   const int total_intervals = TotalRestartIntervals();
 #if !defined(SJPEG_NO_MULTITHREADING)
-  const int num_slices =
-      GetNumSlices(total_intervals, have_coeffs_ ? 64 : 0);
+  const int num_slices = GetNumSlices(total_intervals, have_coeffs_ ? 64 : 0);
   if (num_slices > 1) {
     SinglePassScanOptimizedMultiThreaded(num_slices, total_intervals);
     return;
@@ -582,7 +585,7 @@ void Encoder::SinglePassScanOptimized() {
   WriteSOS();
 
   if (!reuse_run_levels_) {
-    SinglePassScan();   // redo everything, but with optimal tables now.
+    SinglePassScan();  // redo everything, but with optimal tables now.
   } else {
     // Re-use the saved run/levels for fast 2nd-pass.
     FinalPassScan(nb_mbs, base_coeffs);
@@ -693,29 +696,26 @@ void Encoder::WriteBaselineAndScan() {
   }
 }
 
-}    // namespace sjpeg
+}  // namespace sjpeg
 
 ////////////////////////////////////////////////////////////////////////////////
 
-bool SjpegCompress(const uint8_t* rgb, int width, int height,
-                   float quality, std::string* output) {
+bool SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
+                   std::string* output) {
   EncoderParam param;
   param.SetQuality(quality);
   return Encode(rgb, width, height, 3 * width, param, output);
 }
 
-bool SjpegDimensions(const std::string& jpeg_data,
-                     int* width, int* height, int* is_yuv420) {
-  return SjpegDimensions(
-      reinterpret_cast<const uint8_t*>(jpeg_data.data()),
-      jpeg_data.size(), width, height, is_yuv420);
+bool SjpegDimensions(const std::string& jpeg_data, int* width, int* height,
+                     int* is_yuv420) {
+  return SjpegDimensions(reinterpret_cast<const uint8_t*>(jpeg_data.data()),
+                         jpeg_data.size(), width, height, is_yuv420);
 }
 
-int SjpegFindQuantizer(const std::string& jpeg_data,
-                       uint8_t quant[2][64]) {
-  return SjpegFindQuantizer(
-      reinterpret_cast<const uint8_t*>(jpeg_data.data()), jpeg_data.size(),
-      quant);
+int SjpegFindQuantizer(const std::string& jpeg_data, uint8_t quant[2][64]) {
+  return SjpegFindQuantizer(reinterpret_cast<const uint8_t*>(jpeg_data.data()),
+                            jpeg_data.size(), quant);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

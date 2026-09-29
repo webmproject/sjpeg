@@ -22,6 +22,7 @@
 
 #include <string>
 #include <vector>
+
 #include "sjpeg.h"
 
 // reads a disk file
@@ -33,9 +34,9 @@ extern int SaveFile(const char* name, const std::string& out, bool quiet);
 extern double GetStopwatchTime();
 
 // try to systematically decode the input as a JPEG, PNG, PPM (in this order)
-extern std::vector<uint8_t> ReadImage(const std::string& in,
-                                      int* const width, int* const height,
-                                      sjpeg::EncoderParam* const param);
+extern std::vector<uint8_t> ReadImage(const std::string& in, int* width,
+                                      int* height,
+                                      sjpeg::EncoderParam* param);
 
 // Return CRC32 signature for data block. 'crc' is the current checksum value.
 extern uint32_t GetCRC32(const std::string& data, uint32_t crc = 0);
@@ -45,10 +46,7 @@ std::string GetMD5Digest(const std::string& data);
 ///////////////////////////////////////////////////////////////////////////////
 // guessed image types
 
-typedef enum { SJPEG_UNKNOWN = 0,
-               SJPEG_JPEG,
-               SJPEG_PNG,
-               SJPEG_PPM } ImageType;
+typedef enum { SJPEG_UNKNOWN = 0, SJPEG_JPEG, SJPEG_PNG, SJPEG_PPM } ImageType;
 
 // returns a printable 3-letter name for the image type
 extern const char* ImageTypeName(ImageType type);
@@ -60,8 +58,7 @@ extern ImageType GuessImageType(const std::string& input);
 
 // signature for the function reading a image format
 typedef std::vector<uint8_t> (*ImageReader)(const std::string& in,
-                                            int* const width,
-                                            int* const height,
+                                            int* const width, int* const height,
                                             sjpeg::EncoderParam* const param);
 
 // returns a callable function associated with the detected image type.
@@ -69,18 +66,18 @@ extern ImageReader GuessImageReader(const std::string& input);
 
 // quickly try to guess the image format and read it.
 extern std::vector<uint8_t> ReadImageQuick(const std::string& in,
-                                           int* const width, int* const height,
-                                           sjpeg::EncoderParam* const param);
+                                           int* width, int* height,
+                                           sjpeg::EncoderParam* param);
 
 // Directly callable functions, in case auto-detection didn't work.
-extern std::vector<uint8_t> ReadJPEG(const std::string& in,
-                                     int* const width, int* const height,
-                                     sjpeg::EncoderParam* const param);
+extern std::vector<uint8_t> ReadJPEG(const std::string& in, int* width,
+                                     int* height,
+                                     sjpeg::EncoderParam* param);
 extern std::vector<uint8_t> ReadPNG(const std::string& input,
-                                    int* const width_ptr, int* const height_ptr,
-                                    sjpeg::EncoderParam* const param);
-extern std::vector<uint8_t> ReadPPM(const std::string& input,
-                                    int* const width, int* const height,
-                                    sjpeg::EncoderParam* const param);
+                                    int* width_ptr, int* height_ptr,
+                                    sjpeg::EncoderParam* param);
+extern std::vector<uint8_t> ReadPPM(const std::string& input, int* width,
+                                    int* height,
+                                    sjpeg::EncoderParam* param);
 
-#endif  /* SJPEG_EXAMPLES_UTILS_H_ */
+#endif /* SJPEG_EXAMPLES_UTILS_H_ */

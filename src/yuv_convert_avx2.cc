@@ -59,9 +59,9 @@ uint64_t SharpUpdateY_AVX2(const uint16_t* ref, const uint16_t* src,
     const __m256i A = LOAD_32(ref + i);
     const __m256i B = LOAD_32(src + i);
     const __m256i C = LOAD_32(dst + i);
-    const __m256i D = _mm256_sub_epi16(A, B);   // diff_y
-    const __m256i abs_D = ABS_32(D);            // |diff_y|
-    const __m256i F = _mm256_add_epi16(C, D);   // new_y
+    const __m256i D = _mm256_sub_epi16(A, B);  // diff_y
+    const __m256i abs_D = ABS_32(D);           // |diff_y|
+    const __m256i F = _mm256_add_epi16(C, D);  // new_y
     const __m256i H = _mm256_max_epi16(_mm256_min_epi16(F, max), zero);
     const __m256i I = _mm256_madd_epi16(abs_D, one);  // sum(abs(...))
     STORE_32(H, dst + i);
@@ -79,8 +79,8 @@ uint64_t SharpUpdateY_AVX2(const uint16_t* ref, const uint16_t* src,
   return diff;
 }
 
-void SharpUpdateRGB_AVX2(const int16_t* ref, const int16_t* src,
-                         int16_t* dst, int len) {
+void SharpUpdateRGB_AVX2(const int16_t* ref, const int16_t* src, int16_t* dst,
+                         int len) {
   int i = 0;
   for (i = 0; i + 16 <= len; i += 16) {
     const __m256i A = LOAD_32(ref + i);
@@ -280,11 +280,10 @@ extern uint32_t ScaleDown(int a, int b, int c, int d);
 //------------------------------------------------------------------------------
 
 static inline __m256i GammaToLinear8_Direct(const fixed_y_t* p) {
-  return _mm256_set_epi32(
-      kGammaToLinearTab[p[7]], kGammaToLinearTab[p[6]],
-      kGammaToLinearTab[p[5]], kGammaToLinearTab[p[4]],
-      kGammaToLinearTab[p[3]], kGammaToLinearTab[p[2]],
-      kGammaToLinearTab[p[1]], kGammaToLinearTab[p[0]]);
+  return _mm256_set_epi32(kGammaToLinearTab[p[7]], kGammaToLinearTab[p[6]],
+                          kGammaToLinearTab[p[5]], kGammaToLinearTab[p[4]],
+                          kGammaToLinearTab[p[3]], kGammaToLinearTab[p[2]],
+                          kGammaToLinearTab[p[1]], kGammaToLinearTab[p[0]]);
 }
 
 // 'value' is in kGammaToLinearBits fractional precision.
@@ -315,12 +314,11 @@ static inline __m256i LinearToGamma8(__m256i value) {
                                       _mm256_castsi256_ps(p3), mask_bit3);
   __m256 packed_f = _mm256_blendv_ps(p01, p23, mask_bit4);
 
-  const __m256 is_32 = _mm256_castsi256_ps(
-      _mm256_cmpgt_epi32(tab_pos, _mm256_set1_epi32(31)));
+  const __m256 is_32 =
+      _mm256_castsi256_ps(_mm256_cmpgt_epi32(tab_pos, _mm256_set1_epi32(31)));
   packed_f = _mm256_blendv_ps(
       packed_f,
-      _mm256_castsi256_ps(
-          _mm256_set1_epi32(kPackedLinearToGammaTab[32])),
+      _mm256_castsi256_ps(_mm256_set1_epi32(kPackedLinearToGammaTab[32])),
       is_32);
   const __m256i packed = _mm256_castps_si256(packed_f);
 
@@ -377,26 +375,26 @@ static inline __m256i ScaleDownChannel8(const fixed_y_t* src1,
   const fixed_y_t* p1 = src1 + channel_off;
   const fixed_y_t* p2 = src2 + channel_off;
 
-  const __m256i A = _mm256_set_epi32(
-      kGammaToLinearTab[p1[14]], kGammaToLinearTab[p1[12]],
-      kGammaToLinearTab[p1[10]], kGammaToLinearTab[p1[8]],
-      kGammaToLinearTab[p1[6]],  kGammaToLinearTab[p1[4]],
-      kGammaToLinearTab[p1[2]],  kGammaToLinearTab[p1[0]]);
-  const __m256i B = _mm256_set_epi32(
-      kGammaToLinearTab[p1[15]], kGammaToLinearTab[p1[13]],
-      kGammaToLinearTab[p1[11]], kGammaToLinearTab[p1[9]],
-      kGammaToLinearTab[p1[7]],  kGammaToLinearTab[p1[5]],
-      kGammaToLinearTab[p1[3]],  kGammaToLinearTab[p1[1]]);
-  const __m256i C = _mm256_set_epi32(
-      kGammaToLinearTab[p2[14]], kGammaToLinearTab[p2[12]],
-      kGammaToLinearTab[p2[10]], kGammaToLinearTab[p2[8]],
-      kGammaToLinearTab[p2[6]],  kGammaToLinearTab[p2[4]],
-      kGammaToLinearTab[p2[2]],  kGammaToLinearTab[p2[0]]);
-  const __m256i D = _mm256_set_epi32(
-      kGammaToLinearTab[p2[15]], kGammaToLinearTab[p2[13]],
-      kGammaToLinearTab[p2[11]], kGammaToLinearTab[p2[9]],
-      kGammaToLinearTab[p2[7]],  kGammaToLinearTab[p2[5]],
-      kGammaToLinearTab[p2[3]],  kGammaToLinearTab[p2[1]]);
+  const __m256i A =
+      _mm256_set_epi32(kGammaToLinearTab[p1[14]], kGammaToLinearTab[p1[12]],
+                       kGammaToLinearTab[p1[10]], kGammaToLinearTab[p1[8]],
+                       kGammaToLinearTab[p1[6]], kGammaToLinearTab[p1[4]],
+                       kGammaToLinearTab[p1[2]], kGammaToLinearTab[p1[0]]);
+  const __m256i B =
+      _mm256_set_epi32(kGammaToLinearTab[p1[15]], kGammaToLinearTab[p1[13]],
+                       kGammaToLinearTab[p1[11]], kGammaToLinearTab[p1[9]],
+                       kGammaToLinearTab[p1[7]], kGammaToLinearTab[p1[5]],
+                       kGammaToLinearTab[p1[3]], kGammaToLinearTab[p1[1]]);
+  const __m256i C =
+      _mm256_set_epi32(kGammaToLinearTab[p2[14]], kGammaToLinearTab[p2[12]],
+                       kGammaToLinearTab[p2[10]], kGammaToLinearTab[p2[8]],
+                       kGammaToLinearTab[p2[6]], kGammaToLinearTab[p2[4]],
+                       kGammaToLinearTab[p2[2]], kGammaToLinearTab[p2[0]]);
+  const __m256i D =
+      _mm256_set_epi32(kGammaToLinearTab[p2[15]], kGammaToLinearTab[p2[13]],
+                       kGammaToLinearTab[p2[11]], kGammaToLinearTab[p2[9]],
+                       kGammaToLinearTab[p2[7]], kGammaToLinearTab[p2[5]],
+                       kGammaToLinearTab[p2[3]], kGammaToLinearTab[p2[1]]);
 
   __m256i sum =
       _mm256_add_epi32(_mm256_add_epi32(A, B), _mm256_add_epi32(C, D));

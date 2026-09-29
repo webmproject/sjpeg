@@ -21,13 +21,13 @@
 
 #include <assert.h>
 #include <stdint.h>
-#include <string.h>   // for memcpy
+#include <string.h>  // for memcpy
 
 #include <string>
 #include <vector>
 
 #if defined(_MSC_VER)
-#include <intrin.h>   // for _byteswap_uint64, __popcnt64
+#include <intrin.h>  // for _byteswap_uint64, __popcnt64
 #endif
 
 #include "sjpeg.h"
@@ -38,8 +38,8 @@
 // SJPEG_FORCE_32BIT picks the 32bit one on a 64bit host, so it can be built
 // and compared anywhere.
 
-#if !defined(SJPEG_FORCE_32BIT) && \
-    defined(UINTPTR_MAX) && UINTPTR_MAX > 0xffffffffu
+#if !defined(SJPEG_FORCE_32BIT) && defined(UINTPTR_MAX) && \
+    UINTPTR_MAX > 0xffffffffu
 #define SJPEG_HAVE_64BIT
 #endif
 
@@ -66,10 +66,11 @@ class MemorySink : public ByteSink {
 // Sink for generic container
 //   Container must supply .resize() and [], and be byte-based.
 
-template<class T> class Sink : public ByteSink {
+template <class T>
+class Sink : public ByteSink {
  public:
   explicit Sink(T* const output) : ptr_(output), pos_(0) {}
-  ~Sink() override {}
+  ~Sink() override = default;
   bool Commit(size_t used_size, size_t extra_size, uint8_t** data) override {
     pos_ += used_size;
     assert(pos_ <= ptr_->size());
@@ -78,7 +79,10 @@ template<class T> class Sink : public ByteSink {
     *data = extra_size ? reinterpret_cast<uint8_t*>(&(*ptr_)[pos_]) : nullptr;
     return true;
   }
-  bool Finalize() override { ptr_->resize(pos_); return true; }
+  bool Finalize() override {
+    ptr_->resize(pos_);
+    return true;
+  }
   void Reset() override {
     ptr_->clear();
     pos_ = 0;
@@ -109,7 +113,7 @@ typedef Sink<std::vector<uint8_t> > VectorSink;
 
 // returns true if any byte of 'x' is 0xff
 static inline bool HasFF(uint64_t x) {
-  const uint64_t y = ~x;    // 0xff bytes are now zero bytes
+  const uint64_t y = ~x;  // 0xff bytes are now zero bytes
   return ((y - 0x0101010101010101ull) & ~y & 0x8080808080808080ull) != 0;
 }
 
@@ -135,14 +139,14 @@ static inline uint64_t HToBE64(uint64_t x) {
   return BSwap64(x);
 #endif
 }
-#endif    // SJPEG_HAVE_64BIT
+#endif  // SJPEG_HAVE_64BIT
 
 ///////////////////////////////////////////////////////////////////////////////
 // BitWriter
 
 class BitWriter {
  public:
-  explicit BitWriter(ByteSink* const sink);
+  explicit BitWriter(ByteSink* sink);
 
   // Verifies the that output buffer can store at least 'size' more bytes.
   // Also flushes the previously written data.
@@ -175,7 +179,7 @@ class BitWriter {
     // Tested on accumulator, not on stored bytes: pending bytes are the top
     // ones of bits_ whatever the host's byte order.
     const uint64_t mask = (~0ull) << (64 - 8 * nb_bytes);
-    if (!HasFF(bits_ & mask)) {            // common case: nothing to escape
+    if (!HasFF(bits_ & mask)) {  // common case: nothing to escape
       // Stores 8 bytes whatever the number pending, so it needs 8 in hand.
       assert(byte_pos_ + sizeof(uint64_t) <= reserved_);
       const uint64_t out = HToBE64(bits_);
@@ -188,7 +192,7 @@ class BitWriter {
       for (int i = 0; i < nb_bytes; ++i, v <<= 8) {
         const uint8_t tmp = static_cast<uint8_t>(v >> 56);
         buf_[byte_pos_++] = tmp;
-        if (tmp == 0xff) buf_[byte_pos_++] = 0x00;   // escaping
+        if (tmp == 0xff) buf_[byte_pos_++] = 0x00;  // escaping
       }
     }
     bits_ <<= 8 * nb_bytes;
@@ -216,7 +220,7 @@ class BitWriter {
     while (nb_bits_ >= 8) {
       const uint8_t tmp = bits_ >> 24;
       buf_[byte_pos_++] = tmp;
-      if (tmp == 0xff) {   // escaping
+      if (tmp == 0xff) {  // escaping
         buf_[byte_pos_++] = 0x00;
       }
       bits_ <<= 8;
@@ -229,11 +233,11 @@ class BitWriter {
   void PutBits(uint32_t bits, int nb) {
     assert(nb <= 24 && nb > 0);
     assert((bits & ~((1 << nb) - 1)) == 0);
-    FlushBits();    // make room for a least 24bits
-    nb_bits_+= nb;
+    FlushBits();  // make room for a least 24bits
+    nb_bits_ += nb;
     bits_ |= bits << (32 - nb_bits_);
   }
-#endif    // SJPEG_HAVE_64BIT
+#endif  // SJPEG_HAVE_64BIT
   // Append one byte to buffer. FlushBits() must have been called before.
   // WARNING! There's no check for buffer overwrite. Use Reserve() before
   // calling this function.
@@ -277,11 +281,11 @@ class BitWriter {
 
   ByteSink* sink_;
 
-  int nb_bits_;      // number of unwritten bits
+  int nb_bits_;  // number of unwritten bits
 #if defined(SJPEG_HAVE_64BIT)
-  uint64_t bits_;    // accumulator for unwritten bits
+  uint64_t bits_;  // accumulator for unwritten bits
 #else
-  uint32_t bits_;    // accumulator for unwritten bits
+  uint32_t bits_;  // accumulator for unwritten bits
 #endif
   size_t byte_pos_;  // write position, in bytes
   size_t reserved_;  // bytes available in the slab starting at buf_
@@ -310,7 +314,10 @@ struct BitCounter {
     bits_ |= static_cast<uint64_t>(bits) << (64 - bit_pos_);
   }
   // Not const: pending bytes still owe us their escapes.
-  size_t Size() { Flush(); return size_; }
+  size_t Size() {
+    Flush();
+    return size_;
+  }
 
  private:
   // ~20% faster LUT-variant (isolated), but only ~0.2% end-to-end
@@ -332,7 +339,7 @@ struct BitCounter {
     const uint64_t z = y & v & kTopByteMasks[nb];
 #else
     uint64_t z = (y & v & 0x8080808080808080ull);
-    z >>= 64 - 8 * nb;                 // keep the top 'nb' bytes
+    z >>= 64 - 8 * nb;  // keep the top 'nb' bytes
 #endif
 #if defined(__GNUC__) || defined(__clang__)
     return __builtin_popcountll(z);
@@ -340,7 +347,10 @@ struct BitCounter {
     return static_cast<int>(__popcnt64(z));
 #else
     int n = 0;
-    while (z != 0) { z &= z - 1; ++n; }
+    while (z != 0) {
+      z &= z - 1;
+      ++n;
+    }
     return n;
 #endif
   }
@@ -359,13 +369,13 @@ struct BitCounter {
 
  private:
   uint32_t bits_;
-#endif    // SJPEG_HAVE_64BIT
+#endif  // SJPEG_HAVE_64BIT
   size_t bit_pos_;
   size_t size_;
 };
 
-}   // namespace sjpeg
+}  // namespace sjpeg
 
 #undef SJPEG_INLINE
 
-#endif    // SJPEG_BIT_WRITER_H_
+#endif  // SJPEG_BIT_WRITER_H_

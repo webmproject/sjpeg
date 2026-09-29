@@ -46,11 +46,12 @@ void RiskinessScoreInitRowTableAVX2() {
 // Evaluates 8 pixels of riskiness scores starting at (row1, row2).
 // Computes 3-way pair sharpness scores via 2D row table lookups and vectorizes
 // chroma neutrality tests, noise thresholding, and score accumulation.
-static inline void Process8Pixels(
-    const uint16_t* const row1, const uint16_t* const row2,
-    __m128i min_16, __m128i max_16, __m128i noise_vec_16, __m128i ones_16,
-    __m128i* const gray_vec_16, __m128i* const num_vec_16,
-    __m128i* const sum_vec_32) {
+static inline void Process8Pixels(const uint16_t* const row1,
+                                  const uint16_t* const row2, __m128i min_16,
+                                  __m128i max_16, __m128i noise_vec_16,
+                                  __m128i ones_16, __m128i* const gray_vec_16,
+                                  __m128i* const num_vec_16,
+                                  __m128i* const sum_vec_32) {
   // 1. Neutral chroma (gray level) test on row1 samples:
   //    gray_min <= idx0 < gray_min + s
   const __m128i r1_0 = LOAD_16(row1);
@@ -78,18 +79,18 @@ static inline void Process8Pixels(
   // 4. Vectorized noise threshold filter and accumulation.
   const __m128i score_mask = _mm_cmpgt_epi16(scores_16, noise_vec_16);
   *num_vec_16 = _mm_sub_epi16(*num_vec_16, score_mask);
-  *sum_vec_32 = _mm_add_epi32(*sum_vec_32,
+  *sum_vec_32 = _mm_add_epi32(
+      *sum_vec_32,
       _mm_madd_epi16(_mm_and_si128(scores_16, score_mask), ones_16));
 }
 
 // Processes 'size' samples in [0, size), 8 at a time with AVX2 and finishes
 // any trailing remainder with the scalar C version.
-void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
-                           int size, int noise_level,
-                           int64_t* score_sum, int64_t* score_num,
-                           int64_t* gray_num) {
-  const int s = kRGBSize;  // shortcut
-  const int gray = (s / 2) * (1 + s) * s;   // gray level for y=0,u=128,v=128
+void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2, int size,
+                           int noise_level, int64_t* score_sum,
+                           int64_t* score_num, int64_t* gray_num) {
+  const int s = kRGBSize;                  // shortcut
+  const int gray = (s / 2) * (1 + s) * s;  // gray level for y=0,u=128,v=128
   // idx packs y + s * (u + s * v), so the samples with neutral chroma are
   // exactly the ones in [gray_min, gray_min + s), whatever their luma.
   const int gray_min = gray - gray % s;
@@ -121,8 +122,8 @@ void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
   *gray_num += HorizontalSumS16(gray_vec_16);
 
   if (i < size) {
-    RiskinessScoreRow_C(row1 + i, row2 + i, size - i, noise_level,
-                        score_sum, score_num, gray_num);
+    RiskinessScoreRow_C(row1 + i, row2 + i, size - i, noise_level, score_sum,
+                        score_num, gray_num);
   }
 }
 

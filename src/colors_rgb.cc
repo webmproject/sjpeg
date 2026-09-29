@@ -30,15 +30,18 @@
 namespace sjpeg {
 
 // global fixed-point precision
-enum { FRAC = 16, HALF = 1 << FRAC >> 1,
-       ROUND_UV = (HALF << 2), ROUND_Y = HALF - (128 << FRAC) };
+enum {
+  FRAC = 16,
+  HALF = 1 << FRAC >> 1,
+  ROUND_UV = (HALF << 2),
+  ROUND_Y = HALF - (128 << FRAC)
+};
 
 #if defined(SJPEG_USE_SSE2)
 
 // Convert 8 packed RGB samples to r[], g[], b[]
 static inline void RGB24PackedToPlanar(const uint8_t* const rgb,
-                                       __m128i* const r,
-                                       __m128i* const g,
+                                       __m128i* const r, __m128i* const g,
                                        __m128i* const b) {
   const __m128i zero = _mm_setzero_si128();
   // in0: r0 g0 b0 r1 | g1 b1 r2 g2 | b2 r3 g3 b3 | r4 g4 b4 r5
@@ -80,27 +83,26 @@ static inline void RGB24PackedToPlanar(const uint8_t* const rgb,
 // This macro computes (RG * MULT_RG + GB * MULT_GB + ROUNDER) >> DESCALE_FIX
 // It's a macro and not a function because we need to use immediate values with
 // srai_epi32, e.g.
-#define TRANSFORM(RG_LO, RG_HI, GB_LO, GB_HI, MULT_RG, MULT_GB, \
-                  ROUNDER, DESCALE_FIX, ADD_OR_SUB, OUT) do {   \
-  const __m128i V0_lo = _mm_madd_epi16(RG_LO, MULT_RG);         \
-  const __m128i V0_hi = _mm_madd_epi16(RG_HI, MULT_RG);         \
-  const __m128i V1_lo = _mm_madd_epi16(GB_LO, MULT_GB);         \
-  const __m128i V1_hi = _mm_madd_epi16(GB_HI, MULT_GB);         \
-  const __m128i V2_lo = ADD_OR_SUB(V0_lo, V1_lo);               \
-  const __m128i V2_hi = ADD_OR_SUB(V0_hi, V1_hi);               \
-  const __m128i V3_lo = _mm_add_epi32(V2_lo, ROUNDER);          \
-  const __m128i V3_hi = _mm_add_epi32(V2_hi, ROUNDER);          \
-  const __m128i V5_lo = _mm_srai_epi32(V3_lo, DESCALE_FIX);     \
-  const __m128i V5_hi = _mm_srai_epi32(V3_hi, DESCALE_FIX);     \
-  (OUT) = _mm_packs_epi32(V5_lo, V5_hi);                        \
-} while (0)
+#define TRANSFORM(RG_LO, RG_HI, GB_LO, GB_HI, MULT_RG, MULT_GB, ROUNDER, \
+                  DESCALE_FIX, ADD_OR_SUB, OUT)                          \
+  do {                                                                   \
+    const __m128i V0_lo = _mm_madd_epi16(RG_LO, MULT_RG);                \
+    const __m128i V0_hi = _mm_madd_epi16(RG_HI, MULT_RG);                \
+    const __m128i V1_lo = _mm_madd_epi16(GB_LO, MULT_GB);                \
+    const __m128i V1_hi = _mm_madd_epi16(GB_HI, MULT_GB);                \
+    const __m128i V2_lo = ADD_OR_SUB(V0_lo, V1_lo);                      \
+    const __m128i V2_hi = ADD_OR_SUB(V0_hi, V1_hi);                      \
+    const __m128i V3_lo = _mm_add_epi32(V2_lo, ROUNDER);                 \
+    const __m128i V3_hi = _mm_add_epi32(V2_hi, ROUNDER);                 \
+    const __m128i V5_lo = _mm_srai_epi32(V3_lo, DESCALE_FIX);            \
+    const __m128i V5_hi = _mm_srai_epi32(V3_hi, DESCALE_FIX);            \
+    (OUT) = _mm_packs_epi32(V5_lo, V5_hi);                               \
+  } while (0)
 
 #define MK_CST_16(A, B) _mm_set_epi16((B), (A), (B), (A), (B), (A), (B), (A))
 
-inline void ConvertRGBToY(const __m128i* const R,
-                          const __m128i* const G,
-                          const __m128i* const B,
-                          int offset,
+inline void ConvertRGBToY(const __m128i* const R, const __m128i* const G,
+                          const __m128i* const B, int offset,
                           __m128i* const Y) {
   const __m128i kRG_y = MK_CST_16(19595, 38469 - 16384);
   const __m128i kGB_y = MK_CST_16(16384, 7471);
@@ -113,11 +115,9 @@ inline void ConvertRGBToY(const __m128i* const R,
             _mm_add_epi32, *Y);
 }
 
-inline void ConvertRGBToUV(const __m128i* const R,
-                           const __m128i* const G,
-                           const __m128i* const B,
-                           int offset,
-                           __m128i* const U, __m128i* const V) {
+inline void ConvertRGBToUV(const __m128i* const R, const __m128i* const G,
+                           const __m128i* const B, int offset, __m128i* const U,
+                           __m128i* const V) {
   // Warning! 32768 is overflowing int16, so we're actually multiplying
   // by -32768 instead of 32768. We compensate by subtracting the result
   // instead of adding, thus restoring the sign.
@@ -144,8 +144,8 @@ inline void ConvertRGBToUV(const __m128i* const R,
 // descaling factor is FRAC + 2.
 inline void ConvertRGBToUVAccumulated(const __m128i* const R,
                                       const __m128i* const G,
-                                      const __m128i* const B,
-                                      __m128i* const U, __m128i* const V) {
+                                      const __m128i* const B, __m128i* const U,
+                                      __m128i* const V) {
   // Warning! 32768 is overflowing int16, so we're actually multiplying
   // by -32768 instead of 32768. We compensate by subtracting the result
   // instead of adding, thus restoring the sign.
@@ -161,21 +161,19 @@ inline void ConvertRGBToUVAccumulated(const __m128i* const R,
   const __m128i GB_hi = _mm_unpackhi_epi16(*G, *B);
 
   // _mm_sub_epi32 -> sign restore!
-  TRANSFORM(RG_lo, RG_hi, GB_lo, GB_hi, kRG_u, kGB_u,
-            kRound, FRAC + 2, _mm_sub_epi32, *U);
+  TRANSFORM(RG_lo, RG_hi, GB_lo, GB_hi, kRG_u, kGB_u, kRound, FRAC + 2,
+            _mm_sub_epi32, *U);
   // note! GB and RG are inverted, for sign-restoration
-  TRANSFORM(GB_lo, GB_hi, RG_lo, RG_hi, kGB_v, kRG_v,
-            kRound, FRAC + 2, _mm_sub_epi32, *V);
+  TRANSFORM(GB_lo, GB_hi, RG_lo, RG_hi, kGB_v, kRG_v, kRound, FRAC + 2,
+            _mm_sub_epi32, *V);
 }
 
 #undef MK_CST_16
 #undef TRANSFORM
 
 // Convert 8 RGB samples to YUV. out[] points to a 3*64 data block.
-static inline void ToYUV_8(const __m128i* const r,
-                           const __m128i* const g,
-                           const __m128i* const b,
-                           int16_t* const out) {
+static inline void ToYUV_8(const __m128i* const r, const __m128i* const g,
+                           const __m128i* const b, int16_t* const out) {
   __m128i Y, U, V;
   ConvertRGBToY(r, g, b, -128, &Y);
   ConvertRGBToUV(r, g, b, 0, &U, &V);
@@ -185,24 +183,18 @@ static inline void ToYUV_8(const __m128i* const r,
 }
 
 // Convert 8 RGB samples to Y only. out[] points to a 1*64 data block.
-static inline void ToY_8(const __m128i* const r,
-                         const __m128i* const g,
-                         const __m128i* const b,
-                         int16_t* const out) {
+static inline void ToY_8(const __m128i* const r, const __m128i* const g,
+                         const __m128i* const b, int16_t* const out) {
   __m128i Y;
   ConvertRGBToY(r, g, b, -128, &Y);
   STORE_16(Y, out);
 }
 
 // Convert 16x16 RGB samples to YUV420
-static inline void ToY_16x16(const __m128i* const r,
-                             const __m128i* const g,
-                             const __m128i* const b,
-                             int16_t* const y_out,
-                             __m128i* const R_acc,
-                             __m128i* const G_acc,
-                             __m128i* const B_acc,
-                             bool do_add) {
+static inline void ToY_16x16(const __m128i* const r, const __m128i* const g,
+                             const __m128i* const b, int16_t* const y_out,
+                             __m128i* const R_acc, __m128i* const G_acc,
+                             __m128i* const B_acc, bool do_add) {
   __m128i Y;
   ConvertRGBToY(r, g, b, -128, &Y);
   STORE_16(Y, y_out);
@@ -217,10 +209,8 @@ static inline void ToY_16x16(const __m128i* const r,
   }
 }
 
-static inline void ToUV_8x8(const __m128i* const R,
-                            const __m128i* const G,
-                            const __m128i* const B,
-                            int16_t* const uv_out) {
+static inline void ToUV_8x8(const __m128i* const R, const __m128i* const G,
+                            const __m128i* const B, int16_t* const uv_out) {
   __m128i U, V;
   ConvertRGBToUVAccumulated(R, G, B, &U, &V);
   STORE_16(U, uv_out + 0 * 64);
@@ -398,7 +388,7 @@ static void Get16x16Block_RGBA_SSE2(const uint8_t* data, int step,
   Get16x16Block_SSE2_Impl<4, RGBA32PackedToPlanar>(data, step, blocks);
 }
 
-#endif    // SJPEG_USE_SSE2
+#endif  // SJPEG_USE_SSE2
 
 ///////////////////////////////////////////////////////////////////////////////
 // AVX2-version for 16x16 blocks
@@ -417,14 +407,12 @@ void RowToIndexAVX2(const uint8_t* rgb, int width, uint16_t* dst);
 
 #if defined(SJPEG_USE_NEON)
 
-static const int16_t kCoeff1[4] = { (int16_t)38469, 19595, 7471, 0 };
-static const int16_t kCoeff2[4] = { 21709, 11059, 27439, 5329 };
+static const int16_t kCoeff1[4] = {(int16_t)38469, 19595, 7471, 0};
+static const int16_t kCoeff2[4] = {21709, 11059, 27439, 5329};
 
 // Convert 8 packed RGB or BGR samples to r[], g[], b[]
-static void RGB24PackedToPlanar(const uint8_t* const rgb,
-                                int16x8_t* const r,
-                                int16x8_t* const g,
-                                int16x8_t* const b) {
+static void RGB24PackedToPlanar(const uint8_t* const rgb, int16x8_t* const r,
+                                int16x8_t* const g, int16x8_t* const b) {
   const uint8x8x3_t in = vld3_u8(rgb);
   *r = vreinterpretq_s16_u16(vmovl_u8(in.val[0]));
   *g = vreinterpretq_s16_u16(vmovl_u8(in.val[1]));
@@ -432,14 +420,12 @@ static void RGB24PackedToPlanar(const uint8_t* const rgb,
 }
 
 // s16->s32 widening multiply with large (>=32768) coeff requires special care:
-#define MULT_S32_S16_LARGE(S16, COEFF, LANE)                                 \
-  vreinterpretq_s32_u32(vmull_lane_u16(vreinterpret_u16_s16(S16),            \
+#define MULT_S32_S16_LARGE(S16, COEFF, LANE)                      \
+  vreinterpretq_s32_u32(vmull_lane_u16(vreinterpret_u16_s16(S16), \
                                        vreinterpret_u16_s16(COEFF), (LANE)))
 
-static inline void ConvertRGBToY(const int16x8_t R,
-                                 const int16x8_t G,
-                                 const int16x8_t B,
-                                 const int16x4_t coeffs,
+static inline void ConvertRGBToY(const int16x8_t R, const int16x8_t G,
+                                 const int16x8_t B, const int16x4_t coeffs,
                                  int16x8_t* const Y) {
   int32x4_t lo = MULT_S32_S16_LARGE(vget_low_s16(G), coeffs, 0);
   int32x4_t hi = MULT_S32_S16_LARGE(vget_high_s16(G), coeffs, 0);
@@ -453,47 +439,44 @@ static inline void ConvertRGBToY(const int16x8_t R,
 }
 
 // Compute ((V0<<15) - V1 * C1 - V2 * C2 + round) >> SHIFT
-#define DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2)                  \
-  int32x4_t lo, hi;                                                         \
-  do {                                                                      \
-    lo = vshll_n_s16(vget_low_s16(V0), 15);                                 \
-    hi = vshll_n_s16(vget_high_s16(V0), 15);                                \
-    lo = vmlsl_lane_s16(lo, vget_low_s16(V1), COEFF, LANE1);                \
-    hi = vmlsl_lane_s16(hi, vget_high_s16(V1), COEFF, LANE1);               \
-    lo = vmlsl_lane_s16(lo, vget_low_s16(V2), COEFF, LANE2);                \
-    hi = vmlsl_lane_s16(hi, vget_high_s16(V2), COEFF, LANE2);               \
-} while (0)
+#define DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2)    \
+  int32x4_t lo, hi;                                           \
+  do {                                                        \
+    lo = vshll_n_s16(vget_low_s16(V0), 15);                   \
+    hi = vshll_n_s16(vget_high_s16(V0), 15);                  \
+    lo = vmlsl_lane_s16(lo, vget_low_s16(V1), COEFF, LANE1);  \
+    hi = vmlsl_lane_s16(hi, vget_high_s16(V1), COEFF, LANE1); \
+    lo = vmlsl_lane_s16(lo, vget_low_s16(V2), COEFF, LANE2);  \
+    hi = vmlsl_lane_s16(hi, vget_high_s16(V2), COEFF, LANE2); \
+  } while (0)
 
 // This version assumes SHIFT <= 16
-#define DOT_PROD1(V0, V1, V2, COEFF, LANE1, LANE2, SHIFT, OUT) do {         \
-  assert(SHIFT <= 16);                                                      \
-  DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2);                       \
-  (OUT) = vcombine_s16(vrshrn_n_s32(lo, SHIFT), vrshrn_n_s32(hi, SHIFT));   \
-} while (0)
+#define DOT_PROD1(V0, V1, V2, COEFF, LANE1, LANE2, SHIFT, OUT)              \
+  do {                                                                      \
+    assert(SHIFT <= 16);                                                    \
+    DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2);                     \
+    (OUT) = vcombine_s16(vrshrn_n_s32(lo, SHIFT), vrshrn_n_s32(hi, SHIFT)); \
+  } while (0)
 
 // alternate version for SHIFT > 16
-#define DOT_PROD2(V0, V1, V2, COEFF, LANE1, LANE2, SHIFT, OUT) do {         \
-  assert(SHIFT > 16);                                                       \
-  DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2);                       \
-  (OUT) = vcombine_s16(vqmovn_s32(vrshrq_n_s32(lo, SHIFT)),                 \
-                       vqmovn_s32(vrshrq_n_s32(hi, SHIFT)));                \
-} while (0)
+#define DOT_PROD2(V0, V1, V2, COEFF, LANE1, LANE2, SHIFT, OUT) \
+  do {                                                         \
+    assert(SHIFT > 16);                                        \
+    DOT_PROD_PREAMBLE(V0, V1, V2, COEFF, LANE1, LANE2);        \
+    (OUT) = vcombine_s16(vqmovn_s32(vrshrq_n_s32(lo, SHIFT)),  \
+                         vqmovn_s32(vrshrq_n_s32(hi, SHIFT))); \
+  } while (0)
 
-static inline void ConvertRGBToUV(const int16x8_t R,
-                                  const int16x8_t G,
-                                  const int16x8_t B,
-                                  const int16x4_t coeffs,
+static inline void ConvertRGBToUV(const int16x8_t R, const int16x8_t G,
+                                  const int16x8_t B, const int16x4_t coeffs,
                                   int16x8_t* const U, int16x8_t* const V) {
   DOT_PROD1(B, G, R, coeffs, 0, 1, FRAC, *U);
   DOT_PROD1(R, G, B, coeffs, 2, 3, FRAC, *V);
 }
 
-static inline void ConvertRGBToUVAccumulated(const int16x8_t R,
-                                             const int16x8_t G,
-                                             const int16x8_t B,
-                                             const int16x4_t coeffs,
-                                             int16x8_t* const U,
-                                             int16x8_t* const V) {
+static inline void ConvertRGBToUVAccumulated(
+    const int16x8_t R, const int16x8_t G, const int16x8_t B,
+    const int16x4_t coeffs, int16x8_t* const U, int16x8_t* const V) {
   DOT_PROD2(B, G, R, coeffs, 0, 1, FRAC + 2, *U);
   DOT_PROD2(R, G, B, coeffs, 2, 3, FRAC + 2, *V);
 }
@@ -519,14 +502,10 @@ static void ToY_8(const int16x8_t r, const int16x8_t g, const int16x8_t b,
 }
 
 // Convert 16x16 RGB samples to YUV420
-static inline void ToY_16x16(const int16x8_t r,
-                             const int16x8_t g,
-                             const int16x8_t b,
-                             int16_t* const y_out,
-                             int16x8_t* const R_acc,
-                             int16x8_t* const G_acc,
-                             int16x8_t* const B_acc,
-                             const int16x4_t coeffs,
+static inline void ToY_16x16(const int16x8_t r, const int16x8_t g,
+                             const int16x8_t b, int16_t* const y_out,
+                             int16x8_t* const R_acc, int16x8_t* const G_acc,
+                             int16x8_t* const B_acc, const int16x4_t coeffs,
                              bool do_add) {
   int16x8_t Y;
   ConvertRGBToY(r, g, b, coeffs, &Y);
@@ -542,10 +521,8 @@ static inline void ToY_16x16(const int16x8_t r,
   }
 }
 
-static inline void ToUV_8x8(const int16x8_t R,
-                            const int16x8_t G,
-                            const int16x8_t B,
-                            const int16x4_t coeffs,
+static inline void ToUV_8x8(const int16x8_t R, const int16x8_t G,
+                            const int16x8_t B, const int16x4_t coeffs,
                             int16_t* const uv_out) {
   int16x8_t U, V;
   ConvertRGBToUVAccumulated(R, G, B, coeffs, &U, &V);
@@ -688,7 +665,7 @@ static void Get16x16Block_RGBA_NEON(const uint8_t* data, int step,
 #undef DOT_PROD1
 #undef DOT_PROD2
 
-#endif    // SJPEG_USE_NEON
+#endif  // SJPEG_USE_NEON
 
 ///////////////////////////////////////////////////////////////////////////////
 // C-version
@@ -713,7 +690,7 @@ static inline int16_t ToU(const int* const rgb) {
 
 // convert sum of four rgb triplets to V
 static inline int16_t ToV(const int* const rgb) {
-  const int v = 32768 * rgb[0] - 27439 * rgb[1] -  5329 * rgb[2] + ROUND_UV;
+  const int v = 32768 * rgb[0] - 27439 * rgb[1] - 5329 * rgb[2] + ROUND_UV;
   return (int16_t)(v >> (FRAC + 2));
 }
 
@@ -722,9 +699,9 @@ static inline void ToYUV(const uint8_t* const rgb, int16_t* const out) {
   const int r = rgb[0];
   const int g = rgb[1];
   const int b = rgb[2];
-  const int y =  19595 * r + 38469 * g +  7471 * b + ROUND_Y;
+  const int y = 19595 * r + 38469 * g + 7471 * b + ROUND_Y;
   const int u = -11059 * r - 21709 * g + 32768 * b + HALF;
-  const int v =  32768 * r - 27439 * g -  5329 * b + HALF;
+  const int v = 32768 * r - 27439 * g - 5329 * b + HALF;
   out[0 * 64] = (int16_t)(y >> FRAC);
   out[1 * 64] = (int16_t)(u >> FRAC);
   out[2 * 64] = (int16_t)(v >> FRAC);
@@ -735,7 +712,7 @@ static inline int16_t ToY(const uint8_t* const rgb) {
   const int r = rgb[0];
   const int g = rgb[1];
   const int b = rgb[2];
-  const int y =  19595 * r + 38469 * g +  7471 * b + ROUND_Y;
+  const int y = 19595 * r + 38469 * g + 7471 * b + ROUND_Y;
   return (int16_t)(y >> FRAC);
 }
 
@@ -759,22 +736,22 @@ static void Get8x8Block_Y_C(const uint8_t* data, int step, int16_t* out) {
   }
 }
 
-void Get16x8Block_C(const uint8_t* src1, int src_stride,
-                    int16_t yblock[4 * 64], int16_t uvblock[2 * 64]) {
+void Get16x8Block_C(const uint8_t* src1, int src_stride, int16_t yblock[4 * 64],
+                    int16_t uvblock[2 * 64]) {
   for (int y = 8; y > 0; y -= 2) {
     const uint8_t* const src2 = src1 + src_stride;
     for (int x = 0; x < 4; ++x) {
       int rgb[2][3];
       memset(rgb, 0, sizeof(rgb));
-      yblock[2 * x    ] = ToY(src1 + 6 * x,     rgb[0]);
+      yblock[2 * x] = ToY(src1 + 6 * x, rgb[0]);
       yblock[2 * x + 1] = ToY(src1 + 6 * x + 3, rgb[0]);
-      yblock[2 * x + 8] = ToY(src2 + 6 * x,     rgb[0]);
+      yblock[2 * x + 8] = ToY(src2 + 6 * x, rgb[0]);
       yblock[2 * x + 9] = ToY(src2 + 6 * x + 3, rgb[0]);
       uvblock[0 * 64 + x] = ToU(rgb[0]);
       uvblock[1 * 64 + x] = ToV(rgb[0]);
-      yblock[2 * x     + 64] = ToY(src1 + 3 * 8 + 6 * x,     rgb[1]);
+      yblock[2 * x + 64] = ToY(src1 + 3 * 8 + 6 * x, rgb[1]);
       yblock[2 * x + 1 + 64] = ToY(src1 + 3 * 8 + 6 * x + 3, rgb[1]);
-      yblock[2 * x + 8 + 64] = ToY(src2 + 3 * 8 + 6 * x,     rgb[1]);
+      yblock[2 * x + 8 + 64] = ToY(src2 + 3 * 8 + 6 * x, rgb[1]);
       yblock[2 * x + 9 + 64] = ToY(src2 + 3 * 8 + 6 * x + 3, rgb[1]);
       uvblock[0 * 64 + x + 4] = ToU(rgb[1]);
       uvblock[1 * 64 + x + 4] = ToV(rgb[1]);
@@ -987,17 +964,19 @@ RGBToYUVBlockFunc GetBlockFunc(SjpegYUVMode yuv_mode, PixelFormat fmt) {
   }
 #endif
 #if defined(SJPEG_USE_SSE2)
-  if (SupportsSSE2()) return (yuv_mode == SJPEG_YUV_444) ? Get8x8Block_SSE2 :
-                             (yuv_mode == SJPEG_YUV_420) ? Get16x16Block_SSE2 :
-                                                           Get8x8Block_Y_SSE2;
+  if (SupportsSSE2())
+    return (yuv_mode == SJPEG_YUV_444)   ? Get8x8Block_SSE2
+           : (yuv_mode == SJPEG_YUV_420) ? Get16x16Block_SSE2
+                                         : Get8x8Block_Y_SSE2;
 #elif defined(SJPEG_USE_NEON)
-  if (SupportsNEON()) return (yuv_mode == SJPEG_YUV_444) ? Get8x8Block_NEON :
-                             (yuv_mode == SJPEG_YUV_420) ? Get16x16Block_NEON :
-                                                           Get8x8Block_Y_NEON;
+  if (SupportsNEON())
+    return (yuv_mode == SJPEG_YUV_444)   ? Get8x8Block_NEON
+           : (yuv_mode == SJPEG_YUV_420) ? Get16x16Block_NEON
+                                         : Get8x8Block_Y_NEON;
 #endif
-  return (yuv_mode == SJPEG_YUV_444) ? Get8x8Block_C :
-         (yuv_mode == SJPEG_YUV_420) ? Get16x16Block_C :
-                                       Get8x8Block_Y_C;  // default
+  return (yuv_mode == SJPEG_YUV_444)   ? Get8x8Block_C
+         : (yuv_mode == SJPEG_YUV_420) ? Get16x16Block_C
+                                       : Get8x8Block_Y_C;  // default
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1015,9 +994,7 @@ int ToY(int r, int g, int b) {
   return (luma + HALF) >> FRAC;  // no need to clip
 }
 
-uint32_t clip_uv(int v) {
-  return clip_8b(128 + ((v + HALF) >> FRAC));
-}
+uint32_t clip_uv(int v) { return clip_8b(128 + ((v + HALF) >> FRAC)); }
 
 uint32_t ToU(int r, int g, int b) {
   const int u = -11059 * r - 21709 * g + 32768 * b;
@@ -1043,7 +1020,6 @@ int ConvertToYUVIndex(const uint8_t* const rgb) {
   const uint32_t v = Convert(ToV(r, g, b));
   return (y + u * sjpeg::kRGBSize + v * sjpeg::kRGBSize * sjpeg::kRGBSize);
 }
-
 
 #if defined(SJPEG_USE_SSE2)
 void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
@@ -1162,7 +1138,7 @@ void RowToIndexNEON(const uint8_t* rgb, int width, uint16_t* dst) {
   }
   if (width > 0) RowToIndexC(rgb, width, dst);
 }
-#endif    // SJPEG_USE_NEON
+#endif  // SJPEG_USE_NEON
 
 }  // namespace
 
@@ -1187,9 +1163,9 @@ RGBToIndexRowFunc GetRowFunc() {
 ////////////////////////////////////////////////////////////////////////////////
 // Sample replication functions
 
-void Replicate8b(const uint8_t* src, int src_stride,
-                 uint8_t* dst, int dst_stride,
-                 int sub_w, int sub_h, int w, int h, int x_step) {
+void Replicate8b(const uint8_t* src, int src_stride, uint8_t* dst,
+                 int dst_stride, int sub_w, int sub_h, int w, int h,
+                 int x_step) {
   assert(sub_w > 0 && sub_h > 0);
   if (sub_w > w) sub_w = w;
   if (sub_h > h) sub_h = h;
@@ -1272,4 +1248,4 @@ void Convert8To16b(const uint8_t* src, int src_step, int16_t* dst) {
   }
 }
 
-}   // namespace sjpeg
+}  // namespace sjpeg
