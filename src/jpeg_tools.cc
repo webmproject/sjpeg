@@ -20,11 +20,11 @@
 #include <math.h>    // for fabs
 #include <stddef.h>  // for ptrdiff_t
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>  // for memset
 
 #include <algorithm>  // for std::min, std::max
-#include <cstdlib>
-#include <utility>  // for std::swap
+#include <utility>    // for std::swap
 #include <vector>
 
 #define SJPEG_NEED_ASM_HEADERS

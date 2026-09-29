@@ -17,14 +17,14 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
+#include <limits.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <algorithm>
-#include <climits>
-#include <cmath>
 #include <functional>
 #include <memory>
 #include <mutex>  // NOLINT

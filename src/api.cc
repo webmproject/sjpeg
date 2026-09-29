@@ -19,11 +19,11 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #if !defined(SJPEG_NO_MULTITHREADING)
 #include <algorithm>
 #endif
-#include <cstdlib>
 #include <memory>
 #include <new>
 #include <string>

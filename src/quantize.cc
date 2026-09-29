@@ -17,11 +17,11 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
 #include <algorithm>
-#include <cmath>
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"

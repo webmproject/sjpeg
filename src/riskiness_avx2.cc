@@ -19,7 +19,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
-#include <cstdint>
+#include <stdint.h>
+
 #include <mutex>  // NOLINT
 #include <vector>
 

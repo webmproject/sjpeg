@@ -21,9 +21,8 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
+#include <stdint.h>
 #include <string.h>
-
-#include <cstdint>
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
