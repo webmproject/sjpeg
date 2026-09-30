@@ -427,8 +427,8 @@ std::shared_ptr<ByteSink> MakeByteSink(std::vector<uint8_t>* output);
 struct MemoryManager {
  public:
   virtual ~MemoryManager() = default;
-  virtual void* Alloc(size_t size) = 0;    // same semantic as malloc()
-  virtual void Free(void* ptr) = 0;  // same semantic as free()
+  virtual void* Alloc(size_t size) = 0;  // same semantic as malloc()
+  virtual void Free(void* ptr) = 0;      // same semantic as free()
 };
 
 }  // namespace sjpeg

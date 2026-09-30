@@ -35,8 +35,7 @@ extern double GetStopwatchTime();
 
 // try to systematically decode the input as a JPEG, PNG, PPM (in this order)
 extern std::vector<uint8_t> ReadImage(const std::string& in, int* width,
-                                      int* height,
-                                      sjpeg::EncoderParam* param);
+                                      int* height, sjpeg::EncoderParam* param);
 
 // Return CRC32 signature for data block. 'crc' is the current checksum value.
 extern uint32_t GetCRC32(const std::string& data, uint32_t crc = 0);
@@ -65,19 +64,17 @@ typedef std::vector<uint8_t> (*ImageReader)(const std::string& in,
 extern ImageReader GuessImageReader(const std::string& input);
 
 // quickly try to guess the image format and read it.
-extern std::vector<uint8_t> ReadImageQuick(const std::string& in,
-                                           int* width, int* height,
+extern std::vector<uint8_t> ReadImageQuick(const std::string& in, int* width,
+                                           int* height,
                                            sjpeg::EncoderParam* param);
 
 // Directly callable functions, in case auto-detection didn't work.
 extern std::vector<uint8_t> ReadJPEG(const std::string& in, int* width,
-                                     int* height,
-                                     sjpeg::EncoderParam* param);
-extern std::vector<uint8_t> ReadPNG(const std::string& input,
-                                    int* width_ptr, int* height_ptr,
+                                     int* height, sjpeg::EncoderParam* param);
+extern std::vector<uint8_t> ReadPNG(const std::string& input, int* width_ptr,
+                                    int* height_ptr,
                                     sjpeg::EncoderParam* param);
 extern std::vector<uint8_t> ReadPPM(const std::string& input, int* width,
-                                    int* height,
-                                    sjpeg::EncoderParam* param);
+                                    int* height, sjpeg::EncoderParam* param);
 
 #endif /* SJPEG_EXAMPLES_UTILS_H_ */

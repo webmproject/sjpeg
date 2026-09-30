@@ -109,8 +109,7 @@ void StoreHisto(const int16_t in[64], Histo* const histos, int nb_blocks) {
 #if defined(SJPEG_HAVE_AVX2)
 // defined in histogram_avx2.cc, built separately with -mavx2 (see Makefile)
 // so this file itself doesn't need an AVX2 target.
-extern void StoreHistoAVX2(const int16_t in[64], Histo* histos,
-                           int nb_blocks);
+extern void StoreHistoAVX2(const int16_t in[64], Histo* histos, int nb_blocks);
 #endif
 
 Encoder::StoreHistoFunc Encoder::GetStoreHistoFunc() {
