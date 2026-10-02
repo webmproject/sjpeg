@@ -18,12 +18,11 @@
 
 #include <assert.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 
 #if !defined(SJPEG_NO_MULTITHREADING)
-#include <algorithm>
 #include <vector>
 #endif
 
@@ -48,10 +47,11 @@ bool SearchHook::Setup(const EncoderParam& param) {
   target = param.target_value;
   tolerance = param.tolerance / 100.f;
   qmin = (param.qmin < 0) ? 0 : param.qmin;
-  qmax = (param.qmax > 100) ? 100 :
-         (param.qmax < param.qmin) ? param.qmin : param.qmax;
+  qmax = (param.qmax > 100)          ? 100
+         : (param.qmax < param.qmin) ? param.qmin
+                                     : param.qmax;
   q = Clamp(SjpegEstimateQuality(param.GetQuantMatrix(0), false), qmin, qmax);
-  value = 0;   // undefined for at this point
+  value = 0;  // undefined for at this point
   pass = 0;
   return true;
 }
@@ -96,10 +96,9 @@ void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
   nb_run_levels_ = 0;
   const int total_intervals = TotalRestartIntervals();
   if (!QuantizeScanSlice(0, total_intervals, coeffs, /*rl_vec=*/nullptr,
-                         &nb_run_levels_,
-                         collect_stats ? freq_ac_ : nullptr,
-                         collect_stats ? freq_dc_ : nullptr,
-                         in_blocks_, replicated_buffer_)) {
+                         &nb_run_levels_, collect_stats ? freq_ac_ : nullptr,
+                         collect_stats ? freq_dc_ : nullptr, in_blocks_,
+                         replicated_buffer_)) {
     return;
   }
 }
@@ -110,14 +109,14 @@ void Encoder::LoopScan() {
 
 #if !defined(SJPEG_NO_MULTITHREADING)
   const int total_intervals = TotalRestartIntervals();
-  const int search_threads =
-      search_hook_->for_size ? GetNumSlices(total_intervals)
-                             : GetNumSlices(mb_h_);
+  const int search_threads = search_hook_->for_size
+                                 ? GetNumSlices(total_intervals)
+                                 : GetNumSlices(mb_h_);
 #endif  // !SJPEG_NO_MULTITHREADING
   if (use_adaptive_quant_) {
     CollectHistograms();
   } else {
-    CollectCoeffs();   // we just need the coeffs
+    CollectCoeffs();  // we just need the coeffs
   }
 
   const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
@@ -135,7 +134,7 @@ void Encoder::LoopScan() {
   uint8_t opt_quants[2][64];
 
   // Dichotomy passes
-  float best = 0.;     // best distance
+  float best = 0.;    // best distance
   float best_q = 0.;  // informative value to return to the user
   float best_result = 0.;
   bool last_is_best = false;
@@ -147,15 +146,15 @@ void Encoder::LoopScan() {
       FinalizeQuantMatrix(&quants_[c], q_bias_, adaptive_bias_);
     }
     if (use_adaptive_quant_) {
-      AnalyseHisto();   // adjust quant_[] matrices
+      AnalyseHisto();  // adjust quant_[] matrices
     }
 
     float result;
     if (search_hook_->for_size) {
 #if !defined(SJPEG_NO_MULTITHREADING)
       if (search_threads > 1) {
-        result = EvaluateSizeMultiThreaded(search_threads, total_intervals,
-                                           &chunks);
+        result =
+            EvaluateSizeMultiThreaded(search_threads, total_intervals, &chunks);
         if (!ok_) break;
       } else
 #endif
@@ -164,7 +163,7 @@ void Encoder::LoopScan() {
         StoreRunLevels(base_coeffs);
         if (!ok_) break;
         if (optimize_size_) {
-          CompileEntropyStats();   // stats were gathered by StoreRunLevels()
+          CompileEntropyStats();  // stats were gathered by StoreRunLevels()
           if (use_trellis_ || use_rdo_) InitCodes(true);
         }
         result = ComputeSize(base_coeffs);
@@ -175,8 +174,9 @@ void Encoder::LoopScan() {
       // distortion.
       result = ComputePSNR();
     }
-    if (DBG_PRINT) printf("pass #%d: q=%.2f value:%.2f ",
-                          search_hook_->pass, search_hook_->q, result);
+    if (DBG_PRINT)
+      printf("pass #%d: q=%.2f value:%.2f ", search_hook_->pass,
+             search_hook_->q, result);
 
     last_is_best = (p == 0 || fabs(result - search_hook_->target) < best);
     if (last_is_best) {
@@ -195,7 +195,8 @@ void Encoder::LoopScan() {
   if (ok_) {
     // transfer back the final matrices
     SetQuantMatrices(opt_quants);
-    for (int c = 0; c < 2; ++c) FinalizeQuantMatrix(&quants_[c], q_bias_, adaptive_bias_);
+    for (int c = 0; c < 2; ++c)
+      FinalizeQuantMatrix(&quants_[c], q_bias_, adaptive_bias_);
 
     // return informative values to the user
     search_hook_->q = best_q;
@@ -207,8 +208,7 @@ void Encoder::LoopScan() {
         // Like the serial fallback below, redo the quantization pass if the
         // search's last try wasn't the winner.
         if (!last_is_best) {
-          QuantizeSlicesMultiThreaded(search_threads, total_intervals,
-                                      &chunks);
+          QuantizeSlicesMultiThreaded(search_threads, total_intervals, &chunks);
           if (!ok_) return;
           if (optimize_size_) CompileEntropyStats();
         }
@@ -253,31 +253,31 @@ void Encoder::LoopScan() {
 
 size_t Encoder::HeaderSize() const {
   size_t size = 0;
-  size += 20;    // APP0
+  size += 20;  // APP0
   size += app_markers_.size();
-  if (exif_.size() > 0) {
+  if (!exif_.empty()) {
     size += 8 + exif_.size();
   }
-  if (iccp_.size() > 0) {
+  if (!iccp_.empty()) {
     const size_t chunk_size_max = 0xffff - 12 - 4;
     const size_t num_chunks = (iccp_.size() - 1) / chunk_size_max + 1;
     size += num_chunks * (12 + 4 + 2);
     size += iccp_.size();
   }
-  if (xmp_.size() > 0) {
+  if (!xmp_.empty()) {
     size += 2 + 2 + 29 + xmp_.size();
     if (xmp_.size() > 65533) {  // XMPExtended
       size += (xmp_.size() / 65458 + 1) * 40;
     }
   }
   size += (nb_comps_ == 1 ? 1 : 2) * 65 + 2 + 2;  // DQT
-  size += 8 + 3 * nb_comps_ + 2;  // SOF
-  size += 6 + 2 * nb_comps_ + 2;  // SOS
-  size += 2;                      // EOI
-  if (restart_interval_rows_ > 0) size += 6;  // DRI
+  size += 8 + 3 * nb_comps_ + 2;                  // SOF
+  size += 6 + 2 * nb_comps_ + 2;                  // SOS
+  size += 2;                                      // EOI
+  if (restart_interval_rows_ > 0) size += 6;      // DRI
   // DHT:
-  for (int c = 0; c < (nb_comps_ == 1 ? 1 : 2); ++c) {   // luma, chroma
-    for (int type = 0; type <= 1; ++type) {               // dc, ac
+  for (int c = 0; c < (nb_comps_ == 1 ? 1 : 2); ++c) {  // luma, chroma
+    for (int type = 0; type <= 1; ++type) {             // dc, ac
       const HuffmanTable* const h = Huffman_tables_[type * 2 + c];
       size += 2 + 3 + 16 + h->nb_syms_;
     }
@@ -286,8 +286,7 @@ size_t Encoder::HeaderSize() const {
 }
 
 void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
-                         const RunLevel* rl,
-                         BitCounter* const bc) const {
+                         const RunLevel* rl, BitCounter* const bc) const {
   for (int n = 0; n < nb_mbs; ++n) {
     const DCTCoeffs& c = coeffs[n];
     const int idx = c.idx_;
@@ -303,14 +302,14 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
     const uint32_t* const codes = ac_codes_[q_idx];
     for (int i = 0; i < c.nb_coeffs_; ++i) {
       int run = rl[i].run_;
-      while (run & ~15) {        // escapes
+      while (run & ~15) {  // escapes
         bc->AddPackedCode(codes[0xf0]);
         run -= 16;
       }
       const uint32_t suffix = rl[i].level_;
       const size_t nbits = suffix & 0x0f;
       const int sym = (int)((run << 4) | nbits);
-      assert(nbits > 0);   // as in CodeBlock(): zero only comes from the ZRL
+      assert(nbits > 0);  // as in CodeBlock(): zero only comes from the ZRL
 #if defined(SJPEG_HAVE_64BIT)
       bc->AddPackedCodeAndSuffix(codes[sym], suffix >> 4, (int)nbits);
 #else
@@ -356,7 +355,8 @@ float Encoder::GetPSNR(uint64_t err, uint64_t size) {
   // This expression is written such that it gives the same result on ARM
   // and x86 (for large values of err/size in particular). Don't change it!
   return (err > 0 && size > 0)
-             ? (float)(4.3429448f * log((double)size / ((double)err / 255. / 255.)))
+             ? (float)(4.3429448f *
+                       log((double)size / ((double)err / 255. / 255.)))
              : 99.f;
 }
 

@@ -33,6 +33,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <stdint.h>
+
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
@@ -59,10 +61,10 @@ int QuantizeBlockAVX2(const int16_t in[64], int idx, const Quantizer* const Q,
     const __m256i A = LOAD_32(in + i);
     const __m256i B = _mm256_srai_epi16(A, 15);  // sign (still needed below)
     const __m256i C = ABS_32(A);                 // abs(A)
-    const __m256i D = _mm256_adds_epi16(C, m_bias);            // v' = v+bias
-    const __m256i E = _mm256_mulhi_epu16(D, m_mult);           // (v'*iq)>>16
-    const __m256i F = _mm256_srli_epi16(E, AC_BITS);           // QUANTIZE(...)
-    const __m256i G = _mm256_xor_si256(F, B);                  // v ^ mask
+    const __m256i D = _mm256_adds_epi16(C, m_bias);   // v' = v+bias
+    const __m256i E = _mm256_mulhi_epu16(D, m_mult);  // (v'*iq)>>16
+    const __m256i F = _mm256_srli_epi16(E, AC_BITS);  // QUANTIZE(...)
+    const __m256i G = _mm256_xor_si256(F, B);         // v ^ mask
     STORE_32(F, tmp + i);
     STORE_32(G, masked + i);
     const __m256i cmp = _mm256_cmpgt_epi16(F, zero);

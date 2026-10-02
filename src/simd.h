@@ -187,12 +187,12 @@ static inline NeonVector8 Load8_NEON(const void* src) {
   return NeonVector8{vld1_u8(reinterpret_cast<const uint8_t*>(src))};
 }
 
-#define SJPEG_STORE_NEON(T16, T8, SUFFIX, PTR_T)       \
-  static inline void Store16_NEON(T16 v, void* dst) {  \
-    vst1q_##SUFFIX(reinterpret_cast<PTR_T*>(dst), v);  \
-  }                                                    \
-  static inline void Store8_NEON(T8 v, void* dst) {    \
-    vst1_##SUFFIX(reinterpret_cast<PTR_T*>(dst), v);   \
+#define SJPEG_STORE_NEON(T16, T8, SUFFIX, PTR_T)      \
+  static inline void Store16_NEON(T16 v, void* dst) { \
+    vst1q_##SUFFIX(reinterpret_cast<PTR_T*>(dst), v); \
+  }                                                   \
+  static inline void Store8_NEON(T8 v, void* dst) {   \
+    vst1_##SUFFIX(reinterpret_cast<PTR_T*>(dst), v);  \
   }
 
 SJPEG_STORE_NEON(uint8x16_t, uint8x8_t, u8, uint8_t)

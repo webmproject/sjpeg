@@ -17,13 +17,14 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
+#include <limits.h>
 #include <math.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <algorithm>
-#include <climits>
 #include <functional>
 #include <memory>
 #include <mutex>  // NOLINT
@@ -38,7 +39,7 @@ namespace sjpeg {
 
 // We could use SFIX=0 and only uint8_t for fixed_y_t, but it produces some
 // banding sometimes. Better use extra precision.
-#define SFIX 2                // fixed-point precision of RGB and Y/W
+#define SFIX 2  // fixed-point precision of RGB and Y/W
 #define SHALF (1 << SFIX >> 1)
 #define MAX_Y_T ((256 << SFIX) - 1)
 
@@ -65,7 +66,7 @@ static uint8_t ConvertRGBToY(int r, int g, int b) {
 }
 
 static uint8_t ConvertRGBToU(int r, int g, int b) {
-  const int u =  -11058 * r - 21709 * g + 32768 * b + TROUNDER;
+  const int u = -11058 * r - 21709 * g + 32768 * b + TROUNDER;
   return clip_8b(128 + (u >> TFIX));
 }
 
@@ -83,8 +84,8 @@ static void ConvertRowToY(const uint8_t* row, int w, uint8_t* const dst) {
   }
 }
 
-static void ConvertRowToUV(const uint8_t* row1, const uint8_t* row2,
-                           int w, uint8_t* u, uint8_t* v) {
+static void ConvertRowToUV(const uint8_t* row1, const uint8_t* row2, int w,
+                           uint8_t* u, uint8_t* v) {
   for (int i = 0; i < (w & ~1); i += 2, row1 += 6, row2 += 6) {
     const int r = row1[0] + row1[3] + row2[0] + row2[3];
     const int g = row1[1] + row1[4] + row2[1] + row2[4];
@@ -115,7 +116,7 @@ static const int kMinDimensionIterativeConversion = 4;
 uint32_t kLinearToGammaTab[GAMMA_TABLE_SIZE + 2];
 alignas(32) uint32_t kPackedLinearToGammaTab[GAMMA_TABLE_SIZE + 2];
 #define GAMMA_TO_LINEAR_BITS 14
-uint32_t kGammaToLinearTab[MAX_Y_T + 1];   // size scales with Y_FIX
+uint32_t kGammaToLinearTab[MAX_Y_T + 1];  // size scales with Y_FIX
 
 static void InitGammaTablesF() {
   static std::once_flag once;
@@ -177,7 +178,7 @@ uint32_t LinearToGamma(uint32_t value) {
   const uint32_t v0 = kLinearToGammaTab[tab_pos + 0];
   const uint32_t v1 = kLinearToGammaTab[tab_pos + 1];
   // Final interpolation.
-  const uint32_t v2 = (v1 - v0) * x;    // note: v1 >= v0.
+  const uint32_t v2 = (v1 - v0) * x;  // note: v1 >= v0.
   const uint32_t result = v0 + (v2 >> GAMMA_TO_LINEAR_BITS);
   return result;
 }
@@ -255,13 +256,12 @@ static void SharpFilterRow_C(const int16_t* A, const int16_t* B, int len,
 #if defined(SJPEG_HAVE_AVX2)
 uint64_t SharpUpdateY_AVX2(const uint16_t* ref, const uint16_t* src,
                            uint16_t* dst, int len);
-void SharpUpdateRGB_AVX2(const int16_t* ref, const int16_t* src,
-                         int16_t* dst, int len);
+void SharpUpdateRGB_AVX2(const int16_t* ref, const int16_t* src, int16_t* dst,
+                         int len);
 void SharpFilterRow_AVX2(const int16_t* A, const int16_t* B, int len,
                          const uint16_t* best_y, uint16_t* out);
-void StoreGray_AVX2(const fixed_y_t* const rgb, fixed_y_t* const y, int w);
-void ImportOneRow_AVX2(const uint8_t* const rgb, int pic_width,
-                       fixed_y_t* const dst);
+void StoreGray_AVX2(const fixed_y_t* rgb, fixed_y_t* y, int w);
+void ImportOneRow_AVX2(const uint8_t* rgb, int pic_width, fixed_y_t* dst);
 void UpdateW_AVX2(const fixed_y_t* src, fixed_y_t* dst, int w);
 void UpdateChroma_AVX2(const fixed_y_t* src1, const fixed_y_t* src2,
                        fixed_t* dst, size_t uv_w);
@@ -288,7 +288,7 @@ static uint64_t SharpUpdateY_SSE2(const uint16_t* ref, const uint16_t* src,
     const __m128i F = _mm_add_epi16(C, D);       // new_y
     const __m128i G = _mm_or_si128(E, one);      // -1 or 1
     const __m128i H = CLAMP_16(F, zero, max);
-    const __m128i I = _mm_madd_epi16(D, G);      // sum(abs(...))
+    const __m128i I = _mm_madd_epi16(D, G);  // sum(abs(...))
     STORE_16(H, dst + i);
     sum = _mm_add_epi32(sum, I);
   }
@@ -310,8 +310,8 @@ static void SharpUpdateRGB_SSE2(const int16_t* ref, const int16_t* src,
     const __m128i A = LOAD_16(ref + i);
     const __m128i B = LOAD_16(src + i);
     const __m128i C = LOAD_16(dst + i);
-    const __m128i D = _mm_sub_epi16(A, B);   // diff_uv
-    const __m128i E = _mm_add_epi16(C, D);   // new_uv
+    const __m128i D = _mm_sub_epi16(A, B);  // diff_uv
+    const __m128i E = _mm_add_epi16(C, D);  // new_uv
     STORE_16(E, dst + i);
   }
   for (; i < len; ++i) {
@@ -335,8 +335,8 @@ static void SharpFilterRow_SSE2(const int16_t* A, const int16_t* B, int len,
     const __m128i a1b0 = _mm_add_epi16(a1, b0);
     const __m128i a0a1b0b1 = _mm_add_epi16(a0b1, a1b0);  // A0+A1+B0+B1
     const __m128i a0a1b0b1_8 = _mm_add_epi16(a0a1b0b1, kCst8);
-    const __m128i a0b1_2 = _mm_add_epi16(a0b1, a0b1);    // 2*(A0+B1)
-    const __m128i a1b0_2 = _mm_add_epi16(a1b0, a1b0);    // 2*(A1+B0)
+    const __m128i a0b1_2 = _mm_add_epi16(a0b1, a0b1);  // 2*(A0+B1)
+    const __m128i a1b0_2 = _mm_add_epi16(a1b0, a1b0);  // 2*(A1+B0)
     const __m128i c0 = _mm_srai_epi16(_mm_add_epi16(a0b1_2, a0a1b0b1_8), 3);
     const __m128i c1 = _mm_srai_epi16(_mm_add_epi16(a1b0_2, a0a1b0b1_8), 3);
     const __m128i d0 = _mm_add_epi16(c1, a0);
@@ -381,8 +381,8 @@ static uint64_t SharpUpdateY_NEON(const uint16_t* ref, const uint16_t* src,
     const int16x8_t A = LOAD_16(ref + i);
     const int16x8_t B = LOAD_16(src + i);
     const int16x8_t C = LOAD_16(dst + i);
-    const int16x8_t D = vsubq_s16(A, B);       // diff_y
-    const int16x8_t F = vaddq_s16(C, D);       // new_y
+    const int16x8_t D = vsubq_s16(A, B);  // diff_y
+    const int16x8_t F = vaddq_s16(C, D);  // new_y
     const int16x8_t H = CLAMP_16(F, zero, max);
     const int16x8_t I = ABS_16(D);  // abs(diff_y)
     STORE_16(H, dst + i);
@@ -405,8 +405,8 @@ static void SharpUpdateRGB_NEON(const int16_t* ref, const int16_t* src,
     const int16x8_t A = LOAD_16(ref + i);
     const int16x8_t B = LOAD_16(src + i);
     const int16x8_t C = LOAD_16(dst + i);
-    const int16x8_t D = vsubq_s16(A, B);   // diff_uv
-    const int16x8_t E = vaddq_s16(C, D);   // new_uv
+    const int16x8_t D = vsubq_s16(A, B);  // diff_uv
+    const int16x8_t E = vaddq_s16(C, D);  // new_uv
     STORE_16(E, dst + i);
   }
   for (; i < len; ++i) {
@@ -457,7 +457,7 @@ static void SharpFilterRow_NEON(const int16_t* A, const int16_t* B, int len,
   }
 }
 
-#endif    // SJPEG_USE_NEON
+#endif  // SJPEG_USE_NEON
 
 // forward decls for InitFunctionPointers() below
 static void UpdateW(const fixed_y_t* src, fixed_y_t* dst, int w);
@@ -468,8 +468,8 @@ static uint64_t (*kSharpUpdateY)(const uint16_t* src, const uint16_t* ref,
                                  uint16_t* dst, int len);
 static void (*kSharpUpdateRGB)(const int16_t* src, const int16_t* ref,
                                int16_t* dst, int len);
-static void (*kSharpFilterRow)(const int16_t* A, const int16_t* B,
-                               int len, const uint16_t* best_y, uint16_t* out);
+static void (*kSharpFilterRow)(const int16_t* A, const int16_t* B, int len,
+                               const uint16_t* best_y, uint16_t* out);
 static void (*kUpdateW)(const fixed_y_t* src, fixed_y_t* dst, int w);
 static void (*kUpdateChroma)(const fixed_y_t* src1, const fixed_y_t* src2,
                              fixed_t* dst, size_t uv_w);
@@ -540,7 +540,7 @@ static void UpdateChroma(const fixed_y_t* src1, const fixed_y_t* src2,
     dst[0 * uv_w] = (fixed_t)(r - W);
     dst[1 * uv_w] = (fixed_t)(g - W);
     dst[2 * uv_w] = (fixed_t)(b - W);
-    dst  += 1;
+    dst += 1;
     src1 += 2;
     src2 += 2;
   }
@@ -562,13 +562,11 @@ static fixed_y_t Filter2(int A, int B, int W0) {
 }
 
 static void InterpolateTwoRows(const fixed_y_t* const best_y,
-                               const fixed_t* prev_uv,
-                               const fixed_t* cur_uv,
-                               const fixed_t* next_uv,
-                               int w,
-                               fixed_y_t* out1, fixed_y_t* out2) {
+                               const fixed_t* prev_uv, const fixed_t* cur_uv,
+                               const fixed_t* next_uv, int w, fixed_y_t* out1,
+                               fixed_y_t* out2) {
   const int uv_w = w >> 1;
-  const int len = (w - 1) >> 1;   // length to filter
+  const int len = (w - 1) >> 1;  // length to filter
   for (int k = 3; k > 0; --k) {  // process each R/G/B segments in turn
     // special boundary case for i==0
     out1[0] = Filter2(cur_uv[0], prev_uv[0], best_y[0]);
@@ -579,25 +577,24 @@ static void InterpolateTwoRows(const fixed_y_t* const best_y,
 
     // special boundary case for i == w - 1 when w is even
     if (!(w & 1)) {
-      out1[w - 1] = Filter2(cur_uv[uv_w - 1], prev_uv[uv_w - 1],
-                            best_y[w - 1 + 0]);
-      out2[w - 1] = Filter2(cur_uv[uv_w - 1], next_uv[uv_w - 1],
-                            best_y[w - 1 + w]);
+      out1[w - 1] =
+          Filter2(cur_uv[uv_w - 1], prev_uv[uv_w - 1], best_y[w - 1 + 0]);
+      out2[w - 1] =
+          Filter2(cur_uv[uv_w - 1], next_uv[uv_w - 1], best_y[w - 1 + w]);
     }
     out1 += w;
     out2 += w;
     prev_uv += uv_w;
-    cur_uv  += uv_w;
+    cur_uv += uv_w;
     next_uv += uv_w;
   }
 }
 
 static void ConvertWRGBToYUVSlice(const fixed_y_t* best_y,
-                                  const fixed_t* best_uv,
-                                  int width, int height,
+                                  const fixed_t* best_uv, int width, int height,
                                   size_t j_uv_start, size_t j_uv_end,
-                                  uint8_t* y_plane,
-                                  uint8_t* u_plane, uint8_t* v_plane) {
+                                  uint8_t* y_plane, uint8_t* u_plane,
+                                  uint8_t* v_plane) {
   const size_t w = ((size_t)width + 1) & ~1ULL;
   const size_t uv_w = w >> 1;
   const size_t row_elems = 3 * uv_w;
@@ -635,8 +632,8 @@ static void ConvertWRGBToYUVSlice(const fixed_y_t* best_y,
 static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
                            int stride, uint8_t* y_plane, uint8_t* u_plane,
                            uint8_t* v_plane, const Encoder* encoder) {
-  if (width <= 0 || height <= 0 ||
-      width > kMaxDimension || height > kMaxDimension) {
+  if (width <= 0 || height <= 0 || width > kMaxDimension ||
+      height > kMaxDimension) {
     return false;
   }
   // We expand the right/bottom border if needed.
@@ -699,14 +696,10 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
   assert(width >= kMinDimensionIterativeConversion);
   assert(height >= kMinDimensionIterativeConversion);
 
-  auto get_thread_scratch = [&](int t,
-                                fixed_y_t** src1,
-                                fixed_y_t** src2,
-                                fixed_y_t** best_rgb_y,
-                                fixed_t** best_rgb_uv,
+  auto get_thread_scratch = [&](int t, fixed_y_t** src1, fixed_y_t** src2,
+                                fixed_y_t** best_rgb_y, fixed_t** best_rgb_uv,
                                 fixed_t** head_buffer) {
-    uint16_t* p =
-        thread_scratch_base + (size_t)t * per_thread_elems;
+    uint16_t* p = thread_scratch_base + (size_t)t * per_thread_elems;
     *src1 = p;
     p += 3 * w;
     *src2 = p;
@@ -795,7 +788,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
         const size_t prev_J = (J > 0) ? J - 1 : 0;
         const size_t next_J = (J < uv_h - 1) ? J + 1 : J;
         const fixed_t* const prev_uv = &cur_in[prev_J * row_elems];
-        const fixed_t* const cur_uv  = &cur_in[J      * row_elems];
+        const fixed_t* const cur_uv = &cur_in[J * row_elems];
         const fixed_t* const next_uv = &cur_in[next_J * row_elems];
 
         const size_t uv_off = J * row_elems;
@@ -835,8 +828,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
           fixed_t *best_rgb_uv, *head_buffer;
           get_thread_scratch(t, &src1, &src2, &best_rgb_y, &best_rgb_uv,
                              &head_buffer);
-          memcpy(&cur_out[(size_t)slices[t].p_start * row_elems],
-                 head_buffer,
+          memcpy(&cur_out[(size_t)slices[t].p_start * row_elems], head_buffer,
                  (size_t)count * row_elems * sizeof(fixed_t));
         }
       }
@@ -857,8 +849,8 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
   fixed_t* const final_best_uv =
       best_uv_origin + current_offset_rows * row_stride;
   run_parallel(uv_h, [&](int /*t*/, int p_start, int p_end) {
-    ConvertWRGBToYUVSlice(&best_y[0], final_best_uv, width, height,
-                          p_start, p_end, y_plane, u_plane, v_plane);
+    ConvertWRGBToYUVSlice(&best_y[0], final_best_uv, width, height, p_start,
+                          p_end, y_plane, u_plane, v_plane);
   });
   return true;
 }
@@ -893,8 +885,7 @@ bool sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb, int W, int H,
       if (y < H - 1) {
         ConvertRowToY(rgb2, W, &y_plane[(size_t)(y + 1) * W]);
       }
-      ConvertRowToUV(rgb1, rgb2, W,
-                     &u_plane[(size_t)(y >> 1) * uv_w],
+      ConvertRowToUV(rgb1, rgb2, W, &u_plane[(size_t)(y >> 1) * uv_w],
                      &v_plane[(size_t)(y >> 1) * uv_w]);
     }
     return true;

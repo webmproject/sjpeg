@@ -16,22 +16,22 @@
 //     ./unit_test [test-name]...
 
 #include <assert.h>
-#include <climits>
+#include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <climits>
+#include <memory>
 #include <string>
 #include <thread>  // NOLINT
 #include <vector>
 
 // Needed for the SJPEG_USE_NEON guard around QuantizeErrorNEONOverflow below.
 #define SJPEG_NEED_ASM_HEADERS
-#include "sjpegi.h"
 #include "sjpeg.h"
+#include "sjpegi.h"
 
 namespace sjpeg {
 extern bool ForceSlowCImplementation;
@@ -57,7 +57,10 @@ bool CheckImpl(bool cond, const char* expr, int line) {
 #define SJPEG_CHECK(expr) CheckImpl(!!(expr), #expr, __LINE__)
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
-struct TestCase { const char* name; void (*func)(); };
+struct TestCase {
+  const char* name;
+  void (*func)();
+};
 
 std::vector<TestCase>& Tests() {
   static std::vector<TestCase> tests;
@@ -66,14 +69,14 @@ std::vector<TestCase>& Tests() {
 
 struct TestRegistrar {
   TestRegistrar(const char* name, void (*func)()) {
-    const TestCase test = { name, func };
+    const TestCase test = {name, func};
     Tests().push_back(test);
   }
 };
 
-#define SJPEG_TEST(Name)                                    \
-  void Test##Name();                                        \
-  const TestRegistrar kRegister##Name(#Name, &Test##Name);  \
+#define SJPEG_TEST(Name)                                   \
+  void Test##Name();                                       \
+  const TestRegistrar kRegister##Name(#Name, &Test##Name); \
   void Test##Name()
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -104,16 +107,17 @@ std::vector<uint8_t> MakeRGB(int width, int height) {
 }
 
 // Encodes a whole picture, with the packed stride.
-template<class T> bool EncodeRGB(const std::vector<uint8_t>& rgb, int W, int H,
-                                 const sjpeg::EncoderParam& param, T* out) {
+template <class T>
+bool EncodeRGB(const std::vector<uint8_t>& rgb, int W, int H,
+               const sjpeg::EncoderParam& param, T* out) {
   return sjpeg::Encode(rgb.data(), W, H, 3 * W, param, out);
 }
 
 // True if the bitstream announces the expected dimensions.
 bool HasSize(const std::string& jpg, int W, int H) {
   int width = 0, height = 0;
-  return SjpegDimensions(jpg, &width, &height, nullptr) &&
-         width == W && height == H;
+  return SjpegDimensions(jpg, &width, &height, nullptr) && width == W &&
+         height == H;
 }
 
 // Only used by SJPEG_TEST(Progressive) below.
@@ -167,6 +171,7 @@ SJPEG_TEST(Threads) {
   const std::vector<uint8_t> rgb = MakeRGB(W, H);
   std::vector<std::string> out(kNumThreads);
   std::vector<std::thread> threads;
+  threads.reserve(kNumThreads);
   for (int t = 0; t < kNumThreads; ++t) {
     threads.push_back(std::thread([&, t]() {
       sjpeg::EncoderParam param(72.f);
@@ -186,7 +191,7 @@ SJPEG_TEST(Compress) {
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
   std::string out;
   SJPEG_CHECK(SjpegCompress(rgb.data(), kWidth, kHeight, 75.f, &out));
-  SJPEG_CHECK(out.size() > 0);
+  SJPEG_CHECK(!out.empty());
   int width = 0, height = 0, is_yuv420 = -1;
   SJPEG_CHECK(SjpegDimensions(out, &width, &height, &is_yuv420));
   SJPEG_CHECK(width == kWidth && height == kHeight);
@@ -196,9 +201,8 @@ SJPEG_TEST(Compress) {
 SJPEG_TEST(EncodeParams) {
   const int kWidth = 32, kHeight = 16;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
-  const SjpegYUVMode kModes[] = { SJPEG_YUV_AUTO, SJPEG_YUV_420,
-                                  SJPEG_YUV_SHARP, SJPEG_YUV_444,
-                                  SJPEG_YUV_400 };
+  const SjpegYUVMode kModes[] = {SJPEG_YUV_AUTO, SJPEG_YUV_420, SJPEG_YUV_SHARP,
+                                 SJPEG_YUV_444, SJPEG_YUV_400};
   for (size_t m = 0; m < ARRAY_SIZE(kModes); ++m) {
     sjpeg::EncoderParam param(80.f);
     param.yuv_mode = kModes[m];
@@ -208,10 +212,10 @@ SJPEG_TEST(EncodeParams) {
   }
   // Higher quality must not compress better.
   std::string small, large;
-  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, sjpeg::EncoderParam(30.f),
-                        &small));
-  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, sjpeg::EncoderParam(95.f),
-                        &large));
+  SJPEG_CHECK(
+      EncodeRGB(rgb, kWidth, kHeight, sjpeg::EncoderParam(30.f), &small));
+  SJPEG_CHECK(
+      EncodeRGB(rgb, kWidth, kHeight, sjpeg::EncoderParam(95.f), &large));
   SJPEG_CHECK(small.size() < large.size());
 }
 
@@ -223,54 +227,47 @@ SJPEG_TEST(InvalidArguments) {
                       uint8_t** dst, SjpegYUVMode mode) {
     return SjpegEncode(src, W, H, stride, dst, 75.f, 4, mode);
   };
-  SJPEG_CHECK(enc(nullptr, kWidth, kHeight, 3 * kWidth, &data, SJPEG_YUV_420)
-              == 0);
+  SJPEG_CHECK(enc(nullptr, kWidth, kHeight, 3 * kWidth, &data, SJPEG_YUV_420) ==
+              0);
   SJPEG_CHECK(enc(rgb.data(), kWidth, kHeight, 3 * kWidth, nullptr,
                   SJPEG_YUV_420) == 0);
-  SJPEG_CHECK(enc(rgb.data(), 0, kHeight, 3 * kWidth, &data, SJPEG_YUV_420)
-              == 0);
-  SJPEG_CHECK(enc(rgb.data(), kWidth, -1, 3 * kWidth, &data, SJPEG_YUV_420)
-              == 0);
+  SJPEG_CHECK(enc(rgb.data(), 0, kHeight, 3 * kWidth, &data, SJPEG_YUV_420) ==
+              0);
+  SJPEG_CHECK(enc(rgb.data(), kWidth, -1, 3 * kWidth, &data, SJPEG_YUV_420) ==
+              0);
   SJPEG_CHECK(enc(rgb.data(), kWidth, kHeight, 3 * kWidth - 1, &data,
                   SJPEG_YUV_420) == 0);
 
   // unknown yuv_mode: no encoder can be created for it. 7 is the largest
   // value the enum can hold without being out of range.
-  SJPEG_CHECK(enc(rgb.data(), kWidth, kHeight, 3 * kWidth,
-                  &data, (SjpegYUVMode)7) == 0);
+  SJPEG_CHECK(enc(rgb.data(), kWidth, kHeight, 3 * kWidth, &data,
+                  (SjpegYUVMode)7) == 0);
   SJPEG_CHECK(data == nullptr);
   const sjpeg::EncoderParam param;
   std::string out;
-  SJPEG_CHECK(!sjpeg::Encode(nullptr, kWidth, kHeight, 3 * kWidth, param,
-                             &out));
-  SJPEG_CHECK(!EncodeRGB(rgb, kWidth, kHeight, param,
-                         (std::string*)nullptr));
+  SJPEG_CHECK(
+      !sjpeg::Encode(nullptr, kWidth, kHeight, 3 * kWidth, param, &out));
+  SJPEG_CHECK(!EncodeRGB(rgb, kWidth, kHeight, param, (std::string*)nullptr));
   SJPEG_CHECK(!EncodeRGB(rgb, kWidth, 0, param, &out));
-  SJPEG_CHECK(!sjpeg::EncodeGray(nullptr, kWidth, kHeight, kWidth, param,
-                                 &out));
+  SJPEG_CHECK(
+      !sjpeg::EncodeGray(nullptr, kWidth, kHeight, kWidth, param, &out));
 
   uint8_t dummy_y = 0, dummy_u = 0, dummy_v = 0;
-  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(nullptr, kWidth, kHeight,
-                                              3 * kWidth, &dummy_y, &dummy_u,
-                                              &dummy_v));
-  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), 0, kHeight,
-                                              3 * kWidth, &dummy_y, &dummy_u,
-                                              &dummy_v));
-  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), kWidth, -1,
-                                              3 * kWidth, &dummy_y, &dummy_u,
-                                              &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(
+      nullptr, kWidth, kHeight, 3 * kWidth, &dummy_y, &dummy_u, &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(
+      rgb.data(), 0, kHeight, 3 * kWidth, &dummy_y, &dummy_u, &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(
+      rgb.data(), kWidth, -1, 3 * kWidth, &dummy_y, &dummy_u, &dummy_v));
   SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), kWidth, kHeight,
                                               3 * kWidth - 1, &dummy_y,
                                               &dummy_u, &dummy_v));
-  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), kWidth, kHeight,
-                                              INT_MIN, &dummy_y, &dummy_u,
-                                              &dummy_v));
-  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), kWidth, kHeight,
-                                              3 * kWidth, nullptr, &dummy_u,
-                                              &dummy_v));
-  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(rgb.data(), 70000, 70000,
-                                              3 * 70000, &dummy_y, &dummy_u,
-                                              &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(
+      rgb.data(), kWidth, kHeight, INT_MIN, &dummy_y, &dummy_u, &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(
+      rgb.data(), kWidth, kHeight, 3 * kWidth, nullptr, &dummy_u, &dummy_v));
+  SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(
+      rgb.data(), 70000, 70000, 3 * 70000, &dummy_y, &dummy_u, &dummy_v));
 }
 
 std::vector<uint8_t> MakePlane(int width, int height, int base) {
@@ -284,12 +281,11 @@ std::vector<uint8_t> MakePlane(int width, int height, int base) {
 
 // Copies 'plane' into a buffer with the given stride, padding the extra bytes
 // with a value that must never show up in the output.
-std::vector<uint8_t> WithStride(const std::vector<uint8_t>& plane,
-                                int width, int height, int stride) {
+std::vector<uint8_t> WithStride(const std::vector<uint8_t>& plane, int width,
+                                int height, int stride) {
   std::vector<uint8_t> out((size_t)stride * height, 0xd5);
   for (int y = 0; y < height; ++y) {
-    memcpy(&out[(size_t)y * stride],
-           &plane[(size_t)y * width], width);
+    memcpy(&out[(size_t)y * stride], &plane[(size_t)y * width], width);
   }
   return out;
 }
@@ -314,8 +310,8 @@ void CheckStrides(EncodeYUVFunc encode, int sub, int width, int height) {
       const std::vector<uint8_t> u = WithStride(U, uv_w, uv_h, u_stride);
       const std::vector<uint8_t> v = WithStride(V, uv_w, uv_h, v_stride);
       std::string out;
-      SJPEG_CHECK(encode(Y.data(), width, u.data(), u_stride,
-                         v.data(), v_stride, width, height, param,
+      SJPEG_CHECK(encode(Y.data(), width, u.data(), u_stride, v.data(),
+                         v_stride, width, height, param,
                          sjpeg::MakeByteSink(&out).get()));
       if (ref.empty()) ref = out;
       SJPEG_CHECK(!out.empty() && out == ref);
@@ -341,14 +337,14 @@ SJPEG_TEST(EncodeNV) {
   const std::vector<uint8_t> UV = MakePlane(uv_stride, uv_h, 90);
   const sjpeg::EncoderParam param(75.f);
   std::string out12, out21;
-  SJPEG_CHECK(sjpeg::EncodeNV12(Y.data(), kWidth, UV.data(), uv_stride,
-                                kWidth, kHeight, param,
+  SJPEG_CHECK(sjpeg::EncodeNV12(Y.data(), kWidth, UV.data(), uv_stride, kWidth,
+                                kHeight, param,
                                 sjpeg::MakeByteSink(&out12).get()));
-  SJPEG_CHECK(sjpeg::EncodeNV21(Y.data(), kWidth, UV.data(), uv_stride,
-                                kWidth, kHeight, param,
+  SJPEG_CHECK(sjpeg::EncodeNV21(Y.data(), kWidth, UV.data(), uv_stride, kWidth,
+                                kHeight, param,
                                 sjpeg::MakeByteSink(&out21).get()));
   SJPEG_CHECK(HasSize(out12, kWidth, kHeight));
-  SJPEG_CHECK(out12 != out21);   // U and V are swapped
+  SJPEG_CHECK(out12 != out21);  // U and V are swapped
 
   // one invalid argument at a time
   std::string out;
@@ -358,19 +354,19 @@ SJPEG_TEST(EncodeNV) {
                         int uv_step, int W, int H, sjpeg::ByteSink* s) {
     return sjpeg::EncodeNV12(y, y_step, uv, uv_step, W, H, param, s);
   };
-  SJPEG_CHECK(!nv12(Y.data(), kWidth, UV.data(), uv_stride,
-                    kWidth, kHeight, nullptr));
-  SJPEG_CHECK(!nv12(nullptr, kWidth, UV.data(), uv_stride, kWidth, kHeight,
-                    sink));
-  SJPEG_CHECK(!nv12(Y.data(), kWidth, nullptr, uv_stride, kWidth, kHeight,
-                    sink));
+  SJPEG_CHECK(
+      !nv12(Y.data(), kWidth, UV.data(), uv_stride, kWidth, kHeight, nullptr));
+  SJPEG_CHECK(
+      !nv12(nullptr, kWidth, UV.data(), uv_stride, kWidth, kHeight, sink));
+  SJPEG_CHECK(
+      !nv12(Y.data(), kWidth, nullptr, uv_stride, kWidth, kHeight, sink));
   SJPEG_CHECK(!nv12(Y.data(), kWidth, UV.data(), uv_stride, 0, kHeight, sink));
-  SJPEG_CHECK(!nv12(Y.data(), kWidth - 1, UV.data(), uv_stride,
-                    kWidth, kHeight, sink));
-  SJPEG_CHECK(!nv12(Y.data(), kWidth, UV.data(), uv_stride - 1,
-                    kWidth, kHeight, sink));
-  SJPEG_CHECK(!sjpeg::EncodeNV21(Y.data(), kWidth, UV.data(), uv_stride,
-                                 kWidth, kHeight, param, nullptr));
+  SJPEG_CHECK(
+      !nv12(Y.data(), kWidth - 1, UV.data(), uv_stride, kWidth, kHeight, sink));
+  SJPEG_CHECK(
+      !nv12(Y.data(), kWidth, UV.data(), uv_stride - 1, kWidth, kHeight, sink));
+  SJPEG_CHECK(!sjpeg::EncodeNV21(Y.data(), kWidth, UV.data(), uv_stride, kWidth,
+                                 kHeight, param, nullptr));
 }
 
 // Vertically flips 'height' rows of 'row_size' bytes.
@@ -401,9 +397,11 @@ SJPEG_TEST(NegativeStrides) {
   const std::vector<uint8_t> V = MakePlane(uv_w, uv_h, 140);
   const std::vector<uint8_t> UV = MakePlane(uv_stride, uv_h, 90);
   std::string a, b;
-  const auto match = [&a, &b]() { SJPEG_CHECK(!a.empty() && a == b);
-                                  a.clear();
-                                  b.clear(); };
+  const auto match = [&a, &b]() {
+    SJPEG_CHECK(!a.empty() && a == b);
+    a.clear();
+    b.clear();
+  };
   for (SjpegYUVMode mode : {SJPEG_YUV_420, SJPEG_YUV_AUTO, SJPEG_YUV_SHARP}) {
     sjpeg::EncoderParam mode_p = p;
     mode_p.yuv_mode = mode;
@@ -450,8 +448,8 @@ SJPEG_TEST(NegativeStrides) {
 // doesn't come from it.
 class TrackingMemory : public sjpeg::MemoryManager {
  public:
-  virtual ~TrackingMemory() {}
-  virtual void* Alloc(size_t size) {
+  ~TrackingMemory() override = default;
+  void* Alloc(size_t size) override {
     void* const ptr = malloc(size);
     if (ptr != nullptr) {
       ++num_allocs;
@@ -459,7 +457,7 @@ class TrackingMemory : public sjpeg::MemoryManager {
     }
     return ptr;
   }
-  virtual void Free(void* const ptr) {
+  void Free(void* const ptr) override {
     if (ptr == nullptr) return;
     for (size_t i = 0; i < live.size(); ++i) {
       if (live[i] == ptr) {
@@ -468,7 +466,7 @@ class TrackingMemory : public sjpeg::MemoryManager {
         return;
       }
     }
-    ++num_foreign_frees;   // not ours: releasing it would corrupt the heap
+    ++num_foreign_frees;  // not ours: releasing it would corrupt the heap
   }
   int num_allocs = 0;
   int num_foreign_frees = 0;
@@ -478,8 +476,8 @@ class TrackingMemory : public sjpeg::MemoryManager {
 SJPEG_TEST(MemoryManager) {
   const int kWidth = 40, kHeight = 24;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
-  const SjpegYUVMode kModes[] = { SJPEG_YUV_420, SJPEG_YUV_SHARP,
-                                  SJPEG_YUV_444, SJPEG_YUV_400 };
+  const SjpegYUVMode kModes[] = {SJPEG_YUV_420, SJPEG_YUV_SHARP, SJPEG_YUV_444,
+                                 SJPEG_YUV_400};
   for (size_t m = 0; m < ARRAY_SIZE(kModes); ++m) {
     TrackingMemory memory;
     sjpeg::EncoderParam param(75.f);
@@ -497,8 +495,7 @@ SJPEG_TEST(MemoryManager) {
 // refused rather than silently truncated.
 SJPEG_TEST(LargeDimensions) {
   const int kMaxDim = 0xffff, kSmallDim = 2;
-  const std::vector<uint8_t> rgb(
-      3 * (size_t)(kMaxDim + 1) * kSmallDim, 0x80);
+  const std::vector<uint8_t> rgb(3 * (size_t)(kMaxDim + 1) * kSmallDim, 0x80);
   const sjpeg::EncoderParam param(50.f);
   std::string out;
   SJPEG_CHECK(EncodeRGB(rgb, kMaxDim, kSmallDim, param, &out));
@@ -517,8 +514,8 @@ SJPEG_TEST(LargeDimensions) {
 class FailingMemory : public TrackingMemory {
  public:
   explicit FailingMemory(int num_ok) : num_ok_(num_ok) {}
-  virtual ~FailingMemory() {}
-  virtual void* Alloc(size_t size) {
+  ~FailingMemory() override = default;
+  void* Alloc(size_t size) override {
     if (num_ok_ <= 0) {
       ++num_refused;
       return nullptr;
@@ -537,10 +534,12 @@ class FailingMemory : public TrackingMemory {
 SJPEG_TEST(AllocationFailure) {
   const int kWidth = 51, kHeight = 33;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
-  const struct { sjpeg::EncoderParam::TargetMode mode; float value; } kTargets[]
-      = { { sjpeg::EncoderParam::TARGET_NONE, 0.f },
-          { sjpeg::EncoderParam::TARGET_SIZE, 2000.f },
-          { sjpeg::EncoderParam::TARGET_PSNR, 38.f } };
+  const struct {
+    sjpeg::EncoderParam::TargetMode mode;
+    float value;
+  } kTargets[] = {{sjpeg::EncoderParam::TARGET_NONE, 0.f},
+                  {sjpeg::EncoderParam::TARGET_SIZE, 2000.f},
+                  {sjpeg::EncoderParam::TARGET_PSNR, 38.f}};
   for (size_t t = 0; t < ARRAY_SIZE(kTargets); ++t) {
     for (int num_ok = 0; num_ok < 8; ++num_ok) {
       FailingMemory memory(num_ok);
@@ -583,36 +582,35 @@ SJPEG_TEST(Dimensions) {
   for (size_t n = 0; n <= size; ++n) {
     int w = -1, h = -1, yuv420 = -1;
     if (SjpegDimensions(data, n, &w, &h, &yuv420)) {
-      SJPEG_CHECK(w == kWidth && h == kHeight);   // never a partial answer
+      SJPEG_CHECK(w == kWidth && h == kHeight);  // never a partial answer
     }
   }
 }
 
 // Flat picture of the given color.
 std::vector<uint8_t> MakeFlatRGB(int width, int height, int r, int g, int b) {
-  const uint8_t color[3] = { (uint8_t)r, (uint8_t)g,
-                             (uint8_t)b };
+  const uint8_t color[3] = {(uint8_t)r, (uint8_t)g, (uint8_t)b};
   std::vector<uint8_t> rgb(3 * (size_t)width * height);
   for (size_t i = 0; i < rgb.size(); ++i) rgb[i] = color[i % 3];
   return rgb;
 }
 
 SJPEG_TEST(Riskiness) {
-  const int kSizes[] = { 8, 16, 32, 64, 128, 400 };
+  const int kSizes[] = {8, 16, 32, 64, 128, 400};
   for (size_t s = 0; s < ARRAY_SIZE(kSizes); ++s) {
     const int size = kSizes[s];
     // a gray picture is detected as such, whatever its dimensions
     const std::vector<uint8_t> gray = MakeFlatRGB(size, size, 128, 128, 128);
     float risk = -1.f;
-    SJPEG_CHECK(SjpegRiskiness(gray.data(), size, size, 3 * size, &risk)
-                == SJPEG_YUV_400);
+    SJPEG_CHECK(SjpegRiskiness(gray.data(), size, size, 3 * size, &risk) ==
+                SJPEG_YUV_400);
     SJPEG_CHECK(risk >= 0.f && risk <= 100.f);
 
     // A flat but tinted picture is not gray either, even though its packed
     // y/u/v index sits close to the one of the gray level.
     const std::vector<uint8_t> tint = MakeFlatRGB(size, size, 140, 120, 90);
-    SJPEG_CHECK(SjpegRiskiness(tint.data(), size, size, 3 * size, nullptr)
-                != SJPEG_YUV_400);
+    SJPEG_CHECK(SjpegRiskiness(tint.data(), size, size, 3 * size, nullptr) !=
+                SJPEG_YUV_400);
 
     // and neither is a colored one
     std::vector<uint8_t> color(3 * (size_t)size * size);
@@ -624,8 +622,8 @@ SJPEG_TEST(Riskiness) {
         p[2] = ((x ^ y) & 8) ? 20 : 220;
       }
     }
-    SJPEG_CHECK(SjpegRiskiness(color.data(), size, size, 3 * size, nullptr)
-                != SJPEG_YUV_400);
+    SJPEG_CHECK(SjpegRiskiness(color.data(), size, size, 3 * size, nullptr) !=
+                SJPEG_YUV_400);
   }
   // end to end: YUV_AUTO on a gray picture emits a single quantization matrix
   const int kWidth = 40, kHeight = 24;
@@ -649,9 +647,9 @@ SJPEG_TEST(RiskinessScoreRow) {
     row2[i] = static_cast<uint16_t>((i * 31 + 47) % kRGB3);
   }
 
-  const int kTestWidths[] = {
-      1, 2, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65,
-      127, 128, 255, 256, 333, 512, 1001, 1024, 1920, 2048};
+  const int kTestWidths[] = {1,   2,   7,   8,   9,    15,   16,   17,
+                             31,  32,  33,  63,  64,   65,   127,  128,
+                             255, 256, 333, 512, 1001, 1024, 1920, 2048};
 
   // Obtain SIMD and scalar C dispatch function pointers.
   sjpeg::ForceSlowCImplementation = false;
@@ -669,8 +667,8 @@ SJPEG_TEST(RiskinessScoreRow) {
                &score_sum_simd, &score_num_simd, &gray_num_simd);
 
     int64_t score_sum_c = 0, score_num_c = 0, gray_num_c = 0;
-    score_c(row1.data(), row2.data(), width - 1, kNoiseLevel,
-            &score_sum_c, &score_num_c, &gray_num_c);
+    score_c(row1.data(), row2.data(), width - 1, kNoiseLevel, &score_sum_c,
+            &score_num_c, &gray_num_c);
 
     SJPEG_CHECK(score_sum_simd == score_sum_c);
     SJPEG_CHECK(score_num_simd == score_num_c);
@@ -719,7 +717,7 @@ SJPEG_TEST(RowToIndex) {
 SJPEG_TEST(TargetSize) {
   const int W = 96, H = 64;
   const std::vector<uint8_t> rgb = MakeRGB(W, H);
-  const SjpegYUVMode kModes[] = { SJPEG_YUV_400, SJPEG_YUV_420 };
+  const SjpegYUVMode kModes[] = {SJPEG_YUV_400, SJPEG_YUV_420};
   for (size_t m = 0; m < ARRAY_SIZE(kModes); ++m) {
     // a plain encode gives a size that the search is sure to be able to reach
     sjpeg::EncoderParam param(60.f);
@@ -730,7 +728,7 @@ SJPEG_TEST(TargetSize) {
 
     param.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
     param.target_value = (float)target;
-    param.tolerance = 1.f;   // percent
+    param.tolerance = 1.f;  // percent
     param.passes = 12;
     SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &out));
     // The search stops on |dq| rather than on the size, so it only lands
@@ -743,8 +741,8 @@ SJPEG_TEST(TargetSize) {
 class FailingSink : public sjpeg::ByteSink {
  public:
   explicit FailingSink(int num_ok) : num_ok_(num_ok) {}
-  virtual ~FailingSink() {}
-  virtual bool Commit(size_t used_size, size_t extra_size, uint8_t** data) {
+  ~FailingSink() override = default;
+  bool Commit(size_t used_size, size_t extra_size, uint8_t** data) override {
     pos_ += used_size;
     if (num_ok_ <= 0) return false;
     --num_ok_;
@@ -752,8 +750,14 @@ class FailingSink : public sjpeg::ByteSink {
     *data = extra_size ? &buf_[pos_] : nullptr;
     return true;
   }
-  virtual bool Finalize() { buf_.resize(pos_); return true; }
-  virtual void Reset() { buf_.clear(); pos_ = 0; }
+  bool Finalize() override {
+    buf_.resize(pos_);
+    return true;
+  }
+  void Reset() override {
+    buf_.clear();
+    pos_ = 0;
+  }
 
  private:
   std::vector<uint8_t> buf_;
@@ -777,7 +781,7 @@ SJPEG_TEST(SinkFailure) {
       seen_failure = true;
     }
   }
-  SJPEG_CHECK(seen_failure);   // the test is only meaningful if both happened
+  SJPEG_CHECK(seen_failure);  // the test is only meaningful if both happened
   SJPEG_CHECK(seen_success);
 }
 
@@ -797,8 +801,8 @@ SJPEG_TEST(CompressionMethod) {
     SjpegFreeBuffer(data);
   }
   // methods outside of [0..8] are clamped to the nearest valid one
-  SJPEG_CHECK(out[0] == out[1]);     // -1 -> 0
-  SJPEG_CHECK(out[10] == out[9]);    //  9 -> 8
+  SJPEG_CHECK(out[0] == out[1]);   // -1 -> 0
+  SJPEG_CHECK(out[10] == out[9]);  //  9 -> 8
 }
 
 SJPEG_TEST(QuantMatrix) {
@@ -1100,7 +1104,8 @@ SJPEG_TEST(RestartMarkers) {
           SJPEG_CHECK(HasSize(out, w, h));
           if (restart > 0) {
             SJPEG_CHECK(HasMarker(out, kMarkerByteDRI));
-            SJPEG_CHECK(ExtractDRI(out) == restart * MCUsPerRow(w, yuv_modes[y]));
+            SJPEG_CHECK(ExtractDRI(out) ==
+                        restart * MCUsPerRow(w, yuv_modes[y]));
             // A restart marker only shows up between intervals: skip when the
             // interval spans the whole picture (a single MCU row here).
             const int block = (yuv_modes[y] == SJPEG_YUV_420) ? 16 : 8;
@@ -1141,7 +1146,8 @@ SJPEG_TEST(RestartMarkers) {
         SJPEG_CHECK(HasSize(out, w, h));
         SJPEG_CHECK(HasMarker(out, kMarkerByteDRI) == (restart > 0));
         if (restart > 0) {
-          SJPEG_CHECK(ExtractDRI(out) == restart * MCUsPerRow(w, SJPEG_YUV_420));
+          SJPEG_CHECK(ExtractDRI(out) ==
+                      restart * MCUsPerRow(w, SJPEG_YUV_420));
         }
       }
     }
@@ -1201,7 +1207,8 @@ SJPEG_TEST(RestartMarkers) {
           SJPEG_CHECK(HasSize(out, w, h));
           SJPEG_CHECK(HasMarker(out, kMarkerByteDRI) == (restart > 0));
           if (restart > 0) {
-            SJPEG_CHECK(ExtractDRI(out) == restart * MCUsPerRow(w, SJPEG_YUV_420));
+            SJPEG_CHECK(ExtractDRI(out) ==
+                        restart * MCUsPerRow(w, SJPEG_YUV_420));
           }
         }
       }
@@ -1286,7 +1293,8 @@ SJPEG_TEST(RateDistortionOptimization) {
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
 
   // 1. Basic encoding across quality factors with use_rdo.
-  static constexpr float kQualities[] = {10.0f, 50.0f, 75.0f, 90.0f, 95.0f, 100.0f};
+  static constexpr float kQualities[] = {10.0f, 50.0f, 75.0f,
+                                         90.0f, 95.0f, 100.0f};
   for (const float q : kQualities) {
     sjpeg::EncoderParam param(q);
     param.use_rdo = true;
@@ -1296,8 +1304,9 @@ SJPEG_TEST(RateDistortionOptimization) {
   }
 
   // 2. All YUV modes.
-  static constexpr SjpegYUVMode kModes[] = {SJPEG_YUV_AUTO, SJPEG_YUV_420, SJPEG_YUV_SHARP,
-                                            SJPEG_YUV_444, SJPEG_YUV_400};
+  static constexpr SjpegYUVMode kModes[] = {SJPEG_YUV_AUTO, SJPEG_YUV_420,
+                                            SJPEG_YUV_SHARP, SJPEG_YUV_444,
+                                            SJPEG_YUV_400};
   for (const SjpegYUVMode m : kModes) {
     sjpeg::EncoderParam param(80.0f);
     param.use_rdo = true;
@@ -1640,7 +1649,7 @@ SJPEG_TEST(MultiThreadedMultiPass) {
 }
 
 SJPEG_TEST(MultiThreadedIntervalDefaults) {
-  const int kWidth = 64, kHeight = 48;   // 4x3 MCUs in 4:2:0
+  const int kWidth = 64, kHeight = 48;  // 4x3 MCUs in 4:2:0
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
 
   // The reference: one MCU row per interval, coded serially.
@@ -1697,10 +1706,12 @@ SJPEG_TEST(MultiThreadedIntervalDefaults) {
 }
 
 SJPEG_TEST(MultiThreadedSharpYUV) {
-  const struct { int w, h; } kSizes[] = {
-    {157, 101},  // odd prime dimensions
-    {256, 256},  // power-of-two even dimensions
-    {512, 384},  // standard aspect ratio
+  const struct {
+    int w, h;
+  } kSizes[] = {
+      {157, 101},  // odd prime dimensions
+      {256, 256},  // power-of-two even dimensions
+      {512, 384},  // standard aspect ratio
   };
 
   for (const auto& size : kSizes) {
@@ -1719,15 +1730,14 @@ SJPEG_TEST(MultiThreadedSharpYUV) {
     for (int threads : {2, 3, 4, 8}) {
       std::string dummy;
       sjpeg::StringSink sink(&dummy);
-      std::unique_ptr<sjpeg::Encoder> enc(sjpeg::EncoderFactory(
-          rgb.data(), W, H, 3 * W, SJPEG_YUV_420, &sink, sjpeg::kRGBInput,
-          nullptr, threads));
+      std::unique_ptr<sjpeg::Encoder> enc(
+          sjpeg::EncoderFactory(rgb.data(), W, H, 3 * W, SJPEG_YUV_420, &sink,
+                                sjpeg::kRGBInput, nullptr, threads));
       SJPEG_CHECK(enc != nullptr);
 
       std::vector<uint8_t> y(W * H), u(uv_w * uv_h), v(uv_w * uv_h);
-      SJPEG_CHECK(sjpeg::ApplySharpYUVConversion(rgb.data(), W, H, 3 * W,
-                                                 y.data(), u.data(),
-                                                 v.data(), enc.get()));
+      SJPEG_CHECK(sjpeg::ApplySharpYUVConversion(
+          rgb.data(), W, H, 3 * W, y.data(), u.data(), v.data(), enc.get()));
       SJPEG_CHECK(y == y_ref);
       SJPEG_CHECK(u == u_ref);
       SJPEG_CHECK(v == v_ref);
@@ -1769,8 +1779,7 @@ SJPEG_TEST(SafeArithmetic) {
   // SafeAdd with size_t
   SJPEG_CHECK(SafeAdd<size_t>(10, 20, &out_s) && out_s == 30);
   SJPEG_CHECK(SafeAdd<size_t>(0, 0, &out_s) && out_s == 0);
-  SJPEG_CHECK(SafeAdd<size_t>(SIZE_MAX - 5, 5, &out_s) &&
-              out_s == SIZE_MAX);
+  SJPEG_CHECK(SafeAdd<size_t>(SIZE_MAX - 5, 5, &out_s) && out_s == SIZE_MAX);
   SJPEG_CHECK(!SafeAdd<size_t>(SIZE_MAX, 1, &out_s));
   SJPEG_CHECK(!SafeAdd<size_t>(SIZE_MAX - 5, 6, &out_s));
   SJPEG_CHECK(!SafeAdd<size_t>(10, 20, nullptr));
@@ -1908,8 +1917,8 @@ SJPEG_TEST(EncodeGray) {
   const std::vector<uint8_t> gray = MakePlane(kWidth, kHeight, 90);
   const sjpeg::EncoderParam param(80.f);
   std::string out;
-  SJPEG_CHECK(sjpeg::EncodeGray(gray.data(), kWidth, kHeight, kWidth, param,
-                                &out));
+  SJPEG_CHECK(
+      sjpeg::EncodeGray(gray.data(), kWidth, kHeight, kWidth, param, &out));
   SJPEG_CHECK(HasSize(out, kWidth, kHeight));
   uint8_t quant[2][64];
   SJPEG_CHECK(SjpegFindQuantizer(out, quant) == 1);  // single-component YUV400
@@ -2189,8 +2198,8 @@ int main(int argc, char* argv[]) {
     printf("%-4s %s\n", (g_num_failures == failures) ? "ok" : "FAIL",
            tests[n].name);
   }
-  printf("--\n%d test(s), %d check(s), %d failure(s)\n",
-         num_run, g_num_checks, g_num_failures);
+  printf("--\n%d test(s), %d check(s), %d failure(s)\n", num_run, g_num_checks,
+         g_num_failures);
   if (num_run == 0) {
     printf("no test was run!\n");
     return 1;

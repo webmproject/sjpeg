@@ -23,15 +23,13 @@
 #define _POSIX_C_SOURCE 200112L  // for setenv
 #endif
 
+#include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <assert.h>
+#include <string.h>  // IWYU pragma: keep
 
-#include <cmath>
-#include <vector>
-using std::vector;
+#include <vector>  // IWYU pragma: keep
 
 #if defined(SJPEG_HAVE_OPENGL) && \
     (defined(HAVE_GLUT_GLUT_H) || defined(HAVE_GL_GLUT_H))
@@ -64,22 +62,22 @@ struct Params {
 
   size_t current_file;
   std::vector<std::string> files;
-  std::string input;     // input file
-  std::string jpeg;      // currently encoded file
+  std::string input;  // input file
+  std::string jpeg;   // currently encoded file
   float estimated_quality;
 
   float riskiness;
   SjpegYUVMode yuv_mode_rec;
-  uint32_t elapsed;      // encoding time in ms
+  uint32_t elapsed;  // encoding time in ms
   float quality;
   uint8_t quant[2][64];
   bool limit_quantization;
   sjpeg::EncoderParam param;
-  vector<uint8_t> rgb;       // original samples
-  vector<uint8_t> out_rgb;   // recompressed samples
-  vector<uint8_t> map;       // error map
-  vector<uint8_t> alt;       // alternate comparison picture
-  size_t alt_size;           // size of the alternate picture
+  std::vector<uint8_t> rgb;      // original samples
+  std::vector<uint8_t> out_rgb;  // recompressed samples
+  std::vector<uint8_t> map;      // error map
+  std::vector<uint8_t> alt;      // alternate comparison picture
+  size_t alt_size;               // size of the alternate picture
   int width, height;
   int is_yuv420;
   int viewport_width, viewport_height;
@@ -89,8 +87,12 @@ struct Params {
   int nb_normal_blocks;
   int nb_busy_blocks;
 
-  Params() : current_file(~0u), nb_blocks(0), nb_flat_blocks(0),
-             nb_normal_blocks(0), nb_busy_blocks(0) {
+  Params()
+      : current_file(~0u),
+        nb_blocks(0),
+        nb_flat_blocks(0),
+        nb_normal_blocks(0),
+        nb_busy_blocks(0) {
     limit_quantization = true;
     quality = 75;
   }
@@ -107,7 +109,7 @@ static void PrintString(const std::string& text) {
   for (size_t i = 0; i < text.size(); ++i) glutBitmapCharacter(font, text[i]);
 }
 
-static void PrintMessages(const vector<std::string>& msg, float color[4],
+static void PrintMessages(const std::vector<std::string>& msg, float color[4],
                           bool draw_background = false) {
   if (msg.empty()) return;
 
@@ -123,7 +125,7 @@ static void PrintMessages(const vector<std::string>& msg, float color[4],
     float HY = msg.size() * line_height;
     float HX = 0;
     for (size_t i = 0; i < msg.size(); ++i) {
-     if (msg[i].size() > HX) HX = msg[i].size();
+      if (msg[i].size() > HX) HX = msg[i].size();
     }
     HX *= 9 * pix_incr_x;
     HX += 10 * pix_incr_x;
@@ -157,8 +159,8 @@ static const int kFadeDecr = 5;
 static const int kFadeMs = 3000 / kFadeDecr;
 
 static void PrintInfo() {
-  vector<std::string> msg;
-  float color[4] = { 0.90f, 0.90f, 0.90f, 1.0f };
+  std::vector<std::string> msg;
+  float color[4] = {0.90f, 0.90f, 0.90f, 1.0f};
 
   if (kParams.show == 3) {
     msg.push_back("Keyboard shortcuts:");
@@ -182,8 +184,7 @@ static void PrintInfo() {
         "  't' ............... toggle trellis quantization (overrides 'd')");
     msg.push_back("  'e' ............... show error map");
     msg.push_back("  'r' ............... show riskiness map");
-    msg.push_back(
-        "  'c' ............... show bias activity map (flat/busy)");
+    msg.push_back("  'c' ............... show bias activity map (flat/busy)");
     msg.push_back("  '+'/'-' ........... go to next/previous file");
     msg.push_back("  'h' ............... show this help message");
     msg.push_back("  'q' / 'Q' / ESC ... quit");
@@ -199,9 +200,8 @@ static void PrintInfo() {
 
     msg.push_back(kParams.files[kParams.current_file]);
 
-    snprintf(tmp, sizeof(tmp), "Dimension: %d x %d%s",
-             kParams.width, kParams.height,
-             kParams.is_yuv420 ? " (yuv420)" : "");
+    snprintf(tmp, sizeof(tmp), "Dimension: %d x %d%s", kParams.width,
+             kParams.height, kParams.is_yuv420 ? " (yuv420)" : "");
     msg.push_back(tmp);
     if (kParams.type == SJPEG_JPEG) {
       snprintf(tmp, sizeof(tmp), "  (estimated quality: %.1f)",
@@ -239,8 +239,8 @@ static void PrintInfo() {
       msg.back() += tmp;
     }
 
-    const char* kYUVModeStrings[] =
-        { "Auto", "YUV420", "Sharp-YUV420", "YUV444", "YUV400" };
+    const char* kYUVModeStrings[] = {"Auto", "YUV420", "Sharp-YUV420", "YUV444",
+                                     "YUV400"};
     snprintf(tmp, sizeof(tmp), "YUV-mode: %s",
              kYUVModeStrings[kParams.param.yuv_mode]);
     msg.push_back(tmp);
@@ -254,8 +254,7 @@ static void PrintInfo() {
     msg.push_back("- Riskiness Map -");
   } else if (kParams.show == 6) {
     char tmp[80];
-    snprintf(tmp, sizeof(tmp), "- Alt Pic (%zu bytes) -",
-             kParams.alt_size);
+    snprintf(tmp, sizeof(tmp), "- Alt Pic (%zu bytes) -", kParams.alt_size);
     msg.push_back(tmp);
   } else if (kParams.show == 7) {
     msg.push_back("- Bias Activity Map -");
@@ -263,9 +262,9 @@ static void PrintInfo() {
       char tmp[120];
       const float factor = 100.0f / kParams.nb_blocks;
       snprintf(tmp, sizeof(tmp),
-               "Blocks: %d (flat: %.1f%% [blue], normal: %.1f%%, busy: %.1f%% [red])",
-               kParams.nb_blocks,
-               factor * kParams.nb_flat_blocks,
+               "Blocks: %d (flat: %.1f%% [blue], normal: %.1f%%, busy: %.1f%% "
+               "[red])",
+               kParams.nb_blocks, factor * kParams.nb_flat_blocks,
                factor * kParams.nb_normal_blocks,
                factor * kParams.nb_busy_blocks);
       msg.push_back(tmp);
@@ -411,8 +410,8 @@ static void ComputeActivityMap() {
           ++kParams.nb_normal_blocks;
         }
 
-        static const int kFlatTint[3] = {40, 140, 255};   // cyan/blue
-        static const int kBusyTint[3] = {255, 60, 40};    // red/orange
+        static const int kFlatTint[3] = {40, 140, 255};  // cyan/blue
+        static const int kBusyTint[3] = {255, 60, 40};   // red/orange
         const int* const tint =
             (tier == sjpeg::BlockActivityTier::kFlatBlock)   ? kFlatTint
             : (tier == sjpeg::BlockActivityTier::kBusyBlock) ? kBusyTint
@@ -443,9 +442,8 @@ static bool EncodeAndDecode() {
   const double start = GetStopwatchTime();
   kParams.param.SetQuality(kParams.quality);
   kParams.param.SetLimitQuantization(kParams.limit_quantization);
-  if (!sjpeg::Encode(&kParams.rgb[0],
-                     kParams.width, kParams.height, kParams.width * 3,
-                     kParams.param, &kParams.jpeg)) {
+  if (!sjpeg::Encode(&kParams.rgb[0], kParams.width, kParams.height,
+                     kParams.width * 3, kParams.param, &kParams.jpeg)) {
     fprintf(stderr, "Encoding error!\n");
     kParams.error = true;
     return false;
@@ -516,14 +514,14 @@ bool Params::SetAltFile(const char* const file_name) {
   int w, h;
   alt = ReadImage(data, &w, &h, nullptr);
   if (alt.empty()) {
-    fprintf(stderr, "Could not decode the alternate file %s\n",
-            file_name);
+    fprintf(stderr, "Could not decode the alternate file %s\n", file_name);
     return false;
   }
   if (w != width || h != height) {
     alt.clear();
-    fprintf(stderr, "Alternate picture has incompatible dimensions "
-                    " (%dx%d vs expected %dx%d)\n",
+    fprintf(stderr,
+            "Alternate picture has incompatible dimensions "
+            " (%dx%d vs expected %dx%d)\n",
             w, h, width, height);
     return false;
   }
@@ -534,8 +532,8 @@ bool Params::SetAltFile(const char* const file_name) {
 //------------------------------------------------------------------------------
 
 void PrintMatrix(const char name[], const uint8_t m[64], bool for_chroma) {
-  printf(" %s quantization matrix (estimated quality: %.1f)\n",
-         name, SjpegEstimateQuality(m, for_chroma));
+  printf(" %s quantization matrix (estimated quality: %.1f)\n", name,
+         SjpegEstimateQuality(m, for_chroma));
   for (int j = 0; j < 8; ++j) {
     for (int i = 0; i < 8; ++i) printf("%3d ", m[i + j * 8]);
     printf("\n");
@@ -603,10 +601,9 @@ static void HandleKey(unsigned char key, int pos_x, int pos_y) {
     kParams.show = 3;
     glutPostRedisplay();
   } else if (key >= '0' && key <= '4') {
-    static const SjpegYUVMode kMap[] = {
-      SJPEG_YUV_AUTO, SJPEG_YUV_420, SJPEG_YUV_SHARP,
-      SJPEG_YUV_444, SJPEG_YUV_400
-    };
+    static const SjpegYUVMode kMap[] = {SJPEG_YUV_AUTO, SJPEG_YUV_420,
+                                        SJPEG_YUV_SHARP, SJPEG_YUV_444,
+                                        SJPEG_YUV_400};
     kParams.param.yuv_mode = kMap[key - '0'];
     FullRedraw();
   } else if (key == 'o') {
@@ -654,8 +651,10 @@ static void HandleKeyUp(unsigned char key, int pos_x, int pos_y) {
 
 static void SetQuality(int incr) {
   float q = kParams.quality + incr;
-  if (q < 0) q = 0;
-  else if (q > 100) q = 100;
+  if (q < 0)
+    q = 0;
+  else if (q > 100)
+    q = 100;
   if (kParams.quality == q) return;
   kParams.quality = q;
   FullRedraw();
@@ -665,11 +664,20 @@ static void HandleSpecialKeys(int key, int pos_x, int pos_y) {
   (void)pos_x;
   (void)pos_y;
   switch (key) {
-    default: return;
-    case GLUT_KEY_UP: SetQuality(1); break;
-    case GLUT_KEY_DOWN: SetQuality(-1); break;
-    case GLUT_KEY_RIGHT: SetQuality(10); break;
-    case GLUT_KEY_LEFT: SetQuality(-10); break;
+    default:
+      return;
+    case GLUT_KEY_UP:
+      SetQuality(1);
+      break;
+    case GLUT_KEY_DOWN:
+      SetQuality(-1);
+      break;
+    case GLUT_KEY_RIGHT:
+      SetQuality(10);
+      break;
+    case GLUT_KEY_LEFT:
+      SetQuality(-10);
+      break;
   }
 }
 
@@ -703,8 +711,7 @@ static void HandleDisplay() {
   } else {
     src = &kParams.out_rgb[0];
   }
-  glDrawPixels(kParams.width, kParams.height,
-               GL_RGB, GL_UNSIGNED_BYTE,
+  glDrawPixels(kParams.width, kParams.height, GL_RGB, GL_UNSIGNED_BYTE,
                reinterpret_cast<GLvoid*>(const_cast<uint8_t*>(src)));
   kParams.map.clear();
   PrintInfo();
@@ -717,7 +724,7 @@ static void StartDisplay() {
   const int height = kParams.height;
   const int swidth = glutGet(GLUT_SCREEN_WIDTH);
   const int sheight = glutGet(GLUT_SCREEN_HEIGHT);
-//  printf("%d x %d  vs  %d x %d\n", width, height, swidth, sheight);
+  //  printf("%d x %d  vs  %d x %d\n", width, height, swidth, sheight);
   (void)swidth;
   (void)sheight;
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
@@ -739,43 +746,43 @@ static void StartDisplay() {
 // Main
 
 static void Help() {
-  printf("Usage: vjpeg in_file [options]\n\n"
-         "Visualizer for SJPEG (re-)compression, using OpenGL\n"
-         "Options are:\n"
-         "  -q quality ........ Quality factor in [0..100] range.\n"
-         "                      Value of 100 gives the best quality\n"
-         "                      Default value is 75.\n"
-         "  -rdo .............. enable rate-distortion optimization\n"
-         "  -trellis .......... enable trellis quantization (overrides -rdo)\n"
-         "  -version .......... print version number and exit\n"
-         "  -info ............. print info overlay\n"
-         "  -h ................ this help message\n"
-         "\n"
-         "Keyboard shortcuts:\n"
-         "  'i' ............... overlay file information\n"
-         "  ' ' ............... show the original uncompressed picture\n"
-         "  up/down ........... change the compression factor by +/- 1 units\n"
-         "  left/right ........ change the compression factor by +/- 10 units\n"
-         "  return ............ show alternate picture (if specified)\n"
-         "  0/1/2/3/4 ......... change the yuv_mode to "
-                                "auto/yuv420/sharp-yuv420/yuv444/yuv400\n"
-         "  'o' ............... toggle Huffman optimization\n"
-         "  'a' ............... toggle adaptive quantization\n"
-         "  'b' ............... toggle adaptive bias\n"
-         "  'd' ............... toggle rate-distortion optimization\n"
-         "  'l' ............... toggle quantization limitation\n"
-         "  't' ............... toggle trellis quantization (overrides 'd')\n"
-         "  'e' ............... show error map\n"
-         "  'r' ............... show riskiness map\n"
-         "  'c' ............... show bias activity map (flat/busy)\n"
-         "  '+'/'-' ........... go to next/previous file\n"
-         "  'm' ............... print the output quantization matrices\n"
-         "  'h' ............... show this help message\n"
-         "  'q' / 'Q' / ESC ... quit\n"
-        );
+  printf(
+      "Usage: vjpeg in_file [options]\n\n"
+      "Visualizer for SJPEG (re-)compression, using OpenGL\n"
+      "Options are:\n"
+      "  -q quality ........ Quality factor in [0..100] range.\n"
+      "                      Value of 100 gives the best quality\n"
+      "                      Default value is 75.\n"
+      "  -rdo .............. enable rate-distortion optimization\n"
+      "  -trellis .......... enable trellis quantization (overrides -rdo)\n"
+      "  -version .......... print version number and exit\n"
+      "  -info ............. print info overlay\n"
+      "  -h ................ this help message\n"
+      "\n"
+      "Keyboard shortcuts:\n"
+      "  'i' ............... overlay file information\n"
+      "  ' ' ............... show the original uncompressed picture\n"
+      "  up/down ........... change the compression factor by +/- 1 units\n"
+      "  left/right ........ change the compression factor by +/- 10 units\n"
+      "  return ............ show alternate picture (if specified)\n"
+      "  0/1/2/3/4 ......... change the yuv_mode to "
+      "auto/yuv420/sharp-yuv420/yuv444/yuv400\n"
+      "  'o' ............... toggle Huffman optimization\n"
+      "  'a' ............... toggle adaptive quantization\n"
+      "  'b' ............... toggle adaptive bias\n"
+      "  'd' ............... toggle rate-distortion optimization\n"
+      "  'l' ............... toggle quantization limitation\n"
+      "  't' ............... toggle trellis quantization (overrides 'd')\n"
+      "  'e' ............... show error map\n"
+      "  'r' ............... show riskiness map\n"
+      "  'c' ............... show bias activity map (flat/busy)\n"
+      "  '+'/'-' ........... go to next/previous file\n"
+      "  'm' ............... print the output quantization matrices\n"
+      "  'h' ............... show this help message\n"
+      "  'q' / 'Q' / ESC ... quit\n");
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   const char* alt_name = nullptr;
   for (int c = 1; c < argc; ++c) {
     int parse_error = 0;
@@ -790,9 +797,8 @@ int main(int argc, char *argv[]) {
       kParams.param.use_trellis = true;
     } else if (!strcmp(argv[c], "-version")) {
       const uint32_t version = SjpegVersion();
-      printf("SJPEG version: %d.%d.%d\n",
-             (version >> 16) & 0xff, (version >> 8) & 0xff,
-             (version >>  0) & 0xff);
+      printf("SJPEG version: %d.%d.%d\n", (version >> 16) & 0xff,
+             (version >> 8) & 0xff, (version >> 0) & 0xff);
       return 0;
     } else if (!strcmp(argv[c], "-alt")) {
       if (c < argc - 1) alt_name = argv[++c];
@@ -843,9 +849,9 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-#else   // !SJPEG_HAVE_OPENGL
+#else  // !SJPEG_HAVE_OPENGL
 
-int main(int argc, const char *argv[]) {
+int main(int argc, const char* argv[]) {
   fprintf(stderr, "OpenGL support not enabled in %s.\n", argv[0]);
   (void)argc;
   return 0;

@@ -16,11 +16,14 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <stdint.h>
+
 #include "./sjpegi.h"
 
 namespace sjpeg {
 
 const int kRGBSize = 7;
+// clang-format off
 const uint8_t kSharpnessScore[] = {  // 114k
    0,  2,  2,  3,  3,  2,  2,  1,  2,  2,  3,  2,  2,  1,  2,  1,  2,  2,  2,
    1,  2,  2,  1,  1,  2,  2,  3,  4,  4,  4,  4,  4,  5,  4,  4,  8,  8,  8,
@@ -6218,5 +6221,6 @@ const uint8_t kSharpnessScore[] = {  // 114k
   // pad: AVX2 gather reads dwords, needs 3 bytes past the last index
    0,  0,  0,
 };
+// clang-format on
 
-}   // namespace sjpeg
+}  // namespace sjpeg

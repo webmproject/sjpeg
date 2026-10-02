@@ -88,8 +88,7 @@ bool Encoder::CheckProgBuffers() {
 void Encoder::EncodeProgAC(int c, int split) {
   const bool has_high = (split < 63);
   const int nb_bands = has_high ? 2 : 1;
-  const int bands[2][2] = { { 1, has_high ? split : 63 },
-                            { split + 1, 63 } };
+  const int bands[2][2] = {{1, has_high ? split : 63}, {split + 1, 63}};
   const int stride = prog_planes_->plane_w[c];
   const int tw = prog_planes_->true_w[c];
   const int th = prog_planes_->true_h[c];
@@ -106,8 +105,8 @@ void Encoder::EncodeProgAC(int c, int split) {
         const DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][n];
         const RunLevel* const rl = prog_planes_->run_levels[c] + n * 63;
         bool has_eob;
-        const int nb_w = WindowRunLevels(coeffs, rl, Ss, Se, windowed,
-                                         &has_eob);
+        const int nb_w =
+            WindowRunLevels(coeffs, rl, Ss, Se, windowed, &has_eob);
         if (nb_w > 0) {
           if (eobrun > 0) {
             AddEntropyStatsEOBRun(eobrun);
@@ -128,7 +127,7 @@ void Encoder::EncodeProgAC(int c, int split) {
 
     if (!CheckProgBuffers()) return;
     WriteOneDHT(/*table_class=*/1, /*table_id=*/0, &prog_planes_->opt_table_ac);
-    const ScanComponent sc = { c, /*dc=*/0, /*ac=*/0 };
+    const ScanComponent sc = {c, /*dc=*/0, /*ac=*/0};
     WriteProgSOS(&sc, 1, Ss, Se);
 
     eobrun = 0;
@@ -140,8 +139,8 @@ void Encoder::EncodeProgAC(int c, int split) {
         const DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][n];
         const RunLevel* const rl = prog_planes_->run_levels[c] + n * 63;
         bool has_eob;
-        const int nb_w = WindowRunLevels(coeffs, rl, Ss, Se, windowed,
-                                         &has_eob);
+        const int nb_w =
+            WindowRunLevels(coeffs, rl, Ss, Se, windowed, &has_eob);
         if (nb_w > 0) {
           if (eobrun > 0) {
             CodeEOBRun(eobrun);
@@ -181,8 +180,8 @@ bool Encoder::EncodeProgressive() {
           const int idx = ProgPlaneIndex(c, mb_x, mb_y, i);
           DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][idx];
           RunLevel* const run_levels = prog_planes_->run_levels[c] + idx * 63;
-          const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
-                                        coeffs, run_levels);
+          const int dc = quantize_block(in, c, &quants_[quant_idx_[c]], coeffs,
+                                        run_levels);
           coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
           AddEntropyStatsDC(coeffs);
           in += 64;
@@ -190,7 +189,7 @@ bool Encoder::EncodeProgressive() {
       }
     }
   }
-  DeallocateBlocks();     // we can free up some coeffs memory at this point
+  DeallocateBlocks();  // we can free up some coeffs memory at this point
   if (!ok_) {
     DeallocateProgPlanes();
     return false;
@@ -205,7 +204,7 @@ bool Encoder::EncodeProgressive() {
   {
     ScanComponent scs[MAX_COMP];
     for (int c = 0; c < nb_comps_; ++c) {
-      scs[c] = { c, quant_idx_[c], 0 };
+      scs[c] = {c, quant_idx_[c], 0};
     }
     WriteOneDHT(0, 0, &opt_tables_dc_[0]);
     if (nb_comps_ > 1) WriteOneDHT(0, 1, &opt_tables_dc_[1]);
@@ -241,6 +240,6 @@ bool Encoder::EncodeProgressive() {
   return ok_;
 }
 
-}    // namespace sjpeg
+}  // namespace sjpeg
 
 #endif  // !SJPEG_NO_PROGRESSIVE

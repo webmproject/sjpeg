@@ -17,14 +17,14 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
-#include <math.h>     // for fabs
-#include <stddef.h>   // for ptrdiff_t
+#include <math.h>    // for fabs
+#include <stddef.h>  // for ptrdiff_t
 #include <stdint.h>
-#include <string.h>   // for memset
+#include <stdlib.h>
+#include <string.h>  // for memset
 
 #include <algorithm>  // for std::min, std::max
-#include <cstdlib>
-#include <utility>   // for std::swap
+#include <utility>    // for std::swap
 #include <vector>
 
 #define SJPEG_NEED_ASM_HEADERS
@@ -41,21 +41,22 @@ namespace {
 // Positions are used instead of pointers, to never build one past the end.
 const uint8_t* GetSOFData(const uint8_t* src, size_t size) {
   if (src == nullptr || size < 2 + 8) return nullptr;
-  const size_t end = size - 8;   // 8 bytes of safety, for the marker
-  size_t pos = 2;   // skip M_SOI
-  while (pos < end && src[pos] != 0xff) { ++pos; }  // search first 0xff marker
+  const size_t end = size - 8;  // 8 bytes of safety, for the marker
+  size_t pos = 2;               // skip M_SOI
+  while (pos < end && src[pos] != 0xff) {
+    ++pos;
+  }  // search first 0xff marker
   while (pos < end) {
-    const uint32_t marker =
-        (uint32_t)((src[pos] << 8) | src[pos + 1]);
+    const uint32_t marker = (uint32_t)((src[pos] << 8) | src[pos + 1]);
     if (marker == M_SOF0 || marker == M_SOF1) return src + pos;
     pos += 2 + ((src[pos + 2] << 8) | src[pos + 3]);
   }
   return nullptr;  // No SOF marker found
 }
-}   // anonymous namespace
+}  // anonymous namespace
 
-bool SjpegDimensions(const uint8_t* src0, size_t size,
-                     int* width, int* height, int* is_yuv420) {
+bool SjpegDimensions(const uint8_t* src0, size_t size, int* width, int* height,
+                     int* is_yuv420) {
   const uint8_t* const src = GetSOFData(src0, size);
   if (src == nullptr) return false;
   const size_t left_over = size - (size_t)(src - src0);
@@ -77,17 +78,17 @@ bool SjpegDimensions(const uint8_t* src0, size_t size,
 ///////////////////////////////////////////////////////////////////////////////
 // Quantizer marker (DQT)
 
-int SjpegFindQuantizer(const uint8_t* src, size_t size,
-                       uint8_t quant[2][64]) {
+int SjpegFindQuantizer(const uint8_t* src, size_t size, uint8_t quant[2][64]) {
   memset(quant[0], 0, sizeof(quant[0]));
   memset(quant[1], 0, sizeof(quant[1]));
   // minimal size for 64 coeffs and the markers (5 bytes)
   if (src == nullptr || size < 69 || src[0] != 0xff || src[1] != 0xd8) {
     return 0;
   }
-  const uint8_t* const end = src + size - 8;   // 8 bytes of safety, for marker
-  src += 2;   // skip over the initial M_SOI
-  for (; src < end && *src != 0xff; ++src) { /* search first 0xff marker */ }
+  const uint8_t* const end = src + size - 8;  // 8 bytes of safety, for marker
+  src += 2;                                   // skip over the initial M_SOI
+  for (; src < end && *src != 0xff; ++src) {  /* search first 0xff marker */
+  }
   int nb_comp = 0;
   while (src < end) {
     const uint32_t marker = (uint32_t)((src[0] << 8) | src[1]);
@@ -105,7 +106,7 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size,
       while (i + 1 < chunk_size) {
         const int Pq = src[i] >> 4;
         const int Tq = src[i] & 0x0f;
-        if (Pq > 1 || Tq > 3) return 0;    // invalid bitstream. See B.4.
+        if (Pq > 1 || Tq > 3) return 0;  // invalid bitstream. See B.4.
         const int m_size = 64 * Pq + 65;
         if (i + m_size > chunk_size) return 0;
         if (Tq < 2) {
@@ -115,8 +116,7 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size,
               v = src[i + 1 + j];
             } else {
               // convert 16b->8b by clamping
-              v = ((int)src[i + 1 + 2 * j + 0] << 8)
-                      | src[i + 1 + 2 * j + 1];
+              v = ((int)src[i + 1 + 2 * j + 0] << 8) | src[i + 1 + 2 * j + 1];
               v = (v > 255) ? 255 : v;
             }
             quant[Tq][sjpeg::kZigzag[j]] = (v < 1) ? 1u : (uint8_t)v;
@@ -130,8 +130,8 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size,
     }
     src += chunk_size;
   }
-  return ((nb_comp & 1) != 0) + ((nb_comp & 2) != 0)
-       + ((nb_comp & 4) != 0) + ((nb_comp & 8) != 0);
+  return ((nb_comp & 1) != 0) + ((nb_comp & 2) != 0) + ((nb_comp & 4) != 0) +
+         ((nb_comp & 8) != 0);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -247,13 +247,12 @@ namespace sjpeg {
 
 // Reference scalar C implementation of row scoring.
 // Processes 'size' samples in [0, size).
-void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2,
-                         int size, int noise_level,
-                         int64_t* score_sum, int64_t* score_num,
-                         int64_t* gray_num) {
+void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2, int size,
+                         int noise_level, int64_t* score_sum,
+                         int64_t* score_num, int64_t* gray_num) {
   const int s = kRGBSize;  // shortcut
   const int kRGB3 = s * s * s;
-  const int gray = (s / 2) * (1 + s) * s;   // gray level for y=0,u=128,v=128
+  const int gray = (s / 2) * (1 + s) * s;  // gray level for y=0,u=128,v=128
   // idx packs y + s * (u + s * v), so the samples with neutral chroma are
   // exactly the ones in [gray_min, gray_min + s), whatever their luma.
   const int gray_min = gray - gray % s;
@@ -263,9 +262,9 @@ void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2,
     const int idx0 = row1[i + 0];
     const int idx1 = row1[i + 1];
     const int idx2 = row2[i + 0];
-    const int score = kSharpnessScore[idx0 + kRGB3 * idx1]
-                    + kSharpnessScore[idx0 + kRGB3 * idx2]
-                    + kSharpnessScore[idx1 + kRGB3 * idx2];
+    const int score = kSharpnessScore[idx0 + kRGB3 * idx1] +
+                      kSharpnessScore[idx0 + kRGB3 * idx2] +
+                      kSharpnessScore[idx1 + kRGB3 * idx2];
     if (score > noise_level) {
       *score_sum += score;
       *score_num += 1;
@@ -279,9 +278,8 @@ void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2,
 // so this file itself doesn't need an AVX2 target.
 extern void RiskinessScoreInitRowTableAVX2();
 extern void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
-                                  int size, int noise_level,
-                                  int64_t* score_sum, int64_t* score_num,
-                                  int64_t* gray_num);
+                                  int size, int noise_level, int64_t* score_sum,
+                                  int64_t* score_num, int64_t* gray_num);
 #elif defined(SJPEG_USE_NEON)
 // Gather-free NEON variant: NEON has no gather instruction, so instead of
 // vectorizing the 2D table lookup itself (which would need one), the 2D
@@ -290,9 +288,8 @@ extern void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
 // kSharpnessScore with plain scalar byte loads (no pointer indirection).
 static inline void Process8PixelsNEON(const uint16_t* const row1,
                                       const uint16_t* const row2,
-                                      uint16_t kRGB3,
-                                      uint16x8_t v_gray_min, uint16x8_t v_s,
-                                      int16x8_t v_noise,
+                                      uint16_t kRGB3, uint16x8_t v_gray_min,
+                                      uint16x8_t v_s, int16x8_t v_noise,
                                       int16x8_t* const v_gray_cnt,
                                       int16x8_t* const v_num,
                                       int32x4_t* const v_sum) {
@@ -348,7 +345,7 @@ static inline void Process8PixelsNEON(const uint16_t* const row1,
 void RiskinessScoreRowNEON(const uint16_t* row1, const uint16_t* row2, int size,
                            int noise_level, int64_t* score_sum,
                            int64_t* score_num, int64_t* gray_num) {
-  const int s = kRGBSize;                  // shortcut
+  const int s = kRGBSize;  // shortcut
   const uint16_t kRGB3 = (uint16_t)(s * s * s);
   const int gray = (s / 2) * (1 + s) * s;  // gray level for y=0,u=128,v=128
   const int gray_min = gray - gray % s;    // see RiskinessScoreRow_C above
@@ -399,9 +396,8 @@ RiskinessScoreRowFunc GetRiskinessScoreRowFunc() {
 // if 'full_scan' is true, the progressive early-exit is disabled and every
 // band gets scored -- used only to produce a before/after reference for
 // evaluation, not exposed in the public API.
-static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
-                                  int width, int height, int stride,
-                                  float* risk, bool full_scan) {
+static SjpegYUVMode RiskinessImpl(const uint8_t* rgb, int width, int height,
+                                  int stride, float* risk, bool full_scan) {
   const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
   const sjpeg::RiskinessScoreRowFunc score_row_func =
       sjpeg::GetRiskinessScoreRowFunc();
@@ -416,7 +412,7 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
 
   // derives best recommendation from the accumulators collected so far
   const auto Finalize = [&](float* const risk_out, double* const gray_count_out,
-                             double* const frac_out) -> SjpegYUVMode {
+                            double* const frac_out) -> SjpegYUVMode {
     const double count = (double)score_num;
     double gray_count = (double)gray_num;
     double total_score = (count > 0) ? score_sum / count : 0.;
@@ -425,8 +421,9 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
     if (num_samples > 0.) gray_count /= num_samples;
 
     // pixels evaluated, scaled by how many rows were actually scored
-    const double effective_area = (rows_scored > 0)
-        ? (double)width * height * rows_scored / (height - 1.) : 0.;
+    const double effective_area =
+        (rows_scored > 0) ? (double)width * height * rows_scored / (height - 1.)
+                          : 0.;
     // fraction of scored samples that are above the noise level; if that's
     // less than 1%, there's not enough signal yet to trust total_score.
     const double frac =
@@ -439,10 +436,10 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
     if (risk_out != nullptr) *risk_out = (float)total_score;
     if (gray_count_out != nullptr) *gray_count_out = gray_count;
     if (frac_out != nullptr) *frac_out = frac;
-    return (gray_count > kThreshGray) ?        SJPEG_YUV_400 :
-           (total_score < kThreshYU420) ?      SJPEG_YUV_420 :
-           (total_score < kThreshSharpYU420) ? SJPEG_YUV_SHARP :
-                                               SJPEG_YUV_444;
+    return (gray_count > kThreshGray)          ? SJPEG_YUV_400
+           : (total_score < kThreshYU420)      ? SJPEG_YUV_420
+           : (total_score < kThreshSharpYU420) ? SJPEG_YUV_SHARP
+                                               : SJPEG_YUV_444;
   };
 
   const int num_bands = (height - 1 + kBandHeight - 1) / kBandHeight;
@@ -457,8 +454,8 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
 
   // scores one adjacent row-pair (row1 = above, row2 = below)
   const auto ScoreRow = [&]() {
-    score_row_func(&row1[0], &row2[0], width - 1, kNoiseLevel,
-                   &score_sum, &score_num, &gray_num);
+    score_row_func(&row1[0], &row2[0], width - 1, kNoiseLevel, &score_sum,
+                   &score_num, &gray_num);
   };
 
   int cursor = 0;  // walks bit-reversed indices in [0, 1<<bits), skipping
@@ -512,16 +509,15 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb,
   return Finalize(risk, /*gray_count_out=*/nullptr, /*frac_out=*/nullptr);
 }
 
-SjpegYUVMode SjpegRiskiness(const uint8_t* rgb,
-                            int width, int height, int stride, float* risk) {
+SjpegYUVMode SjpegRiskiness(const uint8_t* rgb, int width, int height,
+                            int stride, float* risk) {
   return RiskinessImpl(rgb, width, height, stride, risk, /*full_scan=*/false);
 }
 
 // internal-only entry point for before/after evaluation, not declared in the
 // public header.
-SjpegYUVMode SjpegRiskinessFullForEval(const uint8_t* rgb,
-                                       int width, int height, int stride,
-                                       float* risk) {
+SjpegYUVMode SjpegRiskinessFullForEval(const uint8_t* rgb, int width,
+                                       int height, int stride, float* risk) {
   return RiskinessImpl(rgb, width, height, stride, risk, /*full_scan=*/true);
 }
 
@@ -534,9 +530,8 @@ static uint32_t Convert(uint32_t v) {
 
 // Convert 8b values y/u/v to index entry.
 int YUVToRiskIdx(int16_t y, int16_t u, int16_t v) {
-  const int idx = Convert(y + 128)
-                + Convert(u + 128) * sjpeg::kRGBSize
-                + Convert(v + 128) * sjpeg::kRGBSize * sjpeg::kRGBSize;
+  const int idx = Convert(y + 128) + Convert(u + 128) * sjpeg::kRGBSize +
+                  Convert(v + 128) * sjpeg::kRGBSize * sjpeg::kRGBSize;
   return idx;
 }
 
@@ -545,7 +540,7 @@ int YUVToRiskIdx(int16_t y, int16_t u, int16_t v) {
 double DCTRiskinessScore(const int16_t yuv[3 * 64], int16_t scores[8 * 8]) {
   uint16_t idx[64];
   for (int k = 0; k < 64; ++k) {
-    idx[k] = YUVToRiskIdx(yuv[k + 0 * 64], yuv[k + 1 * 64],  yuv[k + 2 * 64]);
+    idx[k] = YUVToRiskIdx(yuv[k + 0 * 64], yuv[k + 1 * 64], yuv[k + 2 * 64]);
   }
   const int kRGB3 = sjpeg::kRGBSize * sjpeg::kRGBSize * sjpeg::kRGBSize;
   double total_score = 0;
@@ -556,9 +551,9 @@ double DCTRiskinessScore(const int16_t yuv[3 * 64], int16_t scores[8 * 8]) {
       const int idx0 = idx[k + 0];
       const int idx1 = idx[k + (I < 7 ? 1 : -1)];
       const int idx2 = idx[k + (J < 7 ? 8 : -8)];
-      int score = sjpeg::kSharpnessScore[idx0 + kRGB3 * idx1]
-                + sjpeg::kSharpnessScore[idx0 + kRGB3 * idx2]
-                + sjpeg::kSharpnessScore[idx1 + kRGB3 * idx2];
+      int score = sjpeg::kSharpnessScore[idx0 + kRGB3 * idx1] +
+                  sjpeg::kSharpnessScore[idx0 + kRGB3 * idx2] +
+                  sjpeg::kSharpnessScore[idx1 + kRGB3 * idx2];
       if (score <= kNoiseLevel) {
         score = 0;
       } else {
@@ -609,4 +604,4 @@ BlockActivityTier BlockActivityScore(const uint8_t* rgb, int stride,
   return ClassifyBlockActivity(y, activity);
 }
 
-}   // namespace sjpeg
+}  // namespace sjpeg

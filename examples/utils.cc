@@ -19,21 +19,24 @@
 
 #include "./utils.h"
 
-#include <stdlib.h>
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+
 #include <string>
 #include <vector>
 
 #ifdef SJPEG_HAVE_PNG
 #include <png.h>
-#include <setjmp.h>   // note: this must be included *after* png.h
-#endif    // SJPEG_HAVE_PNG
+#include <setjmp.h>  // note: this must be included *after* png.h
+#endif               // SJPEG_HAVE_PNG
 
 #include "../src/md5sum.h"
+#include "sjpeg.h"
 
-using std::vector;
 using sjpeg::EncoderParam;
+using std::vector;
 
 std::string ReadFile(const char filename[]) {
   std::string data;
@@ -49,7 +52,7 @@ std::string ReadFile(const char filename[]) {
       if (fseek(f, 0, SEEK_SET) < 0) break;
       data.resize(file_size);
       ok = (fread(&data[0], file_size, 1, f) == 1);
-    } while (0);
+    } while (false);
   }
   if (f != nullptr) fclose(f);
   if (!ok) {
@@ -80,16 +83,13 @@ int SaveFile(const char* name, const std::string& out, bool quiet) {
 double GetStopwatchTime() {
   LARGE_INTEGER watch;
   LARGE_INTEGER freq;
-  if (!QueryPerformanceCounter(&watch))
-    return 0.0;
-  if (!QueryPerformanceFrequency(&freq))
-    return 0.0;
-  if (freq.QuadPart == 0)
-    return 0.0;
+  if (!QueryPerformanceCounter(&watch)) return 0.0;
+  if (!QueryPerformanceFrequency(&freq)) return 0.0;
+  if (freq.QuadPart == 0) return 0.0;
   return watch.QuadPart / (double)freq.QuadPart;
 }
 
-#else    /* !_WIN32 */
+#else                /* !_WIN32 */
 #include <string.h>  // memcpy
 #include <sys/time.h>
 
@@ -101,7 +101,7 @@ double GetStopwatchTime() {
   return sec + usec / 1000000.0;
 }
 
-#endif   /* _WIN32 */
+#endif /* _WIN32 */
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -128,18 +128,18 @@ std::string GetMD5Digest(const std::string& data) {
 // JPEG reading
 
 #ifdef SJPEG_HAVE_JPEG
-#include <jpeglib.h>
 #include <jerror.h>
+#include <jpeglib.h>
 #include <setjmp.h>
 
 // -----------------------------------------------------------------------------
 // Metadata processing
 
 #ifndef JPEG_APP1
-# define JPEG_APP1 (JPEG_APP0 + 1)
+#define JPEG_APP1 (JPEG_APP0 + 1)
 #endif
 #ifndef JPEG_APP2
-# define JPEG_APP2 (JPEG_APP0 + 2)
+#define JPEG_APP2 (JPEG_APP0 + 2)
 #endif
 
 typedef struct {
@@ -167,7 +167,7 @@ static int StoreICCP(j_decompress_ptr dinfo, std::string* const iccp) {
   // ICC.1:2010-12 (4.3.0.0) Annex B.4 Embedding ICC Profiles in JPEG files
   static const char kICCPSignature[] = "ICC_PROFILE";
   static const size_t kICCPSignatureLength = 12;  // signature includes '\0'
-  static const size_t kICCPSkipLength = 14;  // signature + seq & count
+  static const size_t kICCPSkipLength = 14;       // signature + seq & count
   int expected_count = 0;
   int actual_count = 0;
   int seq_max = 0;
@@ -177,8 +177,7 @@ static int StoreICCP(j_decompress_ptr dinfo, std::string* const iccp) {
 
   memset(iccp_segments, 0, sizeof(iccp_segments));
   for (marker = dinfo->marker_list; marker != nullptr; marker = marker->next) {
-    if (marker->marker == JPEG_APP2 &&
-        marker->data_length > kICCPSkipLength &&
+    if (marker->marker == JPEG_APP2 && marker->data_length > kICCPSkipLength &&
         !memcmp(marker->data, kICCPSignature, kICCPSignatureLength)) {
       // ICC_PROFILE\0<seq><count>; 'seq' starts at 1.
       const int seq = marker->data[kICCPSignatureLength];
@@ -187,8 +186,9 @@ static int StoreICCP(j_decompress_ptr dinfo, std::string* const iccp) {
       ICCPSegment* segment;
 
       if (segment_size == 0 || count == 0 || seq == 0) {
-        fprintf(stderr, "[ICCP] size (%d) / count (%d) / sequence number (%d)"
-                        " cannot be 0!\n",
+        fprintf(stderr,
+                "[ICCP] size (%d) / count (%d) / sequence number (%d)"
+                " cannot be 0!\n",
                 (int)segment_size, seq, count);
         return 0;
       }
@@ -203,7 +203,7 @@ static int StoreICCP(j_decompress_ptr dinfo, std::string* const iccp) {
 
       segment = iccp_segments + seq - 1;
       if (segment->data_length != 0) {
-        fprintf(stderr, "[ICCP] Duplicate segment number (%d)!\n" , seq);
+        fprintf(stderr, "[ICCP] Duplicate segment number (%d)!\n", seq);
         return 0;
       }
 
@@ -236,8 +236,8 @@ static int StoreICCP(j_decompress_ptr dinfo, std::string* const iccp) {
   iccp->resize(total_size);
   size_t offset = 0;
   for (int i = 0; i < seq_max; ++i) {
-    memcpy(&(*iccp)[offset],
-           iccp_segments[i].data, iccp_segments[i].data_length);
+    memcpy(&(*iccp)[offset], iccp_segments[i].data,
+           iccp_segments[i].data_length);
     offset += iccp_segments[i].data_length;
   }
   return 1;
@@ -263,10 +263,8 @@ struct XMPExt {
 };
 
 static uint32_t Get32b(const uint8_t* const src) {
-  return ((uint32_t)src[0] << 24) |
-         ((uint32_t)src[1] << 16) |
-         ((uint32_t)src[2] <<  8) |
-         ((uint32_t)src[3] <<  0);
+  return ((uint32_t)src[0] << 24) | ((uint32_t)src[1] << 16) |
+         ((uint32_t)src[2] << 8) | ((uint32_t)src[3] << 0);
 }
 
 static bool XMPMerge(const uint8_t* src, size_t len, void* obj) {
@@ -294,7 +292,7 @@ static bool XMPMerge(const uint8_t* src, size_t len, void* obj) {
 
   memcpy(&xmp->ext[offset], src, len);
   xmp->size += len;
-  if (xmp->size > total) return false;   // some overlap
+  if (xmp->size > total) return false;  // some overlap
   if (xmp->size == total) {
     uint8_t guid[32];
     sjpeg::MD5Digest(xmp->ext).Get(guid);
@@ -318,7 +316,7 @@ static bool ExtractMetadataFromJPEG(j_decompress_ptr dinfo,
                                     EncoderParam* const param) {
   if (param == nullptr) return true;
   param->ResetMetadata();
-  XMPExt xmp_ext = { &param->xmp, "", nullptr, 0, false };
+  XMPExt xmp_ext = {&param->xmp, "", nullptr, 0, false};
   const struct {
     int marker;
     const char* signature;
@@ -326,15 +324,15 @@ static bool ExtractMetadataFromJPEG(j_decompress_ptr dinfo,
     void* data;
     Handler handler;
   } metadata_map[] = {
-    // Exif 2.2 Section 4.7.2 Interoperability Structure of APP1 ...
-    { JPEG_APP1, "Exif\0",                        6, &param->exif, DataCopy },
-    // XMP Specification Part 3 Section 3 Embedding XMP Metadata ... #JPEG
-    { JPEG_APP1, "http://ns.adobe.com/xap/1.0/", 29, &param->xmp, DataCopy },
-    // XMP Extended
-    { JPEG_APP1, "http://ns.adobe.com/xmp/extension/", 35, &xmp_ext, XMPMerge },
-    // Fake ICC handler, even if ICC is treated separately. This is to prevent
-    // storing the ICC data as 'app_markers'.
-    { JPEG_APP2, "ICC_PROFILE", 12, nullptr, nullptr },
+      // Exif 2.2 Section 4.7.2 Interoperability Structure of APP1 ...
+      {JPEG_APP1, "Exif\0", 6, &param->exif, DataCopy},
+      // XMP Specification Part 3 Section 3 Embedding XMP Metadata ... #JPEG
+      {JPEG_APP1, "http://ns.adobe.com/xap/1.0/", 29, &param->xmp, DataCopy},
+      // XMP Extended
+      {JPEG_APP1, "http://ns.adobe.com/xmp/extension/", 35, &xmp_ext, XMPMerge},
+      // Fake ICC handler, even if ICC is treated separately. This is to prevent
+      // storing the ICC data as 'app_markers'.
+      {JPEG_APP2, "ICC_PROFILE", 12, nullptr, nullptr},
   };
   jpeg_saved_marker_ptr marker;
   // Treat ICC profiles separately as they may be segmented and out of order.
@@ -417,9 +415,7 @@ static void ContextSkip(j_decompress_ptr cinfo, long jump_size) {  // NOLINT
   ctx->pub.next_input_byte += jump;
 }
 
-static void ContextTerm(j_decompress_ptr cinfo) {
-  (void)cinfo;
-}
+static void ContextTerm(j_decompress_ptr cinfo) { (void)cinfo; }
 
 static void ContextSetup(volatile struct jpeg_decompress_struct* const cinfo,
                          JPEGReadContext* const ctx) {
@@ -433,9 +429,8 @@ static void ContextSetup(volatile struct jpeg_decompress_struct* const cinfo,
   ctx->pub.next_input_byte = nullptr;
 }
 
-vector<uint8_t> ReadJPEG(const std::string& in,
-                         int* const width, int* const height,
-                         EncoderParam* const param) {
+vector<uint8_t> ReadJPEG(const std::string& in, int* const width,
+                         int* const height, EncoderParam* const param) {
   volatile int ok = 0;
   int64_t stride;
   volatile struct jpeg_decompress_struct dinfo;
@@ -452,12 +447,12 @@ vector<uint8_t> ReadJPEG(const std::string& in,
   ctx.data = (const uint8_t*)in.data();
   ctx.data_size = in.size();
 
-  memset((j_decompress_ptr)&dinfo, 0, sizeof(dinfo));   // for setjmp sanity
+  memset((j_decompress_ptr)&dinfo, 0, sizeof(dinfo));  // for setjmp sanity
   dinfo.err = jpeg_std_error(&jerr.pub);
   jerr.pub.error_exit = my_error_exit;
 
   if (setjmp(jerr.setjmp_buffer)) {
- Error:
+  Error:
     jpeg_destroy_decompress((j_decompress_ptr)&dinfo);
     fprintf(stderr, "Error during JPEG decompression.\n");
     goto End;
@@ -478,12 +473,11 @@ vector<uint8_t> ReadJPEG(const std::string& in,
     goto Error;
   }
 
-  stride = (int64_t)dinfo.output_width
-         * dinfo.output_components * sizeof(rgb[0]);
+  stride =
+      (int64_t)dinfo.output_width * dinfo.output_components * sizeof(rgb[0]);
 
   if (stride == 0 || stride != (int)stride ||
-    (uint64_t)dinfo.output_height >
-        (1ull << 31) / (uint64_t)stride) {
+      (uint64_t)dinfo.output_height > (1ull << 31) / (uint64_t)stride) {
     goto End;
   }
   rgb.resize((size_t)stride * dinfo.output_height);
@@ -508,23 +502,23 @@ vector<uint8_t> ReadJPEG(const std::string& in,
 
   ok = 1;
 
- End:
+End:
   if (!ok) {
     rgb.clear();
     if (param != nullptr) param->ResetMetadata();
   }
   return rgb;
 }
-#else  // !SJPEG_HAVE_JPEG
-vector<uint8_t> ReadJPEG(const std::string& in,
-                         int* const width, int* const height,
-                         EncoderParam* const param) {
+#else   // !SJPEG_HAVE_JPEG
+vector<uint8_t> ReadJPEG(const std::string& in, int* const width,
+                         int* const height, EncoderParam* const param) {
   (void)in.size();
   (void)param;
   if (width != nullptr) *width = 0;
   if (height != nullptr) *height = 0;
-  fprintf(stderr, "JPEG support not compiled. Please install the libjpeg "
-                  "development package before building.\n");
+  fprintf(stderr,
+          "JPEG support not compiled. Please install the libjpeg "
+          "development package before building.\n");
   return vector<uint8_t>();
 }
 #endif  // SJPEG_HAVE_JPEG
@@ -590,7 +584,8 @@ static bool ProcessRawProfile(const char* profile, size_t profile_len,
   }
   ++src;
   // skip the profile name and extract the length.
-  while (*src != '\0' && *src++ != '\n') {}
+  while (*src != '\0' && *src++ != '\n') {
+  }
   expected_length = (int)strtol(src, &end, 10);
   if (*end != '\n') {
     fprintf(stderr, "Malformed raw profile, expected '\\n' got '\\x%.2X'\n",
@@ -601,7 +596,7 @@ static bool ProcessRawProfile(const char* profile, size_t profile_len,
 
   // 'end' now points to the profile payload.
   const std::string payload = HexStringToBytes(end, expected_length);
-  if (payload.size() == 0) return false;
+  if (payload.empty()) return false;
   metadata->append(payload);
   return true;
 }
@@ -617,30 +612,29 @@ static const struct {
   const char* name;
   bool (*process)(const char* profile, size_t profile_len,
                   std::string* const metadata);
-  bool is_exif;   // otherwise: XMP
+  bool is_exif;  // otherwise: XMP
 } kPNGMetadataMap[] = {
-  // http://www.sno.phy.queensu.ca/~phil/exiftool/TagNames/PNG.html#TextualData
-  // See also: ExifTool on CPAN.
-  { "Raw profile type exif", ProcessRawProfile, true },    // exif
-  { "Raw profile type xmp",  ProcessRawProfile, false },   // xmp
-  // Exiftool puts exif data in APP1 chunk, too.
-  { "Raw profile type APP1", ProcessRawProfile, true },    // exif
-  // XMP Specification Part 3, Section 3 #PNG
-  { "XML:com.adobe.xmp",     ProcessCopy      , false  },  // xmp
-  { nullptr, nullptr, false },
+    // http://www.sno.phy.queensu.ca/~phil/exiftool/TagNames/PNG.html#TextualData
+    // See also: ExifTool on CPAN.
+    {"Raw profile type exif", ProcessRawProfile, true},  // exif
+    {"Raw profile type xmp", ProcessRawProfile, false},  // xmp
+    // Exiftool puts exif data in APP1 chunk, too.
+    {"Raw profile type APP1", ProcessRawProfile, true},  // exif
+    // XMP Specification Part 3, Section 3 #PNG
+    {"XML:com.adobe.xmp", ProcessCopy, false},  // xmp
+    {nullptr, nullptr, false},
 };
 
 // Looks for metadata at both the beginning and end of the PNG file, giving
 // preference to the head.
 // Returns true on success. The caller must use MetadataFree() on 'metadata' in
 // all cases.
-static bool ExtractMetadataFromPNG(png_structp png,
-                                   png_infop const head_info,
+static bool ExtractMetadataFromPNG(png_structp png, png_infop const head_info,
                                    png_infop const end_info,
                                    EncoderParam* const param) {
   if (param == nullptr) return true;
   param->ResetMetadata();
-  for (int p = 0; p < 2; ++p)  {
+  for (int p = 0; p < 2; ++p) {
     png_infop const info = (p == 0) ? head_info : end_info;
     png_textp text = nullptr;
     const png_uint_32 num = png_get_text(png, info, &text, nullptr);
@@ -664,12 +658,12 @@ static bool ExtractMetadataFromPNG(png_structp png,
               text_length = text->text_length;
               break;
           }
-          if (metadata->size() > 0) {
+          if (!metadata->empty()) {
             fprintf(stderr, "Ignoring additional '%s'\n", text->key);
           } else if (!kPNGMetadataMap[j].process(text->text, text_length,
                                                  metadata)) {
             fprintf(stderr, "Failed to process: '%s'\n", text->key);
-            return 0;
+            return false;
           }
           break;
         }
@@ -687,17 +681,17 @@ static bool ExtractMetadataFromPNG(png_structp png,
 #endif
       png_uint_32 len;
 
-      if (png_get_iCCP(png, info,
-                       &name, &comp_type, &profile, &len) == PNG_INFO_iCCP) {
+      if (png_get_iCCP(png, info, &name, &comp_type, &profile, &len) ==
+          PNG_INFO_iCCP) {
         if (!ProcessCopy(reinterpret_cast<const char*>(profile), len,
                          &param->iccp)) {
-          return 0;
+          return false;
         }
         fprintf(stderr, "[%s : %d bytes]\n", "ICCP", (int)len);
       }
     }
   }
-  return 1;
+  return true;
 }
 
 typedef struct {
@@ -707,8 +701,7 @@ typedef struct {
 } PNGReadContext;
 
 static void ReadFunc(png_structp png_ptr, png_bytep data, png_size_t length) {
-  PNGReadContext* const ctx =
-      (PNGReadContext*)png_get_io_ptr(png_ptr);
+  PNGReadContext* const ctx = (PNGReadContext*)png_get_io_ptr(png_ptr);
   if (ctx->data_size - ctx->offset < length) {
     png_error(png_ptr, "ReadFunc: invalid read length (overflow)!");
   }
@@ -716,13 +709,12 @@ static void ReadFunc(png_structp png_ptr, png_bytep data, png_size_t length) {
   ctx->offset += length;
 }
 
-vector<uint8_t> ReadPNG(const std::string& input,
-                        int* const width_ptr, int* const height_ptr,
-                        EncoderParam* const param) {
+vector<uint8_t> ReadPNG(const std::string& input, int* const width_ptr,
+                        int* const height_ptr, EncoderParam* const param) {
   volatile png_structp png = nullptr;
   volatile png_infop info = nullptr;
   volatile png_infop end_info = nullptr;
-  PNGReadContext context = { nullptr, 0, 0 };
+  PNGReadContext context = {nullptr, 0, 0};
   int color_type, bit_depth, interlaced;
   int has_alpha;
   int num_passes;
@@ -742,7 +734,7 @@ vector<uint8_t> ReadPNG(const std::string& input,
 
   png_set_error_fn(png, nullptr, error_function, nullptr);
   if (setjmp(png_jmpbuf(png))) {
- Error:
+  Error:
     if (param != nullptr) param->ResetMetadata();
     rgb.clear();
     goto End;
@@ -798,8 +790,7 @@ vector<uint8_t> ReadPNG(const std::string& input,
 
   stride = (int64_t)(3 * width) * sizeof(rgb[0]);
   if (stride != (int)stride ||
-        (uint64_t)height >
-            ((1ull << 31) / (uint64_t)stride)) {
+      (uint64_t)height > ((1ull << 31) / (uint64_t)stride)) {
     goto Error;
   }
 
@@ -821,7 +812,7 @@ vector<uint8_t> ReadPNG(const std::string& input,
   if (width_ptr != nullptr) *width_ptr = (int)width;
   if (height_ptr != nullptr) *height_ptr = (int)height;
 
- End:
+End:
   if (png != nullptr) {
     png_destroy_read_struct((png_structpp)&png, (png_infopp)&info,
                             (png_infopp)&end_info);
@@ -829,16 +820,16 @@ vector<uint8_t> ReadPNG(const std::string& input,
   return rgb;
 }
 
-#else  // !SJPEG_HAVE_PNG
-vector<uint8_t> ReadPNG(const std::string& input,
-                        int* const width, int* const height,
-                        EncoderParam* const param) {
+#else   // !SJPEG_HAVE_PNG
+vector<uint8_t> ReadPNG(const std::string& input, int* const width,
+                        int* const height, EncoderParam* const param) {
   (void)input;
   (void)param;
   if (width != nullptr) *width = 0;
   if (height != nullptr) *height = 0;
-  fprintf(stderr, "PNG support not compiled. Please install the libpng "
-                  "development package before building.\n");
+  fprintf(stderr,
+          "PNG support not compiled. Please install the libpng "
+          "development package before building.\n");
   return vector<uint8_t>();
 }
 #endif  // SJPEG_HAVE_PNG
@@ -851,7 +842,7 @@ vector<uint8_t> ReadPNG(const std::string& input,
 static size_t ReadLine(const std::string& input, size_t* const off,
                        char out[MAX_LINE_SIZE + 1]) {
   size_t i = 0;
- redo:
+redo:
   for (i = 0; i < MAX_LINE_SIZE && *off < input.size(); ++i) {
     out[i] = input[(*off)++];
     if (out[i] == '\n') break;
@@ -860,13 +851,12 @@ static size_t ReadLine(const std::string& input, size_t* const off,
     if (i == 0) goto redo;         // empty line
     if (out[0] == '#') goto redo;  // skip comment
   }
-  out[i] = 0;   // safety sentinel
+  out[i] = 0;  // safety sentinel
   return i;
 }
 
-vector<uint8_t> ReadPPM(const std::string& input,
-                        int* const width, int* const height,
-                        EncoderParam* const param) {
+vector<uint8_t> ReadPPM(const std::string& input, int* const width,
+                        int* const height, EncoderParam* const param) {
   vector<uint8_t> rgb;
   size_t offset = 0;
   char out[MAX_LINE_SIZE + 1];
@@ -884,13 +874,11 @@ vector<uint8_t> ReadPPM(const std::string& input,
     fprintf(stderr, "PPM not in RGB format (P6)\n");
     return rgb;
   }
-  if (ReadLine(input, &offset, out) == 0 ||
-      sscanf(out, "%d %d", &W, &H) != 2) {
+  if (ReadLine(input, &offset, out) == 0 || sscanf(out, "%d %d", &W, &H) != 2) {
     return rgb;
   }
   if (ReadLine(input, &offset, out) == 0 ||
-      sscanf(out, "%d", &max_value) != 1 ||
-      max_value > 255) {
+      sscanf(out, "%d", &max_value) != 1 || max_value > 255) {
     return rgb;
   }
   if (W <= 0 || H <= 0) return rgb;
@@ -909,17 +897,20 @@ vector<uint8_t> ReadPPM(const std::string& input,
 
 const char* ImageTypeName(ImageType type) {
   switch (type) {
-    case SJPEG_JPEG: return "JPG";
-    case SJPEG_PNG: return "PNG";
-    case SJPEG_PPM: return "PPM";
-    default: return "???";
+    case SJPEG_JPEG:
+      return "JPG";
+    case SJPEG_PNG:
+      return "PNG";
+    case SJPEG_PPM:
+      return "PPM";
+    default:
+      return "???";
   }
 }
 
 // default reader, returning a systematic error
-std::vector<uint8_t> ReadFail(const std::string& in,
-                              int* const width, int* const height,
-                              EncoderParam* const param) {
+std::vector<uint8_t> ReadFail(const std::string& in, int* const width,
+                              int* const height, EncoderParam* const param) {
   (void)in;
   (void)width;
   (void)height;
@@ -929,9 +920,8 @@ std::vector<uint8_t> ReadFail(const std::string& in,
 
 ImageType GuessImageType(const std::string& input) {
   if (input.size() >= 3) {
-    const uint32_t sig =
-        ((uint8_t)input[0] << 24) | ((uint8_t)input[1] << 16) |
-        ((uint8_t)input[2] <<  8) | ((uint8_t)input[3] <<  0);
+    const uint32_t sig = ((uint8_t)input[0] << 24) | ((uint8_t)input[1] << 16) |
+                         ((uint8_t)input[2] << 8) | ((uint8_t)input[3] << 0);
     if ((sig >> 8) == 0xffd8ff) return SJPEG_JPEG;
     if (sig == 0x89504e47) return SJPEG_PNG;
     if ((sig >> 16) == 0x5036) return SJPEG_PPM;  // "P6"
@@ -941,27 +931,30 @@ ImageType GuessImageType(const std::string& input) {
 
 ImageReader GuessImageReader(const std::string& input) {
   switch (GuessImageType(input)) {
-    case SJPEG_JPEG: return ReadJPEG;
-    case SJPEG_PNG: return ReadPNG;
-    case SJPEG_PPM: return ReadPPM;
-    default: return ReadFail;
+    case SJPEG_JPEG:
+      return ReadJPEG;
+    case SJPEG_PNG:
+      return ReadPNG;
+    case SJPEG_PPM:
+      return ReadPPM;
+    default:
+      return ReadFail;
   }
 }
 
-std::vector<uint8_t> ReadImageQuick(const std::string& in,
-                                    int* const width, int* const height,
+std::vector<uint8_t> ReadImageQuick(const std::string& in, int* const width,
+                                    int* const height,
                                     EncoderParam* const param) {
   return GuessImageReader(in)(in, width, height, param);
 }
 
-std::vector<uint8_t> ReadImage(const std::string& in,
-                               int* const width, int* const height,
-                               EncoderParam* const param) {
+std::vector<uint8_t> ReadImage(const std::string& in, int* const width,
+                               int* const height, EncoderParam* const param) {
   vector<uint8_t> rgb = ReadImageQuick(in, width, height, param);
   // quick attempt failed, try the rest in order
-  if (rgb.size() == 0) rgb = ReadJPEG(in, width, height, param);
-  if (rgb.size() == 0) rgb = ReadPNG(in, width, height, param);
-  if (rgb.size() == 0) rgb = ReadPPM(in, width, height, param);
+  if (rgb.empty()) rgb = ReadJPEG(in, width, height, param);
+  if (rgb.empty()) rgb = ReadPNG(in, width, height, param);
+  if (rgb.empty()) rgb = ReadPPM(in, width, height, param);
   return rgb;
 }
 

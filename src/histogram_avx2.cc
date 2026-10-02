@@ -23,6 +23,7 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
+#include <stdint.h>
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
@@ -31,8 +32,7 @@
 
 namespace sjpeg {
 
-void StoreHistoAVX2(const int16_t in[64], Histo* const histos,
-                    int nb_blocks) {
+void StoreHistoAVX2(const int16_t in[64], Histo* const histos, int nb_blocks) {
   assert(nb_blocks > 0);
   const __m256i kMaxHisto = _mm256_set1_epi16(MAX_HISTO_DCT_COEFF);
   int n = 0;

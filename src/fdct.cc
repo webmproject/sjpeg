@@ -18,6 +18,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include <stdint.h>
+
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
@@ -25,29 +27,30 @@ namespace sjpeg {
 
 ///////////////////////////////////////////////////////////////////////////////
 // Cosine table: C(k) = cos(k.pi/16)/sqrt(2), k = 1..7 using 15 bits signed
-const int16_t kTable04[7] = { 22725, 21407, 19266, 16384, 12873,  8867, 4520 };
+const int16_t kTable04[7] = {22725, 21407, 19266, 16384, 12873, 8867, 4520};
 // rows #1 and #7 are pre-multiplied by 2.C(1) before the 2nd pass.
 // This multiply is merged in the table of constants used during 1rst pass:
-const int16_t kTable17[7] = { 31521, 29692, 26722, 22725, 17855, 12299, 6270 };
+const int16_t kTable17[7] = {31521, 29692, 26722, 22725, 17855, 12299, 6270};
 // rows #2 and #6 are pre-multiplied by 2.C(2):
-const int16_t kTable26[7] = { 29692, 27969, 25172, 21407, 16819, 11585, 5906 };
+const int16_t kTable26[7] = {29692, 27969, 25172, 21407, 16819, 11585, 5906};
 // rows #3 and #5 are pre-multiplied by 2.C(3):
-const int16_t kTable35[7] = { 26722, 25172, 22654, 19266, 15137, 10426, 5315 };
+const int16_t kTable35[7] = {26722, 25172, 22654, 19266, 15137, 10426, 5315};
 
 ///////////////////////////////////////////////////////////////////////////////
 // Constants and C/SSE2 macros for IDCT vertical pass
 
-#define kTan1   (13036)   // = tan(pi/16)
-#define kTan2   (27146)   // = tan(2.pi/16) = sqrt(2) - 1.
+#define kTan1 (13036)     // = tan(pi/16)
+#define kTan2 (27146)     // = tan(2.pi/16) = sqrt(2) - 1.
 #define kTan3m1 (-21746)  // = tan(3.pi/16) - 1
 #define k2Sqrt2 (23170)   // = 1 / 2.sqrt(2)
 
-  // performs: {a,b} <- {a-b, a+b}, without saturation
-#define BUTTERFLY(a, b) do {   \
-  SUB((a), (b));               \
-  ADD((b), (b));               \
-  ADD((b), (a));               \
-} while (0)
+// performs: {a,b} <- {a-b, a+b}, without saturation
+#define BUTTERFLY(a, b) \
+  do {                  \
+    SUB((a), (b));      \
+    ADD((b), (b));      \
+    ADD((b), (a));      \
+  } while (0)
 
 ///////////////////////////////////////////////////////////////////////////////
 // Constants for DCT horizontal pass
@@ -64,84 +67,85 @@ const int16_t kTable35[7] = { 26722, 25172, 22654, 19266, 15137, 10426, 5315 };
 // However, all in all the correction is quite small, and CORRECT_LSB can
 // be defined empty if needed.
 
-#define COLUMN_DCT8(in) do { \
-  LOAD(m0, (in)[0 * 8]);     \
-  LOAD(m2, (in)[2 * 8]);     \
-  LOAD(m7, (in)[7 * 8]);     \
-  LOAD(m5, (in)[5 * 8]);     \
-                             \
-  BUTTERFLY(m0, m7);         \
-  BUTTERFLY(m2, m5);         \
-                             \
-  LOAD(m3, (in)[3 * 8]);     \
-  LOAD(m4, (in)[4 * 8]);     \
-  BUTTERFLY(m3, m4);         \
-                             \
-  LOAD(m6, (in)[6 * 8]);     \
-  LOAD(m1, (in)[1 * 8]);     \
-  BUTTERFLY(m1, m6);         \
-  BUTTERFLY(m7, m4);         \
-  BUTTERFLY(m6, m5);         \
-                             \
-  /* RowIdct() needs 15bits fixed-point input, when the output from   */ \
-  /* ColumnIdct() would be 12bits. We are better doing the shift by 3 */ \
-  /* now instead of in RowIdct(), because we have some multiplies to  */ \
-  /* perform, that can take advantage of the extra 3bits precision.   */ \
-  LSHIFT(m4, 3);             \
-  LSHIFT(m5, 3);             \
-  BUTTERFLY(m4, m5);         \
-  STORE16((in)[0 * 8], m5);  \
-  STORE16((in)[4 * 8], m4);  \
-                             \
-  LSHIFT(m7, 3);             \
-  LSHIFT(m6, 3);             \
-  LSHIFT(m3, 3);             \
-  LSHIFT(m0, 3);             \
-                             \
-  LOAD_CST(m4, kTan2);       \
-  m5 = m4;                   \
-  MULT(m4, m7);              \
-  MULT(m5, m6);              \
-  SUB(m4, m6);               \
-  ADD(m5, m7);               \
-  STORE16((in)[2 * 8], m5);  \
-  STORE16((in)[6 * 8], m4);  \
-                             \
-  /* We should be multiplying m6 by C4 = 1/sqrt(2) here, but we only have */ \
-  /* the k2Sqrt2 = 1/(2.sqrt(2)) constant that fits into 15bits. So we    */ \
-  /* shift by 4 instead of 3 to compensate for the additional 1/2 factor. */ \
-  LOAD_CST(m6, k2Sqrt2);     \
-  LSHIFT(m2, 3 + 1);         \
-  LSHIFT(m1, 3 + 1);         \
-  BUTTERFLY(m1, m2);         \
-  MULT(m2, m6);              \
-  MULT(m1, m6);              \
-  BUTTERFLY(m3, m1);         \
-  BUTTERFLY(m0, m2);         \
-                             \
-  LOAD_CST(m4, kTan3m1);     \
-  LOAD_CST(m5, kTan1);       \
-  m7 = m3;                   \
-  m6 = m1;                   \
-  MULT(m3, m4);              \
-  MULT(m1, m5);              \
-                             \
-  ADD(m3, m7);               \
-  ADD(m1, m2);               \
-  CORRECT_LSB(m1);           \
-  CORRECT_LSB(m3);           \
-  MULT(m4, m0);              \
-  MULT(m5, m2);              \
-  ADD(m4, m0);               \
-  SUB(m0, m3);               \
-  ADD(m7, m4);               \
-  SUB(m5, m6);               \
-                             \
-  STORE16((in)[1 * 8], m1);  \
-  STORE16((in)[3 * 8], m0);  \
-  STORE16((in)[5 * 8], m7);  \
-  STORE16((in)[7 * 8], m5);  \
-} while (0)
+#define COLUMN_DCT8(in)                                                        \
+  do {                                                                         \
+    LOAD(m0, (in)[0 * 8]);                                                     \
+    LOAD(m2, (in)[2 * 8]);                                                     \
+    LOAD(m7, (in)[7 * 8]);                                                     \
+    LOAD(m5, (in)[5 * 8]);                                                     \
+                                                                               \
+    BUTTERFLY(m0, m7);                                                         \
+    BUTTERFLY(m2, m5);                                                         \
+                                                                               \
+    LOAD(m3, (in)[3 * 8]);                                                     \
+    LOAD(m4, (in)[4 * 8]);                                                     \
+    BUTTERFLY(m3, m4);                                                         \
+                                                                               \
+    LOAD(m6, (in)[6 * 8]);                                                     \
+    LOAD(m1, (in)[1 * 8]);                                                     \
+    BUTTERFLY(m1, m6);                                                         \
+    BUTTERFLY(m7, m4);                                                         \
+    BUTTERFLY(m6, m5);                                                         \
+                                                                               \
+    /* RowIdct() needs 15bits fixed-point input, when the output from   */     \
+    /* ColumnIdct() would be 12bits. We are better doing the shift by 3 */     \
+    /* now instead of in RowIdct(), because we have some multiplies to  */     \
+    /* perform, that can take advantage of the extra 3bits precision.   */     \
+    LSHIFT(m4, 3);                                                             \
+    LSHIFT(m5, 3);                                                             \
+    BUTTERFLY(m4, m5);                                                         \
+    STORE16((in)[0 * 8], m5);                                                  \
+    STORE16((in)[4 * 8], m4);                                                  \
+                                                                               \
+    LSHIFT(m7, 3);                                                             \
+    LSHIFT(m6, 3);                                                             \
+    LSHIFT(m3, 3);                                                             \
+    LSHIFT(m0, 3);                                                             \
+                                                                               \
+    LOAD_CST(m4, kTan2);                                                       \
+    m5 = m4;                                                                   \
+    MULT(m4, m7);                                                              \
+    MULT(m5, m6);                                                              \
+    SUB(m4, m6);                                                               \
+    ADD(m5, m7);                                                               \
+    STORE16((in)[2 * 8], m5);                                                  \
+    STORE16((in)[6 * 8], m4);                                                  \
+                                                                               \
+    /* We should be multiplying m6 by C4 = 1/sqrt(2) here, but we only have */ \
+    /* the k2Sqrt2 = 1/(2.sqrt(2)) constant that fits into 15bits. So we    */ \
+    /* shift by 4 instead of 3 to compensate for the additional 1/2 factor. */ \
+    LOAD_CST(m6, k2Sqrt2);                                                     \
+    LSHIFT(m2, 3 + 1);                                                         \
+    LSHIFT(m1, 3 + 1);                                                         \
+    BUTTERFLY(m1, m2);                                                         \
+    MULT(m2, m6);                                                              \
+    MULT(m1, m6);                                                              \
+    BUTTERFLY(m3, m1);                                                         \
+    BUTTERFLY(m0, m2);                                                         \
+                                                                               \
+    LOAD_CST(m4, kTan3m1);                                                     \
+    LOAD_CST(m5, kTan1);                                                       \
+    m7 = m3;                                                                   \
+    m6 = m1;                                                                   \
+    MULT(m3, m4);                                                              \
+    MULT(m1, m5);                                                              \
+                                                                               \
+    ADD(m3, m7);                                                               \
+    ADD(m1, m2);                                                               \
+    CORRECT_LSB(m1);                                                           \
+    CORRECT_LSB(m3);                                                           \
+    MULT(m4, m0);                                                              \
+    MULT(m5, m2);                                                              \
+    ADD(m4, m0);                                                               \
+    SUB(m0, m3);                                                               \
+    ADD(m7, m4);                                                               \
+    SUB(m5, m6);                                                               \
+                                                                               \
+    STORE16((in)[1 * 8], m1);                                                  \
+    STORE16((in)[3 * 8], m0);                                                  \
+    STORE16((in)[5 * 8], m7);                                                  \
+    STORE16((in)[7 * 8], m5);                                                  \
+  } while (0)
 
 ///////////////////////////////////////////////////////////////////////////////
 // Plain-C implementation, bit-wise equivalent to the SSE2 version
@@ -149,9 +153,9 @@ const int16_t kTable35[7] = { 26722, 25172, 22654, 19266, 15137, 10426, 5315 };
 // these are the macro required by COLUMN_*
 #define LOAD_CST(dst, src) (dst) = (src)
 #define LOAD(dst, src) (dst) = (src)
-#define MULT(a, b)  (a) = (((a) * (b)) >> 16)
-#define ADD(a, b)   (a) = (a) + (b)
-#define SUB(a, b)   (a) = (a) - (b)
+#define MULT(a, b) (a) = (((a) * (b)) >> 16)
+#define ADD(a, b) (a) = (a) + (b)
+#define SUB(a, b) (a) = (a) - (b)
 #define LSHIFT(a, n) (a) = ((a) << (n))
 #define STORE16(a, b) (a) = (b)
 #define CORRECT_LSB(a) (a) += 1
@@ -169,9 +173,9 @@ void ColumnDct(int16_t* in) {
 
 // We don't really need to round before descaling, since we
 // still have 4 bits of precision left as final scaled output.
-#define DESCALE(a)  (int16_t)((a) >> 16)
+#define DESCALE(a) (int16_t)((a) >> 16)
 
-static void RowDct(int16_t* in, const int16_t*table) {
+static void RowDct(int16_t* in, const int16_t* table) {
   // The Fourier transform is an unitary operator, so we're basically
   // doing the transpose of RowIdct()
   const int a0 = in[0] + in[7];
@@ -225,13 +229,16 @@ static void RowDct(int16_t* in, const int16_t*table) {
 
 // Tables and macros
 
-#define CST(v) { { v, v, v, v, v, v, v, v } }
+#define CST(v)               \
+  {                          \
+    {                        \
+      v, v, v, v, v, v, v, v \
+    }                        \
+  }
 static const union {
   const int16_t s[8];
   const __m128i m;
-} CST_kTan1 = CST(kTan1),
-  CST_kTan2 = CST(kTan2),
-  CST_kTan3m1 = CST(kTan3m1),
+} CST_kTan1 = CST(kTan1), CST_kTan2 = CST(kTan2), CST_kTan3m1 = CST(kTan3m1),
   CST_k2Sqrt2 = CST(k2Sqrt2),
   CST_kfRounder1 = CST(1);  // rounders for fdct
 #undef CST
@@ -241,29 +248,29 @@ static const union {
   const __m128i m[4];
 } kfTables_SSE2[4] = {
     // Tables for fdct, roughly the transposed of the above, shuffled
-    { { 0x4000, 0x4000, 0x58c5, 0x4b42, 0xdd5d, 0xac61, 0xa73b, 0xcdb7,
-        0x4000, 0x4000, 0x3249, 0x11a8, 0x539f, 0x22a3, 0x4b42, 0xee58,
-        0x4000, 0xc000, 0x3249, 0xa73b, 0x539f, 0xdd5d, 0x4b42, 0xa73b,
-        0xc000, 0x4000, 0x11a8, 0x4b42, 0x22a3, 0xac61, 0x11a8, 0xcdb7 } },
-    { { 0x58c5, 0x58c5, 0x7b21, 0x6862, 0xcff5, 0x8c04, 0x84df, 0xba41,
-        0x58c5, 0x58c5, 0x45bf, 0x187e, 0x73fc, 0x300b, 0x6862, 0xe782,
-        0x58c5, 0xa73b, 0x45bf, 0x84df, 0x73fc, 0xcff5, 0x6862, 0x84df,
-        0xa73b, 0x58c5, 0x187e, 0x6862, 0x300b, 0x8c04, 0x187e, 0xba41 } },
-    { { 0x539f, 0x539f, 0x73fc, 0x6254, 0xd2bf, 0x92bf, 0x8c04, 0xbe4d,
-        0x539f, 0x539f, 0x41b3, 0x1712, 0x6d41, 0x2d41, 0x6254, 0xe8ee,
-        0x539f, 0xac61, 0x41b3, 0x8c04, 0x6d41, 0xd2bf, 0x6254, 0x8c04,
-        0xac61, 0x539f, 0x1712, 0x6254, 0x2d41, 0x92bf, 0x1712, 0xbe4d } },
-    { { 0x4b42, 0x4b42, 0x6862, 0x587e, 0xd746, 0x9dac, 0x979e, 0xc4df,
-        0x4b42, 0x4b42, 0x3b21, 0x14c3, 0x6254, 0x28ba, 0x587e, 0xeb3d,
-        0x4b42, 0xb4be, 0x3b21, 0x979e, 0x6254, 0xd746, 0x587e, 0x979e,
-        0xb4be, 0x4b42, 0x14c3, 0x587e, 0x28ba, 0x9dac, 0x14c3, 0xc4df } } };
+    {{0x4000, 0x4000, 0x58c5, 0x4b42, 0xdd5d, 0xac61, 0xa73b, 0xcdb7,
+      0x4000, 0x4000, 0x3249, 0x11a8, 0x539f, 0x22a3, 0x4b42, 0xee58,
+      0x4000, 0xc000, 0x3249, 0xa73b, 0x539f, 0xdd5d, 0x4b42, 0xa73b,
+      0xc000, 0x4000, 0x11a8, 0x4b42, 0x22a3, 0xac61, 0x11a8, 0xcdb7}},
+    {{0x58c5, 0x58c5, 0x7b21, 0x6862, 0xcff5, 0x8c04, 0x84df, 0xba41,
+      0x58c5, 0x58c5, 0x45bf, 0x187e, 0x73fc, 0x300b, 0x6862, 0xe782,
+      0x58c5, 0xa73b, 0x45bf, 0x84df, 0x73fc, 0xcff5, 0x6862, 0x84df,
+      0xa73b, 0x58c5, 0x187e, 0x6862, 0x300b, 0x8c04, 0x187e, 0xba41}},
+    {{0x539f, 0x539f, 0x73fc, 0x6254, 0xd2bf, 0x92bf, 0x8c04, 0xbe4d,
+      0x539f, 0x539f, 0x41b3, 0x1712, 0x6d41, 0x2d41, 0x6254, 0xe8ee,
+      0x539f, 0xac61, 0x41b3, 0x8c04, 0x6d41, 0xd2bf, 0x6254, 0x8c04,
+      0xac61, 0x539f, 0x1712, 0x6254, 0x2d41, 0x92bf, 0x1712, 0xbe4d}},
+    {{0x4b42, 0x4b42, 0x6862, 0x587e, 0xd746, 0x9dac, 0x979e, 0xc4df,
+      0x4b42, 0x4b42, 0x3b21, 0x14c3, 0x6254, 0x28ba, 0x587e, 0xeb3d,
+      0x4b42, 0xb4be, 0x3b21, 0x979e, 0x6254, 0xd746, 0x587e, 0x979e,
+      0xb4be, 0x4b42, 0x14c3, 0x587e, 0x28ba, 0x9dac, 0x14c3, 0xc4df}}};
 
-#define LOAD_CST(x, y)  (x) = (CST_ ## y).m
+#define LOAD_CST(x, y) (x) = (CST_##y).m
 #define LOAD(x, y) (x) = LOAD_ALIGNED_16(&(y))
-#define MULT(x, y)      (x) = _mm_mulhi_epi16((x), (y))
-#define ADD(x, y)       (x) = _mm_add_epi16((x), (y))
-#define SUB(x, y)       (x) = _mm_sub_epi16((x), (y))
-#define LSHIFT(x, n)    (x) = _mm_slli_epi16((x), (n))
+#define MULT(x, y) (x) = _mm_mulhi_epi16((x), (y))
+#define ADD(x, y) (x) = _mm_add_epi16((x), (y))
+#define SUB(x, y) (x) = _mm_sub_epi16((x), (y))
+#define LSHIFT(x, n) (x) = _mm_slli_epi16((x), (n))
 #define STORE16(a, b) STORE_ALIGNED_16((b), &(a))
 #define CORRECT_LSB(a) (a) = _mm_adds_epi16((a), CST_kfRounder1.m)
 
@@ -279,8 +286,7 @@ void ColumnDct_SSE2(int16_t* in) {
 
 // DCT horizontal pass
 
-void RowDct_SSE2(int16_t* in, const __m128i* table1,
-                 const __m128i* table2) {
+void RowDct_SSE2(int16_t* in, const __m128i* table1, const __m128i* table2) {
   // load row [0123|4567] as [0123|7654]
   __m128i m0 = _mm_shufflehi_epi16(LOAD_ALIGNED_16(in + 0 * 8), 0x1b);
   __m128i m2 = _mm_shufflehi_epi16(LOAD_ALIGNED_16(in + 1 * 8), 0x1b);
@@ -302,7 +308,7 @@ void RowDct_SSE2(int16_t* in, const __m128i* table1,
   // prepare for scalar products which are performed using four madd_epi16
   __m128i m6;
   m4 = m0;
-  m0 = _mm_unpacklo_epi32(m0, m2);   // a0 a1 | b0 b1 | a2 a3 | b2 b3
+  m0 = _mm_unpacklo_epi32(m0, m2);  // a0 a1 | b0 b1 | a2 a3 | b2 b3
   m4 = _mm_unpackhi_epi32(m4, m2);
   m2 = _mm_shuffle_epi32(m0, 0x4e);  // a2 a3 | b2 b3 | a0 a1 | b0 b1
   m6 = _mm_shuffle_epi32(m4, 0x4e);
@@ -346,7 +352,7 @@ void RowDct_SSE2(int16_t* in, const __m128i* table1,
 #undef STORE16
 #undef CORRECT_LSB
 
-#endif    // SJPEG_USE_SSE2
+#endif  // SJPEG_USE_SSE2
 
 // done with the macros
 
@@ -361,35 +367,36 @@ void RowDct_SSE2(int16_t* in, const __m128i* table1,
 // multiply by scalar
 #define MULT(A, kC) (vqdmulhq_n_s16((A), (kC) >> 1))
 // V0 = r0 - r1, V1 = r0 + r1
-#define BUTTERFLY(V0, V1, r0, r1)                  \
-  const int16x8_t V0 = vsubq_s16((r0), (r1));      \
+#define BUTTERFLY(V0, V1, r0, r1)             \
+  const int16x8_t V0 = vsubq_s16((r0), (r1)); \
   const int16x8_t V1 = vaddq_s16((r0), (r1))
 
 // collect the 16b hi-words of 32bit words into a packed 16b one
 static int16x8_t PackS32(const int32x4_t lo, const int32x4_t hi) {
-  return vuzpq_s16(vreinterpretq_s16_s32(lo),
-                   vreinterpretq_s16_s32(hi)).val[1];
+  return vuzpq_s16(vreinterpretq_s16_s32(lo), vreinterpretq_s16_s32(hi)).val[1];
 }
 
-#define MULT_DCL_32(LO, HI, A, CST)                                \
-  int32x4_t LO = vmull_s16(vget_low_s16(A), vget_low_s16(CST));    \
+#define MULT_DCL_32(LO, HI, A, CST)                             \
+  int32x4_t LO = vmull_s16(vget_low_s16(A), vget_low_s16(CST)); \
   int32x4_t HI = vmull_s16(vget_high_s16(A), vget_high_s16(CST))
-#define MULT_ADD_32(LO, HI, A, CST) do {                           \
-  LO = vmlal_s16(LO, vget_low_s16(A), vget_low_s16(CST));          \
-  HI = vmlal_s16(HI, vget_high_s16(A), vget_high_s16(CST));        \
-} while (0)
-#define MULT_SUB_32(LO, HI, A, CST) do {                           \
-  LO = vmlsl_s16(LO, vget_low_s16(A), vget_low_s16(CST));          \
-  HI = vmlsl_s16(HI, vget_high_s16(A), vget_high_s16(CST));        \
-} while (0)
+#define MULT_ADD_32(LO, HI, A, CST)                           \
+  do {                                                        \
+    LO = vmlal_s16(LO, vget_low_s16(A), vget_low_s16(CST));   \
+    HI = vmlal_s16(HI, vget_high_s16(A), vget_high_s16(CST)); \
+  } while (0)
+#define MULT_SUB_32(LO, HI, A, CST)                           \
+  do {                                                        \
+    LO = vmlsl_s16(LO, vget_low_s16(A), vget_low_s16(CST));   \
+    HI = vmlsl_s16(HI, vget_high_s16(A), vget_high_s16(CST)); \
+  } while (0)
 
-#define MK_TABLE_CST(A, B, C, D) { (A), (B), (C), (D), (A), (D), (C), (B) }
+#define MK_TABLE_CST(A, B, C, D) {(A), (B), (C), (D), (A), (D), (C), (B)}
 
 // s64 transposing helper:
 //   *out0 = lo(v0) | hi(v1)
 //   *out1 = lo(v1) | hi(v0)
-static void vtrn_s64(const int32x4_t v0, const int32x4_t v1,
-                     int16x8_t* out0, int16x8_t* out1) {
+static void vtrn_s64(const int32x4_t v0, const int32x4_t v1, int16x8_t* out0,
+                     int16x8_t* out1) {
   *out0 = vreinterpretq_s16_s64(
       vcombine_s64(vreinterpret_s64_s32(vget_low_s32(v0)),
                    vreinterpret_s64_s32(vget_low_s32(v1))));
@@ -398,9 +405,8 @@ static void vtrn_s64(const int32x4_t v0, const int32x4_t v1,
                    vreinterpret_s64_s32(vget_high_s32(v1))));
 }
 
-void Transpose8x8(int16x8_t* const A0, int16x8_t* const A1,
-                  int16x8_t* const A2, int16x8_t* const A3,
-                  int16x8_t* const A4, int16x8_t* const A5,
+void Transpose8x8(int16x8_t* const A0, int16x8_t* const A1, int16x8_t* const A2,
+                  int16x8_t* const A3, int16x8_t* const A4, int16x8_t* const A5,
                   int16x8_t* const A6, int16x8_t* const A7) {
   const int16x8x2_t row01 = vtrnq_s16(*A0, *A1);
   const int16x8x2_t row23 = vtrnq_s16(*A2, *A3);
@@ -590,7 +596,7 @@ static void FdctNEON(int16_t* coeffs, int num_blocks) {
 #undef MULT_SUB_32
 #undef MK_TABLE_CST
 
-#endif    // SJPEG_USE_NEON
+#endif  // SJPEG_USE_NEON
 
 #undef kTan1
 #undef kTan2
@@ -648,4 +654,4 @@ FdctFunc GetFdct() {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-}     // namespace sjpeg
+}  // namespace sjpeg

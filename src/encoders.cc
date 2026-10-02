@@ -18,9 +18,9 @@
 
 #include <assert.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
-#include <cstdlib>
 #include <new>
 
 #include "sjpegi.h"
@@ -82,7 +82,7 @@ void Encoder::InitComponents() {
     case SJPEG_YUV_AUTO:
     case SJPEG_YUV_SHARP:
     default:
-      assert(0);   // shouldn't happen
+      assert(0);  // shouldn't happen
       break;
   }
 }
@@ -102,7 +102,7 @@ void SetAverage(int DC, int16_t* const out) {
   for (int i = 0; i < 64; ++i) out[i] = DC;
 }
 
-}   // namespace
+}  // namespace
 
 void Encoder::GetLumaBlock16x16(const uint8_t* y, int y_step, int mb_x,
                                 int mb_y, bool clipped, int16_t* out,
@@ -126,7 +126,7 @@ void Encoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
   // outside of the frame, we set it flat to the average value of the previous
   // block ("DC"), in order to help compressibility.
   int DC = GetAverage(out);
-  if (sub_w <= 8) {   // set block #1 to block #0's average value
+  if (sub_w <= 8) {  // set block #1 to block #0's average value
     SetAverage(DC, out + 1 * 64);
   }
   if (sub_h <= 8) {   // Need to flatten block #2 and #3
@@ -135,7 +135,7 @@ void Encoder::AverageExtraLuma(int sub_w, int sub_h, int16_t* out) {
     }
     SetAverage(DC, out + 2 * 64);
     SetAverage(DC, out + 3 * 64);
-  } else if (sub_w <= 8) {   // set block #3 to the block #2's average value
+  } else if (sub_w <= 8) {  // set block #3 to the block #2's average value
     DC = GetAverage(out + 2 * 64);
     SetAverage(DC, out + 3 * 64);
   }
@@ -160,9 +160,7 @@ const uint8_t* Encoder::GetReplicatedYSamples(const uint8_t* in, int step,
 
 // useful common function. Declared in sjpegi.h: api.cc calls it too.
 bool FinishEncoding(Encoder* const enc, const EncoderParam& param) {
-  const bool ok = (enc != nullptr) &&
-                  enc->Ok() &&
-                  enc->InitFromParam(param) &&
+  const bool ok = (enc != nullptr) && enc->Ok() && enc->InitFromParam(param) &&
                   enc->Encode();
   delete enc;
   return ok;
@@ -183,7 +181,7 @@ class Encoder420 final : public Encoder {
       get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
     }
   }
-  ~Encoder420() override {}
+  ~Encoder420() override = default;
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
     const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 16;
@@ -200,7 +198,7 @@ class Encoder420 final : public Encoder {
   }
 
  protected:
-  const uint8_t* const rgb_;   // input samples
+  const uint8_t* const rgb_;  // input samples
   int step_;
 };
 
@@ -220,7 +218,7 @@ class EncoderRGB final : public Encoder {
       get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
     }
   }
-  ~EncoderRGB() override {}
+  ~EncoderRGB() override = default;
 
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
@@ -235,7 +233,7 @@ class EncoderRGB final : public Encoder {
   }
 
  protected:
-  const uint8_t* const rgb_;   // input samples
+  const uint8_t* const rgb_;  // input samples
   int step_;
 };
 
@@ -244,9 +242,8 @@ class Encoder400G final : public Encoder {
  public:
   Encoder400G(int W, int H, const uint8_t* const gray, int step,
               ByteSink* const sink, MemoryManager* const memory = nullptr)
-      : Encoder(SJPEG_YUV_400, W, H, sink, memory),
-        gray_(gray), step_(step) {}
-  ~Encoder400G() override {}
+      : Encoder(SJPEG_YUV_400, W, H, sink, memory), gray_(gray), step_(step) {}
+  ~Encoder400G() override = default;
 
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
@@ -260,7 +257,7 @@ class Encoder400G final : public Encoder {
   }
 
  protected:
-  const uint8_t* const gray_;   // input samples
+  const uint8_t* const gray_;  // input samples
   int step_;
 };
 
@@ -273,7 +270,11 @@ class EncoderNV12 final : public Encoder {
               int W, int H, ByteSink* const sink, bool is_nv12,
               MemoryManager* const memory = nullptr)
       : Encoder(SJPEG_YUV_420, W, H, sink, memory),
-        y_(y), y_step_(y_step), uv_(uv), uv_step_(uv_step), is_nv12_(is_nv12) {
+        y_(y),
+        y_step_(y_step),
+        uv_(uv),
+        uv_step_(uv_step),
+        is_nv12_(is_nv12) {
     assert(sink != nullptr);
   }
 
@@ -326,37 +327,32 @@ class EncoderNV12 final : public Encoder {
 
 // Common implementation for NV12 (U/V/U/V...) and NV21 (V/U/V/U...).
 // Arguments are checked here: the base class uses 'output' at construction.
-static bool EncodeNV(const uint8_t* y, int y_stride,
-                     const uint8_t* uv, int uv_stride,
-                     int width, int height, bool is_nv12,
+static bool EncodeNV(const uint8_t* y, int y_stride, const uint8_t* uv,
+                     int uv_stride, int width, int height, bool is_nv12,
                      const EncoderParam& param, ByteSink* output) {
   if (y == nullptr || uv == nullptr || output == nullptr) return false;
   if (width <= 0 || height <= 0) return false;
   if (std::abs(y_stride) < width) return false;
   if (std::abs(uv_stride) < 2 * ((width + 1) / 2)) return false;
-  Encoder* const enc =
-      new (std::nothrow) EncoderNV12(y, y_stride, uv, uv_stride,
-                                     width, height, output, is_nv12,
-                                     param.memory);
+  Encoder* const enc = new (std::nothrow) EncoderNV12(
+      y, y_stride, uv, uv_stride, width, height, output, is_nv12, param.memory);
   return FinishEncoding(enc, param);
 }
 
 // Encode from NV12 samples, using YUV420 format
-bool EncodeNV12(const uint8_t* y, int y_stride,
-                const uint8_t* uv, int uv_stride,
-                int width, int height,
-                const EncoderParam& param, ByteSink* output) {
-  return EncodeNV(y, y_stride, uv, uv_stride, width, height, true,
-                  param, output);
+bool EncodeNV12(const uint8_t* y, int y_stride, const uint8_t* uv,
+                int uv_stride, int width, int height, const EncoderParam& param,
+                ByteSink* output) {
+  return EncodeNV(y, y_stride, uv, uv_stride, width, height, true, param,
+                  output);
 }
 
 // Encode from NV21 samples, using YUV420 format
-bool EncodeNV21(const uint8_t* y, int y_stride,
-                const uint8_t* vu, int vu_stride,
-                int width, int height,
-                const EncoderParam& param, ByteSink* output) {
-  return EncodeNV(y, y_stride, vu, vu_stride, width, height, false,
-                  param, output);
+bool EncodeNV21(const uint8_t* y, int y_stride, const uint8_t* vu,
+                int vu_stride, int width, int height, const EncoderParam& param,
+                ByteSink* output) {
+  return EncodeNV(y, y_stride, vu, vu_stride, width, height, false, param,
+                  output);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -364,16 +360,19 @@ bool EncodeNV21(const uint8_t* y, int y_stride,
 
 class EncoderYUV444 final : public Encoder {
  public:
-  EncoderYUV444(const uint8_t* y, int y_step,
-                const uint8_t* u, int u_step,
-                const uint8_t* v, int v_step,
-                int W, int H, ByteSink* const sink,
-                MemoryManager* const memory = nullptr)
+  EncoderYUV444(const uint8_t* y, int y_step, const uint8_t* u, int u_step,
+                const uint8_t* v, int v_step, int W, int H,
+                ByteSink* const sink, MemoryManager* const memory = nullptr)
       : Encoder(SJPEG_YUV_444, W, H, sink, memory),
-        y_(y), u_(u), v_(v), y_step_(y_step), u_step_(u_step), v_step_(v_step) {
+        y_(y),
+        u_(u),
+        v_(v),
+        y_step_(y_step),
+        u_step_(u_step),
+        v_step_(v_step) {
     ok_ = (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
   }
-  ~EncoderYUV444() override {}
+  ~EncoderYUV444() override = default;
 
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
@@ -402,11 +401,9 @@ class EncoderYUV444 final : public Encoder {
 };
 
 // Encode bitstream using Y/U/V input in YUV444 format.
-bool EncodeYUV444(const uint8_t* Y, int Y_stride,
-                  const uint8_t* U, int U_stride,
-                  const uint8_t* V, int V_stride,
-                  int width, int height,
-                  const EncoderParam& param, ByteSink* output) {
+bool EncodeYUV444(const uint8_t* Y, int Y_stride, const uint8_t* U,
+                  int U_stride, const uint8_t* V, int V_stride, int width,
+                  int height, const EncoderParam& param, ByteSink* output) {
   if (Y == nullptr || U == nullptr || V == nullptr) return false;
   if (output == nullptr) return false;
   if (width <= 0 || height <= 0) return false;
@@ -424,16 +421,19 @@ bool EncodeYUV444(const uint8_t* Y, int Y_stride,
 
 class EncoderYUV420 : public Encoder {
  public:
-  EncoderYUV420(const uint8_t* y, int y_step,
-                const uint8_t* u, int u_step,
-                const uint8_t* v, int v_step,
-                int W, int H, ByteSink* const sink,
-                MemoryManager* const memory = nullptr)
+  EncoderYUV420(const uint8_t* y, int y_step, const uint8_t* u, int u_step,
+                const uint8_t* v, int v_step, int W, int H,
+                ByteSink* const sink, MemoryManager* const memory = nullptr)
       : Encoder(SJPEG_YUV_420, W, H, sink, memory),
-        y_(y), u_(u), v_(v), y_step_(y_step), u_step_(u_step), v_step_(v_step) {
+        y_(y),
+        u_(u),
+        v_(v),
+        y_step_(y_step),
+        u_step_(u_step),
+        v_step_(v_step) {
     ok_ = (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
   }
-  ~EncoderYUV420() override {}
+  ~EncoderYUV420() override = default;
 
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
@@ -460,11 +460,9 @@ class EncoderYUV420 : public Encoder {
   int y_step_, u_step_, v_step_;
 };
 
-bool EncodeYUV420(const uint8_t* Y, int Y_stride,
-                  const uint8_t* U, int U_stride,
-                  const uint8_t* V, int V_stride,
-                  int width, int height,
-                  const EncoderParam& param, ByteSink* output) {
+bool EncodeYUV420(const uint8_t* Y, int Y_stride, const uint8_t* U,
+                  int U_stride, const uint8_t* V, int V_stride, int width,
+                  int height, const EncoderParam& param, ByteSink* output) {
   if (Y == nullptr || U == nullptr || V == nullptr) return false;
   if (output == nullptr) return false;
   if (width <= 0 || height <= 0) return false;
@@ -511,11 +509,9 @@ class EncoderSharp420 final : public EncoderYUV420 {
       v_ = u_ + uv_size;
       u_step_ = uv_w;
       v_step_ = uv_w;
-      ok_ = ApplySharpYUVConversion(rgb, W, H, step,
-                                    const_cast<uint8_t*>(y_),
+      ok_ = ApplySharpYUVConversion(rgb, W, H, step, const_cast<uint8_t*>(y_),
                                     const_cast<uint8_t*>(u_),
-                                    const_cast<uint8_t*>(v_),
-                                    this);
+                                    const_cast<uint8_t*>(v_), this);
     }
   }
   ~EncoderSharp420() override { Free(yuv_memory_); }
@@ -539,11 +535,11 @@ Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
   if (yuv_mode == SJPEG_YUV_420) {
     enc = new (std::nothrow) Encoder420(W, H, rgb, stride, sink, fmt, memory);
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
-    enc = new (std::nothrow) EncoderSharp420(W, H, rgb, stride, sink, memory,
-                                             num_threads);
+    enc = new (std::nothrow)
+        EncoderSharp420(W, H, rgb, stride, sink, memory, num_threads);
   } else if (yuv_mode == SJPEG_YUV_444 || yuv_mode == SJPEG_YUV_400) {
-    enc = new (std::nothrow) EncoderRGB(yuv_mode, W, H, rgb, stride, sink,
-                                        fmt, memory);
+    enc = new (std::nothrow)
+        EncoderRGB(yuv_mode, W, H, rgb, stride, sink, fmt, memory);
   }
   if (enc == nullptr || !enc->Ok()) {
     delete enc;
@@ -553,10 +549,8 @@ Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
 }
 
 Encoder* GrayEncoderFactory(const uint8_t* gray, int W, int H, int stride,
-                            ByteSink* const sink,
-                            MemoryManager* const memory) {
+                            ByteSink* const sink, MemoryManager* const memory) {
   return new (std::nothrow) Encoder400G(W, H, gray, stride, sink, memory);
 }
 
-}    // namespace sjpeg
-
+}  // namespace sjpeg

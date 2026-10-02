@@ -20,11 +20,12 @@
 #define SJPEG_JPEG_H_
 
 #include <inttypes.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
-#define SJPEG_VERSION 0x000104   // 0.1.4
+#define SJPEG_VERSION 0x000104  // 0.1.4
 
 #if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
@@ -104,11 +105,8 @@ typedef enum {
 //  If you don't have any strict requirements on CPU and memory, you should
 //  probably use method #4.
 //
-size_t SjpegEncode(const uint8_t* rgb,
-                   int width, int height, int stride,
-                   uint8_t** out_data,
-                   float quality,
-                   int compression_method,
+size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
+                   uint8_t** out_data, float quality, int compression_method,
                    SjpegYUVMode yuv_mode);
 
 // Deallocate a compressed bitstream that were returned by SjpegEncode(),
@@ -122,8 +120,8 @@ void SjpegFreeBuffer(const uint8_t* buffer);
 // possible. Return false if an error occurred (invalid bitstream, invalid
 // parameter...).
 // The pointers 'width', 'height', 'is_yuv420' can be passed NULL.
-bool SjpegDimensions(const uint8_t* data, size_t size,
-                     int* width, int* height, int* is_yuv420);
+bool SjpegDimensions(const uint8_t* data, size_t size, int* width, int* height,
+                     int* is_yuv420);
 
 // Finds the location of the first two quantization matrices within a JPEG
 // 'data' bitstream. Matrices are 64 coefficients stored as uint8_t.
@@ -132,8 +130,7 @@ bool SjpegDimensions(const uint8_t* data, size_t size,
 // must start as a valid JPEG with an 0xffd8 marker.
 // Returns the number of matrices detected.
 // Returns 0 in case of bitstream error, or if the DQT chunk is missing.
-int SjpegFindQuantizer(const uint8_t* data, size_t size,
-                       uint8_t quant[2][64]);
+int SjpegFindQuantizer(const uint8_t* data, size_t size, uint8_t quant[2][64]);
 
 // Returns an estimation of the quality factor that would best approximate
 // the quantization coefficients in matrix[].
@@ -153,20 +150,19 @@ SjpegYUVMode SjpegRiskiness(const uint8_t* rgb, int width, int height,
                             int stride, float* risk);
 
 #if defined(__cplusplus) || defined(c_plusplus)
-}    // extern "C"
+}  // extern "C"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // Variant of the function above, but using std::string as interface.
 
-bool SjpegCompress(const uint8_t* rgb,
-                   int width, int height, float quality, std::string* output);
+bool SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
+                   std::string* output);
 
-bool SjpegDimensions(const std::string& jpeg_data,
-                     int* width, int* height, int* is_yuv420);
+bool SjpegDimensions(const std::string& jpeg_data, int* width, int* height,
+                     int* is_yuv420);
 
 int SjpegFindQuantizer(const std::string& jpeg_data, uint8_t quant[2][64]);
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Advanced API, C++ only.
@@ -213,12 +209,12 @@ struct EncoderParam {
   void SetMinQuantization(const uint8_t m[2][64], int min_quant_tolerance = 0);
 
   // main compression parameters
-  SjpegYUVMode yuv_mode;        // YUV-420...444 decisions
-  bool Huffman_compress;        // if true, use optimized Huffman tables.
-  bool adaptive_quantization;   // if true, use optimized quantizer matrices.
-  bool adaptive_bias;           // if true, use perceptual bias adaptation (luma)
-  bool use_trellis;             // if true, use trellis-based optimization
-  bool use_rdo;                 // if true, use fast rate-distortion optimization
+  SjpegYUVMode yuv_mode;       // YUV-420...444 decisions
+  bool Huffman_compress;       // if true, use optimized Huffman tables.
+  bool adaptive_quantization;  // if true, use optimized quantizer matrices.
+  bool adaptive_bias;          // if true, use perceptual bias adaptation (luma)
+  bool use_trellis;            // if true, use trellis-based optimization
+  bool use_rdo;                // if true, use fast rate-distortion optimization
 
   // Emit restart markers (RST0-RST7) every 'restart_interval_rows' MCU rows.
   // The default is 0. Values <= 0 disable them when single-threaded, or use an
@@ -239,19 +235,19 @@ struct EncoderParam {
     TARGET_PSNR = 2,
   } TargetMode;
   TargetMode target_mode;
-  float target_value;           // size, psnr or SSIM
-  int passes;                   // max number of passes to try and converge
-  float tolerance;              // percentage of distance-to-target allowed
-  float qmin, qmax;             // Limits for the search quality values.
-                                // If set, min_quant_[] matrices will take
-                                // precedence and limit qmax further.
+  float target_value;  // size, psnr or SSIM
+  int passes;          // max number of passes to try and converge
+  float tolerance;     // percentage of distance-to-target allowed
+  float qmin, qmax;    // Limits for the search quality values.
+                       // If set, min_quant_[] matrices will take
+                       // precedence and limit qmax further.
 
   // fine-grained control over compression parameters
-  int quantization_bias;    // [0..255] Rounding bias for quantization.
-  int qdelta_max_luma;      // [0..12] How much to hurt luma in adaptive quant
-  int qdelta_max_chroma;    // [0..12] How much to hurt chroma in adaptive quant
-                            // A higher value might be useful for images
-                            // encoded without chroma subsampling.
+  int quantization_bias;  // [0..255] Rounding bias for quantization.
+  int qdelta_max_luma;    // [0..12] How much to hurt luma in adaptive quant
+  int qdelta_max_chroma;  // [0..12] How much to hurt chroma in adaptive quant
+                          // A higher value might be useful for images
+                          // encoded without chroma subsampling.
 
   // Progressive JPEG encoding. *_split (1..63) is the low/high frequency
   // split point for luma/chroma; luma_split==64 (default) turns it off.
@@ -279,19 +275,19 @@ struct EncoderParam {
   std::string iccp;
   std::string app_markers;
   std::string xmp;
-  uint16_t xmp_split_point = 0u;   // user-supplied split point for extended XMP
-  void ResetMetadata();      // clears the above
+  uint16_t xmp_split_point = 0u;  // user-supplied split point for extended XMP
+  void ResetMetadata();           // clears the above
 
   // Memory manager used by the codec. If null, default one will be used.
   sjpeg::MemoryManager* memory;
 
  protected:
-  uint8_t quant_[2][64];         // quantization matrices to use
-  uint8_t min_quant_[2][64];     // If limit_quantization is true, these
-                                 // pointers should direct to the minimum
-                                 // quantizer values allowed for luma / chroma.
-  bool use_min_quant_;           // True if min_quant_[][] has been set.
-  int min_quant_tolerance_;      // Tolerance going over min_quant_ ([0..100])
+  uint8_t quant_[2][64];      // quantization matrices to use
+  uint8_t min_quant_[2][64];  // If limit_quantization is true, these
+                              // pointers should direct to the minimum
+                              // quantizer values allowed for luma / chroma.
+  bool use_min_quant_;        // True if min_quant_[][] has been set.
+  int min_quant_tolerance_;   // Tolerance going over min_quant_ ([0..100])
 
  protected:
   void Init(float quality_factor);
@@ -346,44 +342,40 @@ bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
 // has dimension width * height, whereas the V/U sample planes contain pairs
 // of V/U samples, and must have dimension (width+1)/2 * (height+1)/2.
 // This format is also YUV420SP (SP = semi-planar).
-bool EncodeNV21(const uint8_t* y, int y_stride,
-                const uint8_t* vu, int vu_stride,
-                int width, int height,
-                const EncoderParam& param, sjpeg::ByteSink* output);
+bool EncodeNV21(const uint8_t* y, int y_stride, const uint8_t* vu,
+                int vu_stride, int width, int height, const EncoderParam& param,
+                sjpeg::ByteSink* output);
 // Same as EncodeNV21(), but for NV12 samples, where the chroma samples
 // ordering is U/V/U/V...
-bool EncodeNV12(const uint8_t* y, int y_stride,
-                const uint8_t* uv, int uv_stride,
-                int width, int height,
-                const EncoderParam& param, sjpeg::ByteSink* output);
+bool EncodeNV12(const uint8_t* y, int y_stride, const uint8_t* uv,
+                int uv_stride, int width, int height, const EncoderParam& param,
+                sjpeg::ByteSink* output);
 
 // Encode bitstream using Y/U/V input in YUV444 format.
-bool EncodeYUV444(const uint8_t* Y, int Y_stride,
-                  const uint8_t* U, int U_stride,
-                  const uint8_t* V, int V_stride,
-                  int width, int height,
-                  const EncoderParam& param, sjpeg::ByteSink* output);
+bool EncodeYUV444(const uint8_t* Y, int Y_stride, const uint8_t* U,
+                  int U_stride, const uint8_t* V, int V_stride, int width,
+                  int height, const EncoderParam& param,
+                  sjpeg::ByteSink* output);
 
 // Encode bitstream using Y/U/V input in YUV420 format.
 // The U/V planes' dimension is (width + 1)/2 and (height+1)/2.
-bool EncodeYUV420(const uint8_t* Y, int Y_stride,
-                  const uint8_t* U, int U_stride,
-                  const uint8_t* V, int V_stride,
-                  int width, int height,
-                  const EncoderParam& param, sjpeg::ByteSink* output);
+bool EncodeYUV420(const uint8_t* Y, int Y_stride, const uint8_t* U,
+                  int U_stride, const uint8_t* V, int V_stride, int width,
+                  int height, const EncoderParam& param,
+                  sjpeg::ByteSink* output);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Some interfaces for customizing the core codec
 
 // Custom search loop
 struct SearchHook {
-  float q;                // this is the current parameter used
-  float qmin, qmax;       // this is the current bracket for q
-  float target;           // target value (PSNR or size)
-  float tolerance;        // relative tolerance for reaching the 'target' value
-  bool for_size;          // true if we're searching for size
-  float value;            // result for the search after Update() is called
-  int pass;               // pass number (0-based) during search (informative)
+  float q;           // this is the current parameter used
+  float qmin, qmax;  // this is the current bracket for q
+  float target;      // target value (PSNR or size)
+  float tolerance;   // relative tolerance for reaching the 'target' value
+  bool for_size;     // true if we're searching for size
+  float value;       // result for the search after Update() is called
+  int pass;          // pass number (0-based) during search (informative)
 
   // Returns false in case of initialization error.
   // Should always be called by sub-classes.
@@ -393,7 +385,7 @@ struct SearchHook {
   virtual void NextMatrix(int idx, uint8_t dst[64]);
   // return true if the search is finished
   virtual bool Update(float result);
-  virtual ~SearchHook() {}
+  virtual ~SearchHook() = default;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -415,7 +407,7 @@ struct SearchHook {
 
 struct ByteSink {
  public:
-  virtual ~ByteSink() {}
+  virtual ~ByteSink() = default;
   virtual bool Commit(size_t used_size, size_t extra_size, uint8_t** data) = 0;
   virtual bool Finalize() = 0;
   virtual void Reset() = 0;
@@ -424,20 +416,21 @@ struct ByteSink {
 // Some useful factories
 std::shared_ptr<ByteSink> MakeByteSink(std::string* output);
 // Vector-based template, specialized for uint8_t
-template<typename T>
+template <typename T>
 std::shared_ptr<ByteSink> MakeByteSink(std::vector<T>* output);
-template<> std::shared_ptr<ByteSink> MakeByteSink(std::vector<uint8_t>* output);
+template <>
+std::shared_ptr<ByteSink> MakeByteSink(std::vector<uint8_t>* output);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Memory manager (for internal allocation)
 
 struct MemoryManager {
  public:
-  virtual ~MemoryManager() {}
-  virtual void* Alloc(size_t size) = 0;     // same semantic as malloc()
-  virtual void Free(void* const ptr) = 0;   // same semantic as free()
+  virtual ~MemoryManager() = default;
+  virtual void* Alloc(size_t size) = 0;  // same semantic as malloc()
+  virtual void Free(void* ptr) = 0;      // same semantic as free()
 };
 
 }  // namespace sjpeg
 
-#endif    // SJPEG_JPEG_H_
+#endif  // SJPEG_JPEG_H_

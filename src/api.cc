@@ -19,11 +19,11 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #if !defined(SJPEG_NO_MULTITHREADING)
 #include <algorithm>
 #endif
-#include <cstdlib>
 #include <memory>
 #include <new>
 #include <string>
@@ -41,8 +41,8 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
   *out_data = nullptr;  // safety
 
   sjpeg::MemorySink sink((size_t)width * height / 4);
-  sjpeg::Encoder* const enc = sjpeg::EncoderFactory(rgb, width, height, stride,
-                                                    yuv_mode, &sink);
+  sjpeg::Encoder* const enc =
+      sjpeg::EncoderFactory(rgb, width, height, stride, yuv_mode, &sink);
   if (enc == nullptr) return 0;
   enc->SetQuality(quality);
   enc->SetCompressionMethod(method);
@@ -56,19 +56,15 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
 
 size_t SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
                      uint8_t** out_data) {
-  return SjpegEncode(rgb, width, height, 3 * width, out_data,
-                     quality, 4, SJPEG_YUV_AUTO);
+  return SjpegEncode(rgb, width, height, 3 * width, out_data, quality, 4,
+                     SJPEG_YUV_AUTO);
 }
 
-void SjpegFreeBuffer(const uint8_t* buffer) {
-  delete[] buffer;
-}
+void SjpegFreeBuffer(const uint8_t* buffer) { delete[] buffer; }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-uint32_t SjpegVersion() {
-  return SJPEG_VERSION;
-}
+uint32_t SjpegVersion() { return SJPEG_VERSION; }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Parametrized call
@@ -92,7 +88,7 @@ void EncoderParam::Init(float quality_factor) {
   quantization_bias = kDefaultBias;
   qdelta_max_luma = kDefaultDeltaMaxLuma;
   qdelta_max_chroma = kDefaultDeltaMaxChroma;
-  progressive_luma_split = 64;    // = "no progressive"
+  progressive_luma_split = 64;  // = "no progressive"
   progressive_chroma_split = 8;
   adaptive_bias = false;
   use_rdo = false;
@@ -115,8 +111,7 @@ void EncoderParam::SetQuality(float quality_factor) {
   SetQuantMatrix(kDefaultMatrices[1], q, quant_[1]);
 }
 
-void EncoderParam::SetQuantization(const uint8_t m[2][64],
-                                   float reduction) {
+void EncoderParam::SetQuantization(const uint8_t m[2][64], float reduction) {
   if (reduction <= 1.f) reduction = 1.f;
   if (m == nullptr) return;
   for (int c = 0; c < 2; ++c) {
@@ -138,9 +133,9 @@ void EncoderParam::SetMinQuantization(const uint8_t m[2][64],
   use_min_quant_ = true;
   CopyQuantMatrix(m[0], min_quant_[0]);
   CopyQuantMatrix(m[1], min_quant_[1]);
-  min_quant_tolerance_ = (min_quant_tolerance < 0) ? 0
-                       : (min_quant_tolerance > 100) ? 100
-                       : min_quant_tolerance;
+  min_quant_tolerance_ = (min_quant_tolerance < 0)     ? 0
+                         : (min_quant_tolerance > 100) ? 100
+                                                       : min_quant_tolerance;
 }
 
 void EncoderParam::ResetMetadata() {
@@ -197,8 +192,8 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   if (passes_ > 1) {
     use_extra_memory_ = true;
     reuse_run_levels_ = true;
-    search_hook_ = (param.search_hook == nullptr) ? &default_hook_
-                                                  : param.search_hook;
+    search_hook_ =
+        (param.search_hook == nullptr) ? &default_hook_ : param.search_hook;
     if (!search_hook_->Setup(param)) return false;
   }
 
@@ -212,8 +207,8 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   }
 #endif
 
-  assert(memory_hook_ == (param.memory == nullptr ? GetDefaultMemoryManager()
-                                                  : param.memory));
+  assert(memory_hook_ ==
+         (param.memory == nullptr ? GetDefaultMemoryManager() : param.memory));
   return true;
 }
 
@@ -223,15 +218,15 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
   if (width <= 0 || height <= 0 || std::abs(stride) < 3 * width) return false;
 
   const int num_threads = GetNumThreads(param);
-  Encoder* const enc = EncoderFactory(rgb, width, height, stride,
-                                      param.yuv_mode, sink, kRGBInput,
-                                      param.memory, num_threads);
+  Encoder* const enc =
+      EncoderFactory(rgb, width, height, stride, param.yuv_mode, sink,
+                     kRGBInput, param.memory, num_threads);
   return FinishEncoding(enc, param);
 }
 
 size_t Encode(const uint8_t* rgb, int width, int height, int stride,
               const EncoderParam& param, uint8_t** out_data) {
-  MemorySink sink((size_t)width * height / 4);    // estimation of output size
+  MemorySink sink((size_t)width * height / 4);  // estimation of output size
   if (!Encode(rgb, width, height, stride, param, &sink)) return 0;
   size_t size;
   sink.Release(out_data, &size);
@@ -245,8 +240,8 @@ namespace {
 // Both call sites pass literal constants for them, so this inlines to the
 // same code two separate hand-written loops would produce.
 bool ConvertToRGB(const uint8_t* src, int width, int height, int stride,
-                   int r_idx, int b_idx, std::unique_ptr<uint8_t[]>* const rgb,
-                   int* const rgb_stride) {
+                  int r_idx, int b_idx, std::unique_ptr<uint8_t[]>* const rgb,
+                  int* const rgb_stride) {
   *rgb_stride = 3 * width;
   rgb->reset(new (std::nothrow) uint8_t[(size_t)*rgb_stride * height]);
   if (*rgb == nullptr) return false;
@@ -311,8 +306,8 @@ bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
   if (gray == nullptr || sink == nullptr) return false;
   if (width <= 0 || height <= 0 || std::abs(stride) < width) return false;
 
-  Encoder* const enc = GrayEncoderFactory(gray, width, height, stride, sink,
-                                          param.memory);
+  Encoder* const enc =
+      GrayEncoderFactory(gray, width, height, stride, sink, param.memory);
   return FinishEncoding(enc, param);
 }
 
@@ -356,4 +351,3 @@ bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
 }
 
 }  // namespace sjpeg
-

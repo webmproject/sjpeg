@@ -133,9 +133,7 @@ class Encoder::ThreadPool {
   bool stop_ = false;
 };
 
-void Encoder::ThreadPoolDeleter::operator()(ThreadPool* p) const {
-  delete p;
-}
+void Encoder::ThreadPoolDeleter::operator()(ThreadPool* p) const { delete p; }
 
 namespace {
 
@@ -208,8 +206,8 @@ void Encoder::CollectHistogramsMultiThreaded(int num_threads) {
   struct alignas(64) HistoWorker {
     Histo histos[2];
   };
-  std::unique_ptr<HistoWorker[]> workers(
-      new (std::nothrow) HistoWorker[num_threads - 1]);
+  std::unique_ptr<HistoWorker[]> workers(new (std::nothrow)
+                                             HistoWorker[num_threads - 1]);
   if (workers == nullptr) {
     ResetHisto();
     CollectHistogramsSlice(0, mb_h_, histos_, in_blocks_, replicated_buffer_);
@@ -265,33 +263,33 @@ void Encoder::CollectCoeffsMultiThreaded(int num_threads) {
 void Encoder::SinglePassScanMultiThreaded(int num_threads,
                                           int total_intervals) {
   std::vector<ThreadChunk> chunks(num_threads);
-  RunParallel(num_threads, total_intervals,
-              [&](int t, int first_interval, int end_interval) {
-                ThreadChunk& chunk = chunks[t];
-                StringSink sink(&chunk.data);
-                BitWriter bw(&sink);
-                const size_t slab = SliceSlabSize(first_interval, end_interval);
-                int16_t scratch[64 * 6];
-                uint8_t rep_buf[4 * 16 * 16];
-                if (!CodeScanSlice(first_interval, end_interval,
-                                   total_intervals, &bw, slab, scratch,
-                                   rep_buf)) {
-                  chunk.ok = false;
-                  return;
-                }
-                bw.Flush();
-                chunk.ok = bw.Finalize();
-              });
+  RunParallel(
+      num_threads, total_intervals,
+      [&](int t, int first_interval, int end_interval) {
+        ThreadChunk& chunk = chunks[t];
+        StringSink sink(&chunk.data);
+        BitWriter bw(&sink);
+        const size_t slab = SliceSlabSize(first_interval, end_interval);
+        int16_t scratch[64 * 6];
+        uint8_t rep_buf[4 * 16 * 16];
+        if (!CodeScanSlice(first_interval, end_interval, total_intervals, &bw,
+                           slab, scratch, rep_buf)) {
+          chunk.ok = false;
+          return;
+        }
+        bw.Flush();
+        chunk.ok = bw.Finalize();
+      });
   ConcatenateChunks(chunks.data(), num_threads);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Quantization and replay helpers shared by 2-pass optimized scan and multi-pass
-// dichotomy search. Re-quantizing in pass 2 would not merely waste work:
-// WriteDHT() calls InitCodes(), which rebuilds ac_codes_, and quants_[].codes_
-// points into it, so trellis and RDO quantization would silently re-decide
-// against the optimized codes and stop matching the histogram those tables
-// were built from.
+// Quantization and replay helpers shared by 2-pass optimized scan and
+// multi-pass dichotomy search. Re-quantizing in pass 2 would not merely waste
+// work: WriteDHT() calls InitCodes(), which rebuilds ac_codes_, and
+// quants_[].codes_ points into it, so trellis and RDO quantization would
+// silently re-decide against the optimized codes and stop matching the
+// histogram those tables were built from.
 
 void Encoder::QuantizeSlicesMultiThreaded(int num_threads, int total_intervals,
                                           std::vector<ThreadChunk>* chunks) {
@@ -301,39 +299,38 @@ void Encoder::QuantizeSlicesMultiThreaded(int num_threads, int total_intervals,
 
   if (use_trellis_ || use_rdo_) InitCodes(true);
 
-  RunParallel(num_threads, total_intervals,
-              [&](int t, int first_interval, int end_interval) {
-                ThreadChunk& chunk = (*chunks)[t];
-                if (collect_stats) {
-                  memset(chunk.freq_ac, 0, sizeof(chunk.freq_ac));
-                  memset(chunk.freq_dc, 0, sizeof(chunk.freq_dc));
-                }
+  RunParallel(
+      num_threads, total_intervals,
+      [&](int t, int first_interval, int end_interval) {
+        ThreadChunk& chunk = (*chunks)[t];
+        if (collect_stats) {
+          memset(chunk.freq_ac, 0, sizeof(chunk.freq_ac));
+          memset(chunk.freq_dc, 0, sizeof(chunk.freq_dc));
+        }
 
-                const int y_first = first_interval * rows_per_interval;
-                const int y_end =
-                    std::min(mb_h_, end_interval * rows_per_interval);
-                const size_t nb_blocks =
-                    static_cast<size_t>(y_end - y_first) * mb_w_ * mcu_blocks_;
-                chunk.nb_run_levels = 0;
-                if (reuse_run_levels_) {
-                  chunk.coeffs.resize(nb_blocks);
-                  // Blocks code far fewer than 64 run/levels on average; grow on
-                  // demand, like EnsureRunLevels() does for all_run_levels_.
-                  if (chunk.run_levels.size() < nb_blocks * 8 + 6 * 64) {
-                    chunk.run_levels.resize(nb_blocks * 8 + 6 * 64);
-                  }
-                }
+        const int y_first = first_interval * rows_per_interval;
+        const int y_end = std::min(mb_h_, end_interval * rows_per_interval);
+        const size_t nb_blocks =
+            static_cast<size_t>(y_end - y_first) * mb_w_ * mcu_blocks_;
+        chunk.nb_run_levels = 0;
+        if (reuse_run_levels_) {
+          chunk.coeffs.resize(nb_blocks);
+          // Blocks code far fewer than 64 run/levels on average; grow on
+          // demand, like EnsureRunLevels() does for all_run_levels_.
+          if (chunk.run_levels.size() < nb_blocks * 8 + 6 * 64) {
+            chunk.run_levels.resize(nb_blocks * 8 + 6 * 64);
+          }
+        }
 
-                int16_t scratch[64 * 6];
-                uint8_t rep_buf[4 * 16 * 16];
-                chunk.ok = QuantizeScanSlice(
-                    first_interval, end_interval,
-                    reuse_run_levels_ ? chunk.coeffs.data() : nullptr,
-                    reuse_run_levels_ ? &chunk.run_levels : nullptr,
-                    &chunk.nb_run_levels,
-                    collect_stats ? chunk.freq_ac : nullptr,
-                    collect_stats ? chunk.freq_dc : nullptr, scratch, rep_buf);
-              });
+        int16_t scratch[64 * 6];
+        uint8_t rep_buf[4 * 16 * 16];
+        chunk.ok = QuantizeScanSlice(
+            first_interval, end_interval,
+            reuse_run_levels_ ? chunk.coeffs.data() : nullptr,
+            reuse_run_levels_ ? &chunk.run_levels : nullptr,
+            &chunk.nb_run_levels, collect_stats ? chunk.freq_ac : nullptr,
+            collect_stats ? chunk.freq_dc : nullptr, scratch, rep_buf);
+      });
 
   if (collect_stats) {
     MergeChunkStats(chunks->data(), num_threads);
@@ -342,25 +339,25 @@ void Encoder::QuantizeSlicesMultiThreaded(int num_threads, int total_intervals,
 
 void Encoder::ReplaySlicesMultiThreaded(int num_threads, int total_intervals,
                                         std::vector<ThreadChunk>* chunks) {
-  RunParallel(num_threads, total_intervals,
-              [&](int t, int first_interval, int end_interval) {
-                ThreadChunk& chunk = (*chunks)[t];
-                StringSink sink(&chunk.data);
-                BitWriter bw(&sink);
-                const size_t slab = SliceSlabSize(first_interval, end_interval);
-                if (!ReplayScanSlice(first_interval, end_interval,
-                                     total_intervals, chunk.coeffs.size(),
-                                     chunk.coeffs.data(),
-                                     chunk.run_levels.data(), &bw, slab)) {
-                  chunk.ok = false;
-                  return;
-                }
-                bw.Flush();
-                chunk.ok = bw.Finalize();
-                // Release the slice's scratch as soon as it has been coded.
-                chunk.coeffs.clear();
-                chunk.run_levels.clear();
-              });
+  RunParallel(
+      num_threads, total_intervals,
+      [&](int t, int first_interval, int end_interval) {
+        ThreadChunk& chunk = (*chunks)[t];
+        StringSink sink(&chunk.data);
+        BitWriter bw(&sink);
+        const size_t slab = SliceSlabSize(first_interval, end_interval);
+        if (!ReplayScanSlice(first_interval, end_interval, total_intervals,
+                             chunk.coeffs.size(), chunk.coeffs.data(),
+                             chunk.run_levels.data(), &bw, slab)) {
+          chunk.ok = false;
+          return;
+        }
+        bw.Flush();
+        chunk.ok = bw.Finalize();
+        // Release the slice's scratch as soon as it has been coded.
+        chunk.coeffs.clear();
+        chunk.run_levels.clear();
+      });
   ConcatenateChunks(chunks->data(), num_threads);
 }
 
@@ -374,7 +371,7 @@ void Encoder::SinglePassScanOptimizedMultiThreaded(int num_threads,
   if (!reuse_run_levels_) {
     SinglePassScan();
   } else {
-    DeallocateBlocks();   // pass 2 replays run/levels; the coeffs are dead now
+    DeallocateBlocks();  // pass 2 replays run/levels; the coeffs are dead now
     ReplaySlicesMultiThreaded(num_threads, total_intervals, &chunks);
   }
 }
@@ -384,10 +381,9 @@ void Encoder::SinglePassScanOptimizedMultiThreaded(int num_threads,
 
 float Encoder::ComputePSNRMultiThreaded(int num_threads) const {
   std::vector<uint64_t> errors(num_threads, 0);
-  RunParallel(num_threads, mb_h_,
-              [&](int t, int y_start, int y_end) {
-                errors[t] = ComputePSNRSlice(y_start, y_end);
-              });
+  RunParallel(num_threads, mb_h_, [&](int t, int y_start, int y_end) {
+    errors[t] = ComputePSNRSlice(y_start, y_end);
+  });
   uint64_t total_error = 0;
   for (int t = 0; t < num_threads; ++t) {
     total_error += errors[t];
@@ -413,6 +409,6 @@ float Encoder::EvaluateSizeMultiThreaded(int num_threads, int total_intervals,
   return ComputeSize(bc.Size());
 }
 
-}    // namespace sjpeg
+}  // namespace sjpeg
 
 #endif  // !SJPEG_NO_MULTITHREADING

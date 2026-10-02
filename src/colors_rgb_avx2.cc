@@ -294,9 +294,9 @@ static inline void ConvertRGBToYUV_Fused_AVX2(
 
 // Map 16 Y, U, V values to quantized riskiness histogram indices.
 static inline __m256i YUVToIndices_AVX2(const __m256i& Y, const __m256i& U,
-                                       const __m256i& V, const __m256i& mult,
-                                       const __m256i& mult1,
-                                       const __m256i& k255) {
+                                        const __m256i& V, const __m256i& mult,
+                                        const __m256i& mult1,
+                                        const __m256i& k255) {
   // Fast Clamping: Y strictly in [0, 255] requires no clamp; U, V in [1, 256]
   // require only min(255).
   const __m256i u1 = _mm256_min_epi16(U, k255);

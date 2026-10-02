@@ -17,11 +17,11 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
 #include <algorithm>
-#include <cmath>
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
@@ -30,8 +30,9 @@
 
 namespace sjpeg {
 
+// clang-format off
 const uint8_t kZigzag[64] = {
-  0,   1,  8, 16,  9,  2,  3, 10,
+   0,  1,  8, 16,  9,  2,  3, 10,
   17, 24, 32, 25, 18, 11,  4,  5,
   12, 19, 26, 33, 40, 48, 41, 34,
   27, 20, 13,  6,  7, 14, 21, 28,
@@ -46,10 +47,10 @@ const uint8_t kZigzag[64] = {
 // to turn a natural-order non-zero bitmask into a zig-zag-ordered one.
 // Not static: quantize_avx2.cc (a separate TU) needs it too.
 const uint8_t kInvZigzag[64] = {
-  0,   1,  5,  6, 14, 15, 27, 28,
-  2,   4,  7, 13, 16, 26, 29, 42,
-  3,   8, 12, 17, 25, 30, 41, 43,
-  9,  11, 18, 24, 31, 40, 44, 53,
+   0,  1,  5,  6, 14, 15, 27, 28,
+   2,  4,  7, 13, 16, 26, 29, 42,
+   3,  8, 12, 17, 25, 30, 41, 43,
+   9, 11, 18, 24, 31, 40, 44, 53,
   10, 19, 23, 32, 39, 45, 52, 54,
   20, 22, 33, 38, 46, 51, 55, 60,
   21, 34, 37, 47, 50, 56, 59, 61,
@@ -75,6 +76,7 @@ const uint8_t kDefaultMatrices[2][64] = {
     99,  99,  99,  99,  99,  99,  99,  99,
     99,  99,  99,  99,  99,  99,  99,  99 }
 };
+// clang-format on
 
 float GetQFactor(float q) {
   // we use the same mapping than jpeg-6b, for coherency
@@ -133,8 +135,7 @@ static void ComputeBiasTable(const Quantizer* const q, int bias,
     const uint16_t iquant = q->iquant_[i];
     const uint16_t b = (v == 1) ? bias_1 : (i == 0) ? BIAS_DC : bias;
     const uint32_t raw_ibias = (((b * v) << AC_BITS) + 128) >> 8;
-    const uint32_t thresh =
-        ((1 << (FP_BITS + AC_BITS)) + iquant - 1) / iquant;
+    const uint32_t thresh = ((1 << (FP_BITS + AC_BITS)) + iquant - 1) / iquant;
     // Ensure qthresh >= 1 so 0 never rounds to 1.
     const uint16_t ibias = (raw_ibias >= thresh)
                                ? static_cast<uint16_t>(thresh - 1)
@@ -179,9 +180,7 @@ void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias,
 }
 #undef ADAPTIVE_BIAS_DELTA
 
-void Encoder::SetCostCodes(int idx) {
-  quants_[idx].codes_ = ac_codes_[idx];
-}
+void Encoder::SetCostCodes(int idx) { quants_[idx].codes_ = ac_codes_[idx]; }
 
 ////////////////////////////////////////////////////////////////////////////////
 // various implementation of histogram collection
@@ -232,8 +231,8 @@ static inline int EmitRunLevels(const int16_t in0, const T tmp[64],
 #if defined(SJPEG_USE_SSE2)
 
 static int QuantizeBlockSSE2(const int16_t in[64], int idx,
-                             const Quantizer* const Q,
-                             DCTCoeffs* const out, RunLevel* const rl) {
+                             const Quantizer* const Q, DCTCoeffs* const out,
+                             RunLevel* const rl) {
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
   int16_t tmp[64], masked[64];
@@ -242,13 +241,13 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
   for (int i = 0; i < 64; i += 8) {
     const __m128i m_bias = LOAD_16(bias + i);
     const __m128i m_mult = LOAD_16(iquant + i);
-    const __m128i A = LOAD_16(in + i);                        // A = in[i]
-    const __m128i B = _mm_srai_epi16(A, 15);                  // sign extract
-    const __m128i C = ABS_16(A);                              // abs(A)
-    const __m128i D = _mm_adds_epi16(C, m_bias);              // v' = v + bias
-    const __m128i E = _mm_mulhi_epu16(D, m_mult);             // (v' * iq) >> 16
-    const __m128i F = _mm_srli_epi16(E, AC_BITS);             // = QUANTIZE(...)
-    const __m128i G = _mm_xor_si128(F, B);                    // v ^ mask
+    const __m128i A = LOAD_16(in + i);             // A = in[i]
+    const __m128i B = _mm_srai_epi16(A, 15);       // sign extract
+    const __m128i C = ABS_16(A);                   // abs(A)
+    const __m128i D = _mm_adds_epi16(C, m_bias);   // v' = v + bias
+    const __m128i E = _mm_mulhi_epu16(D, m_mult);  // (v' * iq) >> 16
+    const __m128i F = _mm_srli_epi16(E, AC_BITS);  // = QUANTIZE(...)
+    const __m128i G = _mm_xor_si128(F, B);         // v ^ mask
     STORE_16(F, tmp + i);
     STORE_16(G, masked + i);
     // Record which lanes are non-zero (F >= 0, so "> 0" == "!= 0"): pack the 8
@@ -263,8 +262,8 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
 
 #elif defined(SJPEG_USE_NEON)
 static int QuantizeBlockNEON(const int16_t in[64], int idx,
-                             const Quantizer* const Q,
-                             DCTCoeffs* const out, RunLevel* const rl) {
+                             const Quantizer* const Q, DCTCoeffs* const out,
+                             RunLevel* const rl) {
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
   uint16_t tmp[64], masked[64];
@@ -305,11 +304,11 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
 
   return EmitRunLevels(in[0], tmp, masked, nzn, idx, out, rl);
 }
-#endif    // SJPEG_USE_NEON
+#endif  // SJPEG_USE_NEON
 
 static int QuantizeBlock(const int16_t in[64], int idx,
-                         const Quantizer* const Q,
-                         DCTCoeffs* const out, RunLevel* const rl) {
+                         const Quantizer* const Q, DCTCoeffs* const out,
+                         RunLevel* const rl) {
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
   int prev = 1;
@@ -354,8 +353,8 @@ struct RunCost {
   int run;
   int pos;
 
-  static inline uint32_t Get(const uint32_t codes[], uint32_t zrl_len,
-                             int run, int n) {
+  static inline uint32_t Get(const uint32_t codes[], uint32_t zrl_len, int run,
+                             int n) {
     return (run >> 4) * zrl_len + (codes[((run & 15) << 4) | n] & 0xff);
   }
 };
@@ -537,7 +536,7 @@ static const score_t kMaxScore = 0xffffffffu;
 
 struct TrellisNode {
   uint32_t code;
-  int      nbits;
+  int nbits;
   score_t score;
   uint32_t disto;
   uint32_t bits;
@@ -598,8 +597,7 @@ static bool SearchBestPrev(const TrellisNode* const nodes0, TrellisNode* node,
 
 int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
                                   const Quantizer* const Q,
-                                  DCTCoeffs* const out,
-                                  RunLevel* const rl) {
+                                  DCTCoeffs* const out, RunLevel* const rl) {
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
   const int dc = (in[0] < 0) ? -QUANTIZE(-in[0], iquant[0], bias[0])
@@ -626,7 +624,7 @@ int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
   nodes[0].InitSink();
   const uint32_t* const codes = Q->codes_;
   TrellisNode* cur_node = &nodes[1];
-  uint32_t disto0[64];   // disto0[i] = sum of distortions up to i (inclusive)
+  uint32_t disto0[64];  // disto0[i] = sum of distortions up to i (inclusive)
   disto0[0] = 0;
   for (int i = 1; i <= nz_idx; ++i) {
     const int j = kZigzag[i];
@@ -689,9 +687,8 @@ int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
 #if defined(SJPEG_HAVE_AVX2)
 // defined in quantize_avx2.cc, built separately with -mavx2 (see Makefile)
 // so this file itself doesn't need an AVX2 target.
-extern int QuantizeBlockAVX2(const int16_t in[64], int idx,
-                             const Quantizer* const Q, DCTCoeffs* const out,
-                             RunLevel* const rl);
+extern int QuantizeBlockAVX2(const int16_t in[64], int idx, const Quantizer* Q,
+                             DCTCoeffs* out, RunLevel* rl);
 #endif
 
 Encoder::QuantizeBlockFunc Encoder::GetQuantizeBlockFunc() {
@@ -721,15 +718,15 @@ static uint32_t QuantizeErrorSSE2(const int16_t in[64],
     const __m128i m_bias = LOAD_16(bias + i);
     const __m128i m_iquant = LOAD_16(iquant + i);
     const __m128i m_quant = _mm_unpacklo_epi8(LOAD_64(quant + i), zero);
-    const __m128i A = LOAD_16(in + i);                        // v0 = in[i]
-    const __m128i C = ABS_16(A);                              // abs(v0)
-    const __m128i D = _mm_adds_epi16(C, m_bias);              // v' = v0 + bias
-    const __m128i E = _mm_mulhi_epu16(D, m_iquant);           // (v' * iq) >> 16
+    const __m128i A = LOAD_16(in + i);               // v0 = in[i]
+    const __m128i C = ABS_16(A);                     // abs(v0)
+    const __m128i D = _mm_adds_epi16(C, m_bias);     // v' = v0 + bias
+    const __m128i E = _mm_mulhi_epu16(D, m_iquant);  // (v' * iq) >> 16
     const __m128i F = _mm_srai_epi16(E, AC_BITS);
     const __m128i G = _mm_srai_epi16(C, AC_BITS);
-    const __m128i H = _mm_mullo_epi16(F, m_quant);            // *= quant[j]
+    const __m128i H = _mm_mullo_epi16(F, m_quant);  // *= quant[j]
     const __m128i I = _mm_sub_epi16(G, H);
-    const __m128i J = _mm_madd_epi16(I, I);                   // (v0-v) ^ 2
+    const __m128i J = _mm_madd_epi16(I, I);  // (v0-v) ^ 2
     STORE_16(J, tmp + i / 2);
   }
   uint32_t err = 0;
@@ -755,10 +752,10 @@ static uint32_t QuantizeErrorNEON(const int16_t in[64],
     const uint32x4_t C0 = vmull_u16(vget_low_u16(B), vget_low_u16(m_mult));
     const uint32x4_t C1 = vmull_u16(vget_high_u16(B), vget_high_u16(m_mult));
     // collect hi-words of the 32b mult result using 'unzip'
-    const uint16x8x2_t D = vuzpq_u16(vreinterpretq_u16_u32(C0),
-                                     vreinterpretq_u16_u32(C1));
+    const uint16x8x2_t D =
+        vuzpq_u16(vreinterpretq_u16_u32(C0), vreinterpretq_u16_u32(C1));
     const uint16x8_t E = vshrq_n_u16(D.val[1], AC_BITS);
-    const uint16x8_t F = vmulq_u16(E, m_quant);        // dequantized coeff
+    const uint16x8_t F = vmulq_u16(E, m_quant);  // dequantized coeff
     const uint16x8_t G = vabdq_u16(F, vshrq_n_u16(A, AC_BITS));
     sum1 = vmlal_u16(sum1, vget_low_u16(G), vget_low_u16(G));
     sum2 = vmlal_u16(sum2, vget_high_u16(G), vget_high_u16(G));
@@ -767,7 +764,7 @@ static uint32_t QuantizeErrorNEON(const int16_t in[64],
   return static_cast<uint32_t>(HorizontalSumS32(vreinterpretq_s32_u32(sum3)));
 }
 
-#endif    // SJPEG_USE_NEON
+#endif  // SJPEG_USE_NEON
 
 static uint32_t QuantizeError(const int16_t in[64], const Quantizer* const Q) {
   const uint16_t* const bias = Q->bias_;
@@ -796,4 +793,4 @@ QuantizeErrorTestFunc GetQuantizeErrorFuncForTest() {
   return Encoder::GetQuantizeErrorFunc();
 }
 
-}    // namespace sjpeg
+}  // namespace sjpeg
