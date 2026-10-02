@@ -22,7 +22,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
 #define SJPEG_MSC_X86 1
 #else
