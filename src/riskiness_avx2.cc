@@ -38,7 +38,7 @@ static std::vector<const uint8_t*> kRowTable;
 void RiskinessScoreInitRowTableAVX2() {
   static std::once_flag once;
   std::call_once(once, []() {
-    const int kRGB3 = kRGBSize * kRGBSize * kRGBSize;
+    const int kRGB3 = kRiskColors;
     kRowTable.resize(kRGB3);
     for (int i = 0; i < kRGB3; ++i) {
       kRowTable[i] = &kSharpnessScore[i * kRGB3];
@@ -92,11 +92,9 @@ static inline void Process8Pixels(const uint16_t* const row1,
 void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2, int size,
                            int noise_level, int64_t* score_sum,
                            int64_t* score_num, int64_t* gray_num) {
-  const int s = kRGBSize;                  // shortcut
-  const int gray = (s / 2) * (1 + s) * s;  // gray level for y=0,u=128,v=128
-  // idx packs y + s * (u + s * v), so the samples with neutral chroma are
-  // exactly the ones in [gray_min, gray_min + s), whatever their luma.
-  const int gray_min = gray - gray % s;
+  const int s = kRiskYLevels;  // shortcut
+  // gray samples: idx in [gray_min, gray_min + s)
+  const int gray_min = kRiskGrayMin;
 
   const __m128i min_16 = _mm_set1_epi16(gray_min - 1);
   const __m128i max_16 = _mm_set1_epi16(gray_min + s);

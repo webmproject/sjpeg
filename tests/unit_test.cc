@@ -638,7 +638,7 @@ SJPEG_TEST(Riskiness) {
 
 SJPEG_TEST(RiskinessScoreRow) {
   const int kNoiseLevel = 4;
-  const int kRGB3 = sjpeg::kRGBSize * sjpeg::kRGBSize * sjpeg::kRGBSize;
+  const int kRGB3 = sjpeg::kRiskColors;
 
   const int kMaxWidth = 2048;
   std::vector<uint16_t> row1(kMaxWidth + 16), row2(kMaxWidth + 16);
