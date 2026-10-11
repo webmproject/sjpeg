@@ -19,7 +19,6 @@
 #ifndef SJPEG_JPEGI_H_
 #define SJPEG_JPEGI_H_
 
-#include <functional>
 #include <vector>
 
 #if !defined(SJPEG_NO_MULTITHREADING)
@@ -77,8 +76,7 @@ class Encoder {
 
 #if !defined(SJPEG_NO_MULTITHREADING)
   static int HardwareConcurrency();
-  void RunParallel(int num_threads, int total,
-                   const std::function<void(int, int, int)>& fn) const;
+  void RunParallel(int num_threads, int total, FuncRef<int, int, int> fn) const;
 #endif
 
  private:
@@ -91,7 +89,8 @@ class Encoder {
   void SetQuantizationDeltas(int qdelta_luma, int qdelta_chroma);
 
   typedef enum { ICC, EXIF, XMP, MARKERS } MetadataType;
-  void SetMetadata(const std::string& data, MetadataType type);
+  // '*data' is not copied: it must remain valid until Encode() returns.
+  void SetMetadata(const std::string* data, MetadataType type);
 
  private:
   static constexpr size_t kMaxMCUSize = 2560;
@@ -347,7 +346,12 @@ class Encoder {
   sjpeg::BitWriter bw_;  // output buffer
   HeaderWriter hw_;      // marker segments, written to bw_
 
-  std::string iccp_, xmp_, exif_, app_markers_;  // metadata
+  // Metadata: the caller's strings (see SetMetadata()), or no_metadata_.
+  const std::string no_metadata_;
+  const std::string* iccp_ = &no_metadata_;
+  const std::string* xmp_ = &no_metadata_;
+  const std::string* exif_ = &no_metadata_;
+  const std::string* app_markers_ = &no_metadata_;
   uint16_t xmp_split_;  // user-supplied split point for extended metadata
 
   // compression tools. See sjpeg.h for description of methods.
@@ -411,11 +415,18 @@ class Encoder {
 
 #if !defined(SJPEG_NO_PROGRESSIVE)
   bool EncodeProgressive();  // the whole progressive-mode encode path
+  bool EncodeProgScans();    // ... once the planes are allocated
   struct ProgPlanes {
     // Non-MCU-interleaved storage (non-interleaved AC scans need true raster
-    // order). Fixed 63-entry RunLevel slot per block.
+    // order). The run/levels are packed back to back in quantization (MCU)
+    // order, and grown on demand: rl_offset[] locates each block's ones.
     DCTCoeffs* coeffs[MAX_COMP];
     RunLevel* run_levels[MAX_COMP];
+    // One per block, index in run_levels[]. 32 bits are enough: there are at
+    // most 8192 x 8192 blocks of 63 run/levels. Stored right after coeffs[],
+    // in the same allocation.
+    uint32_t* rl_offset[MAX_COMP];
+    size_t rl_used[MAX_COMP], rl_capacity[MAX_COMP];
     int plane_w[MAX_COMP], plane_h[MAX_COMP];  // MCU-padded stride
     // True (non-MCU-padded) per-component block dims per spec A.2.4; what
     // non-interleaved AC scans must actually visit.
@@ -426,6 +437,7 @@ class Encoder {
   };
   bool AllocateProgPlanes();
   void DeallocateProgPlanes();
+  bool GrowProgRunLevels(int c);  // returns false in case of error
   // index of sub-block 'i' of MCU (mb_x,mb_y) in component c's plane
   int ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const;
   bool CheckProgBuffers() { return ReserveSlab(); }
@@ -466,7 +478,7 @@ extern Encoder* GrayEncoderFactory(const uint8_t* gray, int W, int H,
                                    MemoryManager* memory = nullptr);
 
 // Encodes with 'enc' and destroys it, tolerating a null 'enc'.
-extern bool FinishEncoding(Encoder* enc, const EncoderParam& param);
+extern bool FinishEncoding(Encoder* enc, const EncoderParam* param);
 
 ////////////////////////////////////////////////////////////////////////////////
 

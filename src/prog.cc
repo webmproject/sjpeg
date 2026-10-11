@@ -20,6 +20,8 @@
 #include <stdint.h>
 #include <string.h>  // for memset
 
+#include <algorithm>
+
 #include "sjpegi.h"
 
 #if !defined(SJPEG_NO_PROGRESSIVE)
@@ -35,7 +37,7 @@ enum { kMaxEOBRun = 0x7fff };
 bool Encoder::AllocateProgPlanes() {
   prog_planes_ = Alloc<ProgPlanes>(1);
   if (prog_planes_ == nullptr) return false;
-  memset(prog_planes_, 0, sizeof(*prog_planes_));  // coeffs[]/run_levels[]=null
+  memset(prog_planes_, 0, sizeof(*prog_planes_));  // pointers=null, rl_used[]=0
 
   const int Hmax = block_w_ / 8, Vmax = block_h_ / 8;  // max sampling factors
   for (int c = 0; c < nb_comps_; ++c) {
@@ -50,13 +52,16 @@ bool Encoder::AllocateProgPlanes() {
     prog_planes_->true_h[c] = (samples_h + 7) / 8;
     const size_t nb_blocks =
         (size_t)prog_planes_->plane_w[c] * prog_planes_->plane_h[c];
-    prog_planes_->coeffs[c] = Alloc<DCTCoeffs>(nb_blocks);
+    // coeffs[] and rl_offset[] share one allocation (see ProgPlanes)
+    static_assert(sizeof(DCTCoeffs) == 2 * sizeof(uint32_t), "packing");
+    const size_t nb_slots = nb_blocks + (nb_blocks + 1) / 2;
+    prog_planes_->coeffs[c] = Alloc<DCTCoeffs>(nb_slots);
     if (prog_planes_->coeffs[c] == nullptr) return false;
-    // Need uint64_t cast here, not size_t (which is 32bit on 32-bit build).
-    // Note: nb_blocks * 63 can overflow 32bit.
-    const uint64_t nb_run_levels = (uint64_t)nb_blocks * 63;
-    if (nb_run_levels > SIZE_MAX / sizeof(RunLevel)) return SetError();
-    prog_planes_->run_levels[c] = Alloc<RunLevel>((size_t)nb_run_levels);
+    prog_planes_->rl_offset[c] =
+        (uint32_t*)(prog_planes_->coeffs[c] + nb_blocks);
+    // Starting guess, like the baseline path. Grown by GrowProgRunLevels().
+    prog_planes_->rl_capacity[c] = nb_blocks * 8 + 64;
+    prog_planes_->run_levels[c] = Alloc<RunLevel>(prog_planes_->rl_capacity[c]);
     if (prog_planes_->run_levels[c] == nullptr) return false;
   }
   return true;
@@ -69,6 +74,24 @@ void Encoder::DeallocateProgPlanes() {
     Free(prog_planes_->run_levels[c]);
   }
   FreePtr(&prog_planes_);
+}
+
+// Doubles the capacity of component c's run_levels[], up to what the plane
+// can ever need. Old and new buffers coexist during the copy: with more than
+// 32 run/levels per block on average, that's a transient 95 per block.
+bool Encoder::GrowProgRunLevels(int c) {
+  ProgPlanes* const p = prog_planes_;
+  const uint64_t nb_blocks = (uint64_t)p->plane_w[c] * p->plane_h[c];
+  const uint64_t new_capacity =
+      std::min(2 * (uint64_t)p->rl_capacity[c], nb_blocks * 63 + 64);
+  if (new_capacity > SIZE_MAX / sizeof(RunLevel)) return SetError();
+  RunLevel* const new_rl = Alloc<RunLevel>((size_t)new_capacity);
+  if (new_rl == nullptr) return false;
+  memcpy(new_rl, p->run_levels[c], p->rl_used[c] * sizeof(RunLevel));
+  Free(p->run_levels[c]);
+  p->run_levels[c] = new_rl;
+  p->rl_capacity[c] = (size_t)new_capacity;
+  return true;
 }
 
 int Encoder::ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const {
@@ -96,7 +119,8 @@ bool Encoder::WalkACBand(int c, int Ss, int Se, BlockFn on_block, EOBFn on_eob,
       if (!on_start()) return false;
       const int n = row * stride + col;
       const DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][n];
-      const RunLevel* const rl = prog_planes_->run_levels[c] + n * 63;
+      const RunLevel* const rl =
+          prog_planes_->run_levels[c] + prog_planes_->rl_offset[c][n];
       bool has_eob;
       const int nb_w =
           ProgACCoder::WindowRunLevels(coeffs, rl, Ss, Se, windowed, &has_eob);
@@ -155,8 +179,12 @@ void Encoder::EncodeProgAC(int c, int split) {
 
 bool Encoder::EncodeProgressive() {
   ResetDCs();
-  if (!AllocateProgPlanes()) return false;
+  const bool ok = AllocateProgPlanes() && EncodeProgScans();
+  DeallocateProgPlanes();
+  return ok;
+}
 
+bool Encoder::EncodeProgScans() {
   // 1. Quantize every block once, gathering DC entropy stats along the way.
   // Same mb_y/mb_x/c/i nest as the DC-code pass below -- keep them in sync.
   const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
@@ -171,9 +199,16 @@ bool Encoder::EncodeProgressive() {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           const int idx = ProgPlaneIndex(c, mb_x, mb_y, i);
           DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][idx];
-          RunLevel* const run_levels = prog_planes_->run_levels[c] + idx * 63;
+          // room for one block: 63 run/levels, plus the quantizers' slack
+          const size_t rl_pos = prog_planes_->rl_used[c];
+          if (rl_pos + 64 > prog_planes_->rl_capacity[c] &&
+              !GrowProgRunLevels(c)) {
+            return false;
+          }
           const int dc = quantize_block(in, c, &quants_[quant_idx_[c]], coeffs,
-                                        run_levels);
+                                        prog_planes_->run_levels[c] + rl_pos);
+          prog_planes_->rl_offset[c][idx] = (uint32_t)rl_pos;
+          prog_planes_->rl_used[c] = rl_pos + coeffs->nb_coeffs_;
           coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
           stats_.AddDC(quant_idx_[c], coeffs);
           in += 64;
@@ -182,17 +217,11 @@ bool Encoder::EncodeProgressive() {
     }
   }
   DeallocateBlocks();  // we can free up some coeffs memory at this point
-  if (!ok_) {
-    DeallocateProgPlanes();
-    return false;
-  }
+  if (!ok_) return false;
 
   // 2. DC scan: one interleaved scan, baseline MCU order.
   entropy_.CompileDC(stats_);
-  if (!CheckProgBuffers()) {
-    DeallocateProgPlanes();
-    return false;
-  }
+  if (!CheckProgBuffers()) return false;
   {
     HeaderWriter::ScanComponent scs[MAX_COMP];
     for (int c = 0; c < nb_comps_; ++c) {
@@ -205,10 +234,7 @@ bool Encoder::EncodeProgressive() {
   }
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
-      if (!CheckProgBuffers()) {
-        DeallocateProgPlanes();
-        return false;
-      }
+      if (!CheckProgBuffers()) return false;
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           const int idx = ProgPlaneIndex(c, mb_x, mb_y, i);
@@ -229,8 +255,6 @@ bool Encoder::EncodeProgressive() {
     FreePtr(&prog_planes_->coeffs[c]);
     FreePtr(&prog_planes_->run_levels[c]);
   }
-
-  DeallocateProgPlanes();
   return ok_;
 }
 

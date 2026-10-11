@@ -23,7 +23,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <atomic>
 #include <memory>
+#include <new>
 #include <string>
 #include <thread>  // NOLINT
 #include <vector>
@@ -557,6 +559,123 @@ SJPEG_TEST(AllocationFailure) {
   }
 }
 
+// The standard library's allocations (output string, per-slice buffers,
+// threads...) don't go through the MemoryManager, and fail by throwing: see
+// the operator new replacement at the end of this file.
+std::atomic<int> g_new_budget(-1);  // number of 'new' still allowed, if >= 0
+std::atomic<bool> g_new_single(false);  // refuse only one 'new', not all
+std::atomic<int> g_new_refused(0);
+std::atomic<int> g_new_thrown(0);  // ... of which, the ones that threw
+
+SJPEG_TEST(StdAllocationFailure) {
+  const int kWidth = 400, kHeight = 304;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  for (int config = 0; config < 5; ++config) {
+    sjpeg::EncoderParam param(85.f);
+    param.num_threads = 4;
+    param.yuv_mode = (config == 1) ? SJPEG_YUV_SHARP : SJPEG_YUV_420;
+    if (config == 2) param.progressive_luma_split = 2;
+    if (config == 3) {
+      param.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
+      param.target_value = 9000.f;
+      param.passes = 4;
+    }
+    if (config == 4) param.restart_interval_rows = 1;
+    std::string ref;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &ref));
+    // An encode may succeed despite a refusal: threads that can't be created
+    // are made up for by the calling one. The output must then be the same.
+    for (int single = 0; single < 2; ++single) {
+      int budget = 0, num_recovered = 0;
+      for (bool done = false; !done && budget < 10000; ++budget) {
+        std::string out;
+        g_new_refused = 0;
+        g_new_single = (single != 0);
+        g_new_budget = budget;
+        const bool ok = EncodeRGB(rgb, kWidth, kHeight, param, &out);
+        g_new_budget = -1;
+        done = (g_new_refused == 0);
+        SJPEG_CHECK(ok || !done);
+        if (ok) SJPEG_CHECK(out == ref);
+        // budget 0 only refuses EncodeToString()'s reserve() hint
+        num_recovered += (ok && !done && budget > 0);
+      }
+      SJPEG_CHECK(budget > 1 && budget < 10000);
+#if !defined(SJPEG_NO_MULTITHREADING)
+      // progressive mode is single-threaded
+      if (single && config != 2) SJPEG_CHECK(num_recovered > 0);
+#else
+      (void)num_recovered;
+#endif
+    }
+    g_new_single = false;
+  }
+}
+
+// Output that never throws: failures are reported by Commit().
+class MallocSink : public sjpeg::ByteSink {
+ public:
+  ~MallocSink() override { free(buf_); }
+  bool Commit(size_t used_size, size_t extra_size, uint8_t** data) override {
+    pos_ += used_size;
+    if (pos_ + extra_size > capacity_) {
+      const size_t capacity = 2 * (pos_ + extra_size);
+      uint8_t* const buf = (uint8_t*)realloc(buf_, capacity);
+      if (buf == nullptr) return false;
+      buf_ = buf;
+      capacity_ = capacity;
+    }
+    *data = buf_ + pos_;
+    return true;
+  }
+  bool Finalize() override { return true; }
+  void Reset() override { pos_ = 0; }
+  std::string str() const { return std::string((const char*)buf_, pos_); }
+
+ private:
+  uint8_t* buf_ = nullptr;
+  size_t pos_ = 0, capacity_ = 0;
+};
+
+// With such an output and a single thread, nothing may throw: this is what a
+// build without exception support relies on.
+SJPEG_TEST(NoThrowingAllocation) {
+  const int kWidth = 400, kHeight = 304;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  const std::string xmp(100, 'x'), icc(70000, 'i');
+  const SjpegYUVMode kModes[] = {SJPEG_YUV_AUTO, SJPEG_YUV_420, SJPEG_YUV_SHARP,
+                                 SJPEG_YUV_444};
+  for (int config = 0; config < 8; ++config) {
+    sjpeg::EncoderParam param(85.f);
+    param.yuv_mode = kModes[config & 3];
+    param.xmp = xmp;
+    param.iccp = icc;
+    if (config == 4) param.progressive_luma_split = 2;
+    if (config == 5) {
+      param.target_mode = sjpeg::EncoderParam::TARGET_PSNR;
+      param.target_value = 38.f;
+      param.passes = 4;
+    }
+    if (config == 6) param.restart_interval_rows = 2;
+    if (config == 7) param.Huffman_compress = false;
+    std::string ref;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &ref));
+    int budget = 0;
+    for (bool ok = false; !ok && budget < 100; ++budget) {
+      MallocSink sink;
+      g_new_refused = 0;
+      g_new_thrown = 0;
+      g_new_budget = budget;
+      ok = sjpeg::Encode(rgb.data(), kWidth, kHeight, 3 * kWidth, param, &sink);
+      g_new_budget = -1;
+      SJPEG_CHECK(ok == (g_new_refused == 0));
+      SJPEG_CHECK(g_new_thrown == 0);
+      if (ok) SJPEG_CHECK(sink.str() == ref);
+    }
+    SJPEG_CHECK(budget > 1 && budget < 100);
+  }
+}
+
 SJPEG_TEST(Dimensions) {
   const int kWidth = 35, kHeight = 19;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
@@ -899,16 +1018,19 @@ SJPEG_TEST(Progressive) {
   }
   // Same guarantee as AllocationFailure above, for progressive's own plane
   // storage (AllocateProgPlanes()/DeallocateProgPlanes()).
-  for (int num_ok = 0; num_ok < 10; ++num_ok) {
+  // High quality, so that the run/levels storage has to grow too.
+  int num_ok = 0;
+  for (bool ok = false; !ok && num_ok < 100; ++num_ok) {
     FailingMemory memory(num_ok);
-    sjpeg::EncoderParam param(75.f);
+    sjpeg::EncoderParam param(100.f);
     param.progressive_luma_split = 2;
     param.memory = &memory;
     std::string out;
-    const bool ok = EncodeRGB(rgb, kWidth, kHeight, param, &out);
+    ok = EncodeRGB(rgb, kWidth, kHeight, param, &out);
     SJPEG_CHECK(ok == (memory.num_refused == 0));
     SJPEG_CHECK(memory.live.empty());
   }
+  SJPEG_CHECK(num_ok > 9);  // 8 allocations when nothing grows
   // -prog under multi-pass search: see the LoopScan() note in Encode().
   {
     sjpeg::EncoderParam param(75.f);
@@ -2207,3 +2329,42 @@ int main(int argc, char* argv[]) {
   }
   return (g_num_failures == 0) ? 0 : 1;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Global 'new' that can be made to fail (see StdAllocationFailure)
+
+// The whole family is replaced, for malloc() and free() to remain paired.
+#if defined(__GNUC__)
+#define NO_INLINE __attribute__((noinline))  // or: -Wmismatched-new-delete
+#else
+#define NO_INLINE
+#endif
+
+static void* FailingNew(size_t size) {
+  if (g_new_budget >= 0 && g_new_budget.fetch_sub(1) <= 0) {
+    if (!g_new_single) g_new_budget = 0;
+    ++g_new_refused;
+    return nullptr;
+  }
+  return malloc(size > 0 ? size : 1);
+}
+
+NO_INLINE void* operator new(size_t size) {
+  void* const ptr = FailingNew(size);
+  if (ptr == nullptr) {
+    ++g_new_thrown;
+    throw std::bad_alloc();
+  }
+  return ptr;
+}
+NO_INLINE void* operator new[](size_t size) { return operator new(size); }
+NO_INLINE void* operator new(size_t size, const std::nothrow_t&) noexcept {
+  return FailingNew(size);
+}
+NO_INLINE void* operator new[](size_t size, const std::nothrow_t&) noexcept {
+  return FailingNew(size);
+}
+NO_INLINE void operator delete(void* ptr) noexcept { free(ptr); }
+NO_INLINE void operator delete[](void* ptr) noexcept { free(ptr); }
+NO_INLINE void operator delete(void* ptr, size_t) noexcept { free(ptr); }
+NO_INLINE void operator delete[](void* ptr, size_t) noexcept { free(ptr); }

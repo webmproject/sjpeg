@@ -124,6 +124,7 @@ void Encoder::LoopScan() {
       // within the loop. We just need to quantize the coeffs and measure the
       // distortion.
       result = ComputePSNR();
+      if (!ok_) break;
     }
     if (DBG_PRINT)
       printf("pass #%d: q=%.2f value:%.2f ", search_hook_->pass,
@@ -181,22 +182,17 @@ void Encoder::LoopScan() {
 size_t Encoder::HeaderSize() const {
   size_t size = 0;
   size += 20;  // APP0
-  size += app_markers_.size();
-  if (!exif_.empty()) {
-    size += 8 + exif_.size();
+  size += app_markers_->size();
+  if (!exif_->empty()) {
+    size += 8 + exif_->size();
   }
-  if (!iccp_.empty()) {
+  if (!iccp_->empty()) {
     const size_t chunk_size_max = 0xffff - 12 - 4;
-    const size_t num_chunks = (iccp_.size() - 1) / chunk_size_max + 1;
+    const size_t num_chunks = (iccp_->size() - 1) / chunk_size_max + 1;
     size += num_chunks * (12 + 4 + 2);
-    size += iccp_.size();
+    size += iccp_->size();
   }
-  if (!xmp_.empty()) {
-    size += 2 + 2 + 29 + xmp_.size();
-    if (xmp_.size() > 65533) {  // XMPExtended
-      size += (xmp_.size() / 65458 + 1) * 40;
-    }
-  }
+  size += HeaderWriter::XMPSize(xmp_->size(), xmp_split_);
   size += (nb_comps_ == 1 ? 1 : 2) * 65 + 2 + 2;  // DQT
   size += 8 + 3 * nb_comps_ + 2;                  // SOF
   size += 6 + 2 * nb_comps_ + 2;                  // SOS

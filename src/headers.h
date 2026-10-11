@@ -52,6 +52,8 @@ class HeaderWriter {
   bool WriteICCP(const std::string& data);
   // 'xmp_split' is the optional split point for extended XMP (0 = default).
   bool WriteXMP(const std::string& data, uint16_t xmp_split);
+  // Number of bytes WriteXMP() emits for 'size' bytes of data.
+  static size_t XMPSize(size_t size, uint16_t xmp_split);
   void WriteDQT(const Quantizer* quants, int num_matrices);
   void WriteSOF(int W, int H, int nb_comps, const uint8_t* block_dims,
                 const int* quant_idx, bool progressive);
@@ -71,6 +73,8 @@ class HeaderWriter {
   void Put16b(uint32_t size);
   void Put32b(uint32_t size);
   bool WriteXMPExtended(const std::string& data, uint16_t xmp_split);
+  bool WriteXMPChunk(const uint8_t* data, size_t size, const uint8_t* guid,
+                     size_t guid_pos);
 
   BitWriter& bw_;
   bool& ok_;
