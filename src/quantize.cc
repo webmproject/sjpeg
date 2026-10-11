@@ -181,7 +181,9 @@ void Encoder::FinalizeQuantMatrix(Quantizer* const q, int q_bias,
 }
 #undef ADAPTIVE_BIAS_DELTA
 
-void Encoder::SetCostCodes(int idx) { quants_[idx].codes_ = ac_codes_[idx]; }
+void Encoder::SetCostCodes(int idx) {
+  quants_[idx].codes_ = entropy_.ac_codes(idx);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // various implementation of histogram collection
@@ -713,12 +715,11 @@ static uint32_t QuantizeErrorSSE2(const int16_t in[64],
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
   const uint8_t* const quant = Q->quant_;
-  const __m128i zero = _mm_setzero_si128();
-  uint32_t tmp[32];
+  __m128i sum = _mm_setzero_si128();
   for (int i = 0; i < 64; i += 8) {
     const __m128i m_bias = LOAD_16(bias + i);
     const __m128i m_iquant = LOAD_16(iquant + i);
-    const __m128i m_quant = _mm_unpacklo_epi8(LOAD_64(quant + i), zero);
+    const __m128i m_quant = LOAD_U8_TO_U16(quant + i);
     const __m128i A = LOAD_16(in + i);               // v0 = in[i]
     const __m128i C = ABS_16(A);                     // abs(v0)
     const __m128i D = _mm_adds_epi16(C, m_bias);     // v' = v0 + bias
@@ -728,11 +729,9 @@ static uint32_t QuantizeErrorSSE2(const int16_t in[64],
     const __m128i H = _mm_mullo_epi16(F, m_quant);  // *= quant[j]
     const __m128i I = _mm_sub_epi16(G, H);
     const __m128i J = _mm_madd_epi16(I, I);  // (v0-v) ^ 2
-    STORE_16(J, tmp + i / 2);
+    sum = _mm_add_epi32(sum, J);
   }
-  uint32_t err = 0;
-  for (int i = 0; i < 32; ++i) err += tmp[i];
-  return err;
+  return (uint32_t)HorizontalSumS32(sum);
 }
 
 #elif defined(SJPEG_USE_NEON)
@@ -747,7 +746,7 @@ static uint32_t QuantizeErrorNEON(const int16_t in[64],
   for (int i = 0; i < 64; i += 8) {
     const uint16x8_t m_bias = LOAD_16(bias + i);
     const uint16x8_t m_mult = LOAD_16(iquant + i);
-    const uint16x8_t m_quant = vmovl_u8(LOAD_64(quant + i));
+    const uint16x8_t m_quant = LOAD_U8_TO_U16(quant + i);
     const uint16x8_t A = vreinterpretq_u16_s16(ABS_16(LOAD_16(in + i)));
     const uint16x8_t B = vaddq_u16(A, m_bias);
     const uint32x4_t C0 = vmull_u16(vget_low_u16(B), vget_low_u16(m_mult));

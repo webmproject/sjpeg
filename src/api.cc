@@ -257,48 +257,52 @@ bool ConvertToRGB(const uint8_t* src, int width, int height, int stride,
   return true;
 }
 
+// Common body of EncodeBGRA() / EncodeRGBA(): 'fmt' tells the layout, and
+// r_idx/b_idx the matching channel positions for the RGB fallback.
+bool EncodePacked4(const uint8_t* src, int width, int height, int stride,
+                   PixelFormat fmt, int r_idx, int b_idx,
+                   const EncoderParam& param, ByteSink* sink) {
+  if (src == nullptr || sink == nullptr) return false;
+  if (width <= 0 || height <= 0 || std::abs(stride) < 4 * width) return false;
+  const SjpegYUVMode mode = param.yuv_mode;
+  if (mode == SJPEG_YUV_AUTO || mode == SJPEG_YUV_SHARP) {
+    // Fallback: convert to a scratch RGB plane and reuse the RGB path.
+    int rgb_stride;
+    std::unique_ptr<uint8_t[]> rgb;
+    if (!ConvertToRGB(src, width, height, stride, r_idx, b_idx, &rgb,
+                      &rgb_stride)) {
+      return false;
+    }
+    return Encode(rgb.get(), width, height, rgb_stride, param, sink);
+  }
+  const int num_threads = GetNumThreads(param);
+  Encoder* const enc = EncoderFactory(src, width, height, stride, mode, sink,
+                                      fmt, param.memory, num_threads);
+  return FinishEncoding(enc, param);
+}
+
+// Runs encode(ByteSink*) on a sink appending to *output.
+template <typename F>
+bool EncodeToString(int width, int height, std::string* output, F encode) {
+  if (output == nullptr) return false;
+  output->clear();
+  output->reserve((size_t)width * height / 4);
+  StringSink sink(output);
+  return encode(&sink);
+}
+
 }  // namespace
 
 bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
                 const EncoderParam& param, ByteSink* sink) {
-  if (bgra == nullptr || sink == nullptr) return false;
-  if (width <= 0 || height <= 0 || std::abs(stride) < 4 * width) return false;
-  const SjpegYUVMode mode = param.yuv_mode;
-  if (mode == SJPEG_YUV_AUTO || mode == SJPEG_YUV_SHARP) {
-    // Fallback: convert to a scratch RGB plane and reuse the RGB path.
-    int rgb_stride;
-    std::unique_ptr<uint8_t[]> rgb;
-    if (!ConvertToRGB(bgra, width, height, stride,
-                      /*r_idx=*/2, /*b_idx=*/0, &rgb, &rgb_stride)) {
-      return false;
-    }
-    return Encode(rgb.get(), width, height, rgb_stride, param, sink);
-  }
-  const int num_threads = GetNumThreads(param);
-  Encoder* const enc = EncoderFactory(bgra, width, height, stride, mode, sink,
-                                      kBGRAInput, param.memory, num_threads);
-  return FinishEncoding(enc, param);
+  return EncodePacked4(bgra, width, height, stride, kBGRAInput,
+                       /*r_idx=*/2, /*b_idx=*/0, param, sink);
 }
 
 bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
                 const EncoderParam& param, ByteSink* sink) {
-  if (rgba == nullptr || sink == nullptr) return false;
-  if (width <= 0 || height <= 0 || std::abs(stride) < 4 * width) return false;
-  const SjpegYUVMode mode = param.yuv_mode;
-  if (mode == SJPEG_YUV_AUTO || mode == SJPEG_YUV_SHARP) {
-    // Fallback: convert to a scratch RGB plane and reuse the RGB path.
-    int rgb_stride;
-    std::unique_ptr<uint8_t[]> rgb;
-    if (!ConvertToRGB(rgba, width, height, stride,
-                      /*r_idx=*/0, /*b_idx=*/2, &rgb, &rgb_stride)) {
-      return false;
-    }
-    return Encode(rgb.get(), width, height, rgb_stride, param, sink);
-  }
-  const int num_threads = GetNumThreads(param);
-  Encoder* const enc = EncoderFactory(rgba, width, height, stride, mode, sink,
-                                      kRGBAInput, param.memory, num_threads);
-  return FinishEncoding(enc, param);
+  return EncodePacked4(rgba, width, height, stride, kRGBAInput,
+                       /*r_idx=*/0, /*b_idx=*/2, param, sink);
 }
 
 bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
@@ -316,38 +320,30 @@ bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
 
 bool Encode(const uint8_t* rgb, int width, int height, int stride,
             const EncoderParam& param, std::string* output) {
-  if (output == nullptr) return false;
-  output->clear();
-  output->reserve((size_t)width * height / 4);
-  StringSink sink(output);
-  return Encode(rgb, width, height, stride, param, &sink);
+  return EncodeToString(width, height, output, [&](ByteSink* sink) {
+    return Encode(rgb, width, height, stride, param, sink);
+  });
 }
 
 bool EncodeBGRA(const uint8_t* bgra, int width, int height, int stride,
                 const EncoderParam& param, std::string* output) {
-  if (output == nullptr) return false;
-  output->clear();
-  output->reserve((size_t)width * height / 4);
-  StringSink sink(output);
-  return EncodeBGRA(bgra, width, height, stride, param, &sink);
+  return EncodeToString(width, height, output, [&](ByteSink* sink) {
+    return EncodeBGRA(bgra, width, height, stride, param, sink);
+  });
 }
 
 bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
                 const EncoderParam& param, std::string* output) {
-  if (output == nullptr) return false;
-  output->clear();
-  output->reserve((size_t)width * height / 4);
-  StringSink sink(output);
-  return EncodeRGBA(rgba, width, height, stride, param, &sink);
+  return EncodeToString(width, height, output, [&](ByteSink* sink) {
+    return EncodeRGBA(rgba, width, height, stride, param, sink);
+  });
 }
 
 bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
                 const EncoderParam& param, std::string* output) {
-  if (output == nullptr) return false;
-  output->clear();
-  output->reserve((size_t)width * height / 4);
-  StringSink sink(output);
-  return EncodeGray(gray, width, height, stride, param, &sink);
+  return EncodeToString(width, height, output, [&](ByteSink* sink) {
+    return EncodeGray(gray, width, height, stride, param, sink);
+  });
 }
 
 }  // namespace sjpeg

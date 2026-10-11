@@ -28,7 +28,9 @@
 #include <vector>
 
 #define SJPEG_NEED_ASM_HEADERS
-#include "sjpegi.h"
+#include "blocks.h"
+#include "common.h"
+#include "dsp.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 // Dimensions (SOF)
@@ -415,15 +417,16 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb, int width, int height,
                             double* const frac_out) -> SjpegYUVMode {
     const double count = (double)score_num;
     double gray_count = (double)gray_num;
-    double total_score = (count > 0) ? score_sum / count : 0.;
+    double total_score = (count > 0) ? (double)score_sum / count : 0.;
     // rightmost pixel is excluded, hence the (width - 1.)
     const double num_samples = (width - 1.) * (double)rows_scored;
     if (num_samples > 0.) gray_count /= num_samples;
 
     // pixels evaluated, scaled by how many rows were actually scored
     const double effective_area =
-        (rows_scored > 0) ? (double)width * height * rows_scored / (height - 1.)
-                          : 0.;
+        (rows_scored > 0)
+            ? (double)width * height * (double)rows_scored / (height - 1.)
+            : 0.;
     // fraction of scored samples that are above the noise level; if that's
     // less than 1%, there's not enough signal yet to trust total_score.
     const double frac =

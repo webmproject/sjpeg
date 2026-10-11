@@ -1,1 +1,13 @@
-- 11/17: initial release
+- 10/26: 0.1.4 release
+  * add progressive JPEG encoding, restart markers, multithreaded encoding
+  * add fast RDO and adaptive-bias quantization
+  * add native RGBA/BGRA inputs
+  * add AVX2 variants => speed up SSE2/SSSE3/NEON paths (fdct, quantization,
+    histogram, trellis, color conversion, sharp-YUV, riskiness)
+  * faster progressive riskiness scoring (~2.6x)
+  * MSVC x86/ARM64 SIMD support
+  * thread-safety and overflow fixes
+  * build: pkg-config, 'check' target, unit_test, CI, clang-format
+- 01/20: add YUV400 (grayscale) support
+- 03/18: add search hooks, SetMinQuantization(), NEON QuantizeError
+- 11/17: initial release version 0.1

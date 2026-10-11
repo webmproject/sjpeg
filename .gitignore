@@ -1,5 +1,10 @@
 *~
 examples/[sv]jpeg
+*.o
+*.a
+tests/unit_test
+*.tgz
+*.bundle
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake

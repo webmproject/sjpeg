@@ -187,17 +187,6 @@ void Encoder::ConcatenateChunks(ThreadChunk* chunks, int num_chunks) {
   }
 }
 
-void Encoder::MergeChunkStats(const ThreadChunk* chunks, int num_chunks) {
-  ResetEntropyStats();
-  const int nb_tables = (nb_comps_ == 1) ? 1 : 2;
-  for (int q = 0; q < nb_tables; ++q) {
-    for (int t = 0; t < num_chunks; ++t) {
-      for (int i = 0; i <= 256; ++i) freq_ac_[q][i] += chunks[t].freq_ac[q][i];
-      for (int i = 0; i <= 12; ++i) freq_dc_[q][i] += chunks[t].freq_dc[q][i];
-    }
-  }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // Parallel histogram pass (CollectHistograms) and coefficient collection
 
@@ -258,11 +247,29 @@ void Encoder::CollectCoeffsMultiThreaded(int num_threads) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Parallel PSNR evaluation, for the multi-pass search
+
+float Encoder::ComputePSNRMultiThreaded(int num_threads) const {
+  std::vector<uint64_t> errors(num_threads, 0);
+  RunParallel(num_threads, mb_h_, [&](int t, int y_start, int y_end) {
+    errors[t] = ComputePSNRSlice(y_start, y_end);
+  });
+  uint64_t total_error = 0;
+  for (int t = 0; t < num_threads; ++t) {
+    total_error += errors[t];
+  }
+  const size_t nb_mbs = (size_t)mb_w_ * mb_h_;
+  return GetPSNR(total_error, 64ull * nb_mbs * mcu_blocks_);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // 1-pass parallel scan: quantize and code straight into the slice's buffer.
 
 void Encoder::SinglePassScanMultiThreaded(int num_threads,
                                           int total_intervals) {
-  std::vector<ThreadChunk> chunks(num_threads);
+  std::vector<ThreadChunk> chunks;
+  chunks.reserve(num_threads);
+  for (int t = 0; t < num_threads; ++t) chunks.emplace_back(nullptr);
   RunParallel(
       num_threads, total_intervals,
       [&](int t, int first_interval, int end_interval) {
@@ -281,132 +288,6 @@ void Encoder::SinglePassScanMultiThreaded(int num_threads,
         chunk.ok = bw.Finalize();
       });
   ConcatenateChunks(chunks.data(), num_threads);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Quantization and replay helpers shared by 2-pass optimized scan and
-// multi-pass dichotomy search. Re-quantizing in pass 2 would not merely waste
-// work: WriteDHT() calls InitCodes(), which rebuilds ac_codes_, and
-// quants_[].codes_ points into it, so trellis and RDO quantization would
-// silently re-decide against the optimized codes and stop matching the
-// histogram those tables were built from.
-
-void Encoder::QuantizeSlicesMultiThreaded(int num_threads, int total_intervals,
-                                          std::vector<ThreadChunk>* chunks) {
-  const int rows_per_interval = restart_interval_rows_;
-  chunks->resize(num_threads);
-  const bool collect_stats = optimize_size_;
-
-  if (use_trellis_ || use_rdo_) InitCodes(true);
-
-  RunParallel(
-      num_threads, total_intervals,
-      [&](int t, int first_interval, int end_interval) {
-        ThreadChunk& chunk = (*chunks)[t];
-        if (collect_stats) {
-          memset(chunk.freq_ac, 0, sizeof(chunk.freq_ac));
-          memset(chunk.freq_dc, 0, sizeof(chunk.freq_dc));
-        }
-
-        const int y_first = first_interval * rows_per_interval;
-        const int y_end = std::min(mb_h_, end_interval * rows_per_interval);
-        const size_t nb_blocks =
-            static_cast<size_t>(y_end - y_first) * mb_w_ * mcu_blocks_;
-        chunk.nb_run_levels = 0;
-        if (reuse_run_levels_) {
-          chunk.coeffs.resize(nb_blocks);
-          // Blocks code far fewer than 64 run/levels on average; grow on
-          // demand, like EnsureRunLevels() does for all_run_levels_.
-          if (chunk.run_levels.size() < nb_blocks * 8 + 6 * 64) {
-            chunk.run_levels.resize(nb_blocks * 8 + 6 * 64);
-          }
-        }
-
-        int16_t scratch[64 * 6];
-        uint8_t rep_buf[4 * 16 * 16];
-        chunk.ok = QuantizeScanSlice(
-            first_interval, end_interval,
-            reuse_run_levels_ ? chunk.coeffs.data() : nullptr,
-            reuse_run_levels_ ? &chunk.run_levels : nullptr,
-            &chunk.nb_run_levels, collect_stats ? chunk.freq_ac : nullptr,
-            collect_stats ? chunk.freq_dc : nullptr, scratch, rep_buf);
-      });
-
-  if (collect_stats) {
-    MergeChunkStats(chunks->data(), num_threads);
-  }
-}
-
-void Encoder::ReplaySlicesMultiThreaded(int num_threads, int total_intervals,
-                                        std::vector<ThreadChunk>* chunks) {
-  RunParallel(
-      num_threads, total_intervals,
-      [&](int t, int first_interval, int end_interval) {
-        ThreadChunk& chunk = (*chunks)[t];
-        StringSink sink(&chunk.data);
-        BitWriter bw(&sink);
-        const size_t slab = SliceSlabSize(first_interval, end_interval);
-        if (!ReplayScanSlice(first_interval, end_interval, total_intervals,
-                             chunk.coeffs.size(), chunk.coeffs.data(),
-                             chunk.run_levels.data(), &bw, slab)) {
-          chunk.ok = false;
-          return;
-        }
-        bw.Flush();
-        chunk.ok = bw.Finalize();
-        // Release the slice's scratch as soon as it has been coded.
-        chunk.coeffs.clear();
-        chunk.run_levels.clear();
-      });
-  ConcatenateChunks(chunks->data(), num_threads);
-}
-
-void Encoder::SinglePassScanOptimizedMultiThreaded(int num_threads,
-                                                   int total_intervals) {
-  std::vector<ThreadChunk> chunks(num_threads);
-  QuantizeSlicesMultiThreaded(num_threads, total_intervals, &chunks);
-  CompileEntropyStats();
-  WriteDHT();
-  WriteSOS();
-  if (!reuse_run_levels_) {
-    SinglePassScan();
-  } else {
-    DeallocateBlocks();  // pass 2 replays run/levels; the coeffs are dead now
-    ReplaySlicesMultiThreaded(num_threads, total_intervals, &chunks);
-  }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Multi-pass dichotomy search helpers
-
-float Encoder::ComputePSNRMultiThreaded(int num_threads) const {
-  std::vector<uint64_t> errors(num_threads, 0);
-  RunParallel(num_threads, mb_h_, [&](int t, int y_start, int y_end) {
-    errors[t] = ComputePSNRSlice(y_start, y_end);
-  });
-  uint64_t total_error = 0;
-  for (int t = 0; t < num_threads; ++t) {
-    total_error += errors[t];
-  }
-  const size_t nb_mbs = static_cast<size_t>(mb_w_) * mb_h_;
-  return GetPSNR(total_error, 64ull * nb_mbs * mcu_blocks_);
-}
-
-float Encoder::EvaluateSizeMultiThreaded(int num_threads, int total_intervals,
-                                         std::vector<ThreadChunk>* chunks) {
-  QuantizeSlicesMultiThreaded(num_threads, total_intervals, chunks);
-  if (optimize_size_) {
-    CompileEntropyStats();
-    if (use_trellis_ || use_rdo_) InitCodes(true);
-    return ComputeSize(nullptr);
-  }
-  InitCodes(false);
-  BitCounter bc;
-  for (int t = 0; t < num_threads; ++t) {
-    BlocksSize(static_cast<int>((*chunks)[t].coeffs.size()),
-               (*chunks)[t].coeffs.data(), (*chunks)[t].run_levels.data(), &bc);
-  }
-  return ComputeSize(bc.Size());
 }
 
 }  // namespace sjpeg

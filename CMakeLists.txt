@@ -47,7 +47,16 @@ endif()
 
 include(GNUInstallDirs)
 
-set(PROJECT_VERSION 0.1)
+# Single source of truth: SJPEG_VERSION in src/sjpeg.h (0xMMmmpp).
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/src/sjpeg.h SJPEG_VERSION_LINE
+     REGEX "^#define SJPEG_VERSION 0x")
+string(REGEX MATCH "0x([0-9a-fA-F][0-9a-fA-F])([0-9a-fA-F][0-9a-fA-F])([0-9a-fA-F][0-9a-fA-F])"
+       _ "${SJPEG_VERSION_LINE}")
+math(EXPR SJPEG_VERSION_MAJOR "0x${CMAKE_MATCH_1}")
+math(EXPR SJPEG_VERSION_MINOR "0x${CMAKE_MATCH_2}")
+math(EXPR SJPEG_VERSION_PATCH "0x${CMAKE_MATCH_3}")
+set(PROJECT_VERSION
+    ${SJPEG_VERSION_MAJOR}.${SJPEG_VERSION_MINOR}.${SJPEG_VERSION_PATCH})
 
 ################################################################################
 # Android only.
@@ -81,8 +90,14 @@ set(SJPEG_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/src/enc.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/encoders.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/entropy.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/entropy.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/fdct.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/headers.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/headers.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/blocks.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/common.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/slices.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/histogram.cc
   ${CMAKE_CURRENT_SOURCE_DIR}/src/md5sum.h
   ${CMAKE_CURRENT_SOURCE_DIR}/src/jpeg_tools.cc
@@ -195,6 +210,10 @@ if(SJPEG_BUILD_EXAMPLES)
   if(WIN32)
     # quiet warnings related to fopen, sscanf
     target_compile_definitions(sjpeg-utils PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endif()
+  if(APPLE)
+    # OpenGL/GLUT are deprecated on macOS; keep the build log readable.
+    target_compile_definitions(sjpeg-utils PUBLIC GL_SILENCE_DEPRECATION)
   endif()
   if(SJPEG_HAVE_OPENGL)
     # check pthread for GL libraries

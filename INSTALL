@@ -5,7 +5,7 @@ Installation Instructions
 
   just try 'make -j'
 
-  This command will use the supplied 'makefile' file.
+  This command will use the supplied 'Makefile' file.
   This file can be customized to some extent.
 
   If you are missing the PNG or JPEG library, try the following:
@@ -17,8 +17,8 @@ To install libraries on Mac OS X:
  4. Run "sudo port install freeglut"
 
 To install libraries on Linux:
- 1. Run "sudo apt-get install libjpeg62-dev"
- 2. Run "sudo apt-get install libpng12-dev"
+ 1. Run "sudo apt-get install libjpeg-dev"
+ 2. Run "sudo apt-get install libpng-dev"
  3. Run "sudo apt-get install freeglut3-dev"
 
 *** Using CMake ***
@@ -34,10 +34,10 @@ To install libraries on Linux:
     cmake ../
     make -j
 
-  The minimum cmake version required is 2.8.7
+  The minimum cmake version required is 3.22.
 
 *** For Android, using NDK ***
 
-  ndk-build
+  ndk-build (see README.md for the CMake toolchain alternative)
 
 This should build the library (libsjpeg.a) as well as examples/sjpeg.

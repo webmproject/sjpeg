@@ -272,7 +272,6 @@ void UpdateChroma_AVX2(const fixed_y_t* src1, const fixed_y_t* src2,
 static uint64_t SharpUpdateY_SSE2(const uint16_t* ref, const uint16_t* src,
                                   uint16_t* dst, int len) {
   uint64_t diff = 0;
-  uint32_t tmp[4];
   int i;
   const __m128i zero = _mm_setzero_si128();
   const __m128i max = _mm_set1_epi16(MAX_Y_T);
@@ -292,8 +291,7 @@ static uint64_t SharpUpdateY_SSE2(const uint16_t* ref, const uint16_t* src,
     STORE_16(H, dst + i);
     sum = _mm_add_epi32(sum, I);
   }
-  STORE_16(sum, tmp);
-  diff = tmp[3] + tmp[2] + tmp[1] + tmp[0];
+  diff = (uint32_t)HorizontalSumS32(sum);
   for (; i < len; ++i) {
     const int diff_y = ref[i] - src[i];
     const int new_y = (int)dst[i] + diff_y;
@@ -651,6 +649,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
           ? std::max(1, std::min(encoder->num_threads(), max_threads))
           : 1;
 #else
+  (void)encoder;
   const int num_threads = 1;
 #endif
 

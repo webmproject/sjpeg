@@ -85,6 +85,7 @@ void Encoder::InitComponents() {
       assert(0);  // shouldn't happen
       break;
   }
+  entropy_.SetNumTables((nb_comps_ == 1) ? 1 : 2);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -166,46 +167,27 @@ bool FinishEncoding(Encoder* const enc, const EncoderParam& param) {
   return ok;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// sub-class for YUV 4:2:0 version
+// Input-plane sanity check for the direct-YUV entry points.
+static bool CheckPlane(const uint8_t* plane, int stride, int min_width) {
+  return (plane != nullptr) && (std::abs(stride) >= min_width);
+}
 
-class Encoder420 final : public Encoder {
- public:
-  Encoder420(int W, int H, const uint8_t* const rgb, int step,
-             ByteSink* const sink, PixelFormat fmt = kRGBInput,
-             MemoryManager* const memory = nullptr)
-      : Encoder(SJPEG_YUV_420, W, H, sink, memory), rgb_(rgb), step_(step) {
-    ok_ = (rgb != nullptr);
-    if (fmt != kRGBInput) {
-      pix_step_ = 4;
-      get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
-    }
+// Loads one 8x8 block of samples, padding the missing ones if 'clipped'.
+static void LoadBlock(const uint8_t* src, int step, bool clipped, int w, int h,
+                      int16_t* out) {
+  if (clipped) {
+    Convert8To16bClipped(src, step, out, w, h);
+  } else {
+    Convert8To16b(src, step, out);
   }
-  ~Encoder420() override = default;
-  void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
-                  uint8_t* rep_buf) override {
-    const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 16;
-    int step = step_;
-    if (clipped) {
-      rgb = GetReplicatedSamples(rgb, step, W_ - mb_x * 16, H_ - mb_y * 16, 16,
-                                 16, rep_buf);
-      step = pix_step_ * 16;
-    }
-    get_yuv_block_(rgb, step, out);
-    if (clipped) {
-      AverageExtraLuma(W_ - mb_x * 16, H_ - mb_y * 16, out);
-    }
-  }
-
- protected:
-  const uint8_t* const rgb_;  // input samples
-  int step_;
-};
+}
 
 ////////////////////////////////////////////////////////////////////////////////
-// sub-class for YUV 4:4:4 and 4:0:0 versions (both are single 8x8-block MCUs,
-// differing only in nb_comps_/mcu_blocks_, set via InitComponents())
+// sub-class for RGB-like input (RGB/BGRA/RGBA): YUV 4:2:0 (16x16 MCUs) or
+// 4:4:4 / 4:0:0 (both are single 8x8-block MCUs, differing only in
+// nb_comps_/mcu_blocks_, set via InitComponents())
 
+template <int kMCUSize>  // 16 for YUV420, 8 for YUV444 / YUV400
 class EncoderRGB final : public Encoder {
  public:
   EncoderRGB(SjpegYUVMode yuv_mode, int W, int H, const uint8_t* const rgb,
@@ -222,14 +204,17 @@ class EncoderRGB final : public Encoder {
 
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
-    const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * 8;
+    const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * kMCUSize;
     int step = step_;
+    const int sub_w = W_ - mb_x * kMCUSize;
+    const int sub_h = H_ - mb_y * kMCUSize;
     if (clipped) {
-      rgb = GetReplicatedSamples(rgb, step, W_ - mb_x * 8, H_ - mb_y * 8, 8, 8,
+      rgb = GetReplicatedSamples(rgb, step, sub_w, sub_h, kMCUSize, kMCUSize,
                                  rep_buf);
-      step = pix_step_ * 8;
+      step = pix_step_ * kMCUSize;
     }
     get_yuv_block_(rgb, step, out);
+    if (kMCUSize == 16 && clipped) AverageExtraLuma(sub_w, sub_h, out);
   }
 
  protected:
@@ -248,12 +233,8 @@ class Encoder400G final : public Encoder {
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
     (void)rep_buf;
-    const uint8_t* data = gray_ + (mb_x + mb_y * step_) * 8;
-    if (clipped) {
-      Convert8To16bClipped(data, step_, out, W_ - mb_x * 8, H_ - mb_y * 8);
-    } else {
-      Convert8To16b(data, step_, out);
-    }
+    LoadBlock(gray_ + (mb_x + mb_y * step_) * 8, step_, clipped, W_ - mb_x * 8,
+              H_ - mb_y * 8, out);
   }
 
  protected:
@@ -330,10 +311,9 @@ class EncoderNV12 final : public Encoder {
 static bool EncodeNV(const uint8_t* y, int y_stride, const uint8_t* uv,
                      int uv_stride, int width, int height, bool is_nv12,
                      const EncoderParam& param, ByteSink* output) {
-  if (y == nullptr || uv == nullptr || output == nullptr) return false;
-  if (width <= 0 || height <= 0) return false;
-  if (std::abs(y_stride) < width) return false;
-  if (std::abs(uv_stride) < 2 * ((width + 1) / 2)) return false;
+  if (output == nullptr || width <= 0 || height <= 0) return false;
+  if (!CheckPlane(y, y_stride, width)) return false;
+  if (!CheckPlane(uv, uv_stride, 2 * ((width + 1) / 2))) return false;
   Encoder* const enc = new (std::nothrow) EncoderNV12(
       y, y_stride, uv, uv_stride, width, height, output, is_nv12, param.memory);
   return FinishEncoding(enc, param);
@@ -380,17 +360,11 @@ class EncoderYUV444 final : public Encoder {
     const uint8_t* const y = y_ + (mb_x + mb_y * y_step_) * 8;
     const uint8_t* const u = u_ + (mb_x + mb_y * u_step_) * 8;
     const uint8_t* const v = v_ + (mb_x + mb_y * v_step_) * 8;
-    if (clipped) {
-      const int sub_w = W_ - mb_x * 8;
-      const int sub_h = H_ - mb_y * 8;
-      Convert8To16bClipped(y, y_step_, out + 0 * 64, sub_w, sub_h);
-      Convert8To16bClipped(u, u_step_, out + 1 * 64, sub_w, sub_h);
-      Convert8To16bClipped(v, v_step_, out + 2 * 64, sub_w, sub_h);
-    } else {
-      Convert8To16b(y, y_step_, out + 0 * 64);
-      Convert8To16b(u, u_step_, out + 1 * 64);
-      Convert8To16b(v, v_step_, out + 2 * 64);
-    }
+    const int sub_w = W_ - mb_x * 8;
+    const int sub_h = H_ - mb_y * 8;
+    LoadBlock(y, y_step_, clipped, sub_w, sub_h, out + 0 * 64);
+    LoadBlock(u, u_step_, clipped, sub_w, sub_h, out + 1 * 64);
+    LoadBlock(v, v_step_, clipped, sub_w, sub_h, out + 2 * 64);
   }
 
  private:
@@ -404,12 +378,10 @@ class EncoderYUV444 final : public Encoder {
 bool EncodeYUV444(const uint8_t* Y, int Y_stride, const uint8_t* U,
                   int U_stride, const uint8_t* V, int V_stride, int width,
                   int height, const EncoderParam& param, ByteSink* output) {
-  if (Y == nullptr || U == nullptr || V == nullptr) return false;
-  if (output == nullptr) return false;
-  if (width <= 0 || height <= 0) return false;
-  if (std::abs(Y_stride) < width) return false;
-  if (std::abs(U_stride) < width) return false;
-  if (std::abs(V_stride) < width) return false;
+  if (output == nullptr || width <= 0 || height <= 0) return false;
+  if (!CheckPlane(Y, Y_stride, width)) return false;
+  if (!CheckPlane(U, U_stride, width)) return false;
+  if (!CheckPlane(V, V_stride, width)) return false;
   Encoder* const enc =
       new (std::nothrow) EncoderYUV444(Y, Y_stride, U, U_stride, V, V_stride,
                                        width, height, output, param.memory);
@@ -442,15 +414,10 @@ class EncoderYUV420 : public Encoder {
     // U/V
     const uint8_t* U = u_ + (mb_x + mb_y * u_step_) * 8;
     const uint8_t* V = v_ + (mb_x + mb_y * v_step_) * 8;
-    if (clipped) {
-      const int sub_w = ((W_ + 1) >> 1) - mb_x * 8;
-      const int sub_h = ((H_ + 1) >> 1) - mb_y * 8;
-      Convert8To16bClipped(U, u_step_, out + 4 * 64, sub_w, sub_h);
-      Convert8To16bClipped(V, v_step_, out + 5 * 64, sub_w, sub_h);
-    } else {
-      Convert8To16b(U, u_step_, out + 4 * 64);
-      Convert8To16b(V, v_step_, out + 5 * 64);
-    }
+    const int sub_w = ((W_ + 1) >> 1) - mb_x * 8;
+    const int sub_h = ((H_ + 1) >> 1) - mb_y * 8;
+    LoadBlock(U, u_step_, clipped, sub_w, sub_h, out + 4 * 64);
+    LoadBlock(V, v_step_, clipped, sub_w, sub_h, out + 5 * 64);
   }
 
  protected:
@@ -463,12 +430,10 @@ class EncoderYUV420 : public Encoder {
 bool EncodeYUV420(const uint8_t* Y, int Y_stride, const uint8_t* U,
                   int U_stride, const uint8_t* V, int V_stride, int width,
                   int height, const EncoderParam& param, ByteSink* output) {
-  if (Y == nullptr || U == nullptr || V == nullptr) return false;
-  if (output == nullptr) return false;
-  if (width <= 0 || height <= 0) return false;
-  if (std::abs(Y_stride) < width) return false;
-  if (std::abs(U_stride) < (width + 1) / 2) return false;
-  if (std::abs(V_stride) < (width + 1) / 2) return false;
+  if (output == nullptr || width <= 0 || height <= 0) return false;
+  if (!CheckPlane(Y, Y_stride, width)) return false;
+  if (!CheckPlane(U, U_stride, (width + 1) / 2)) return false;
+  if (!CheckPlane(V, V_stride, (width + 1) / 2)) return false;
   Encoder* const enc =
       new (std::nothrow) EncoderYUV420(Y, Y_stride, U, U_stride, V, V_stride,
                                        width, height, output, param.memory);
@@ -533,13 +498,14 @@ Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
 
   Encoder* enc = nullptr;
   if (yuv_mode == SJPEG_YUV_420) {
-    enc = new (std::nothrow) Encoder420(W, H, rgb, stride, sink, fmt, memory);
+    enc = new (std::nothrow)
+        EncoderRGB<16>(yuv_mode, W, H, rgb, stride, sink, fmt, memory);
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
     enc = new (std::nothrow)
         EncoderSharp420(W, H, rgb, stride, sink, memory, num_threads);
   } else if (yuv_mode == SJPEG_YUV_444 || yuv_mode == SJPEG_YUV_400) {
     enc = new (std::nothrow)
-        EncoderRGB(yuv_mode, W, H, rgb, stride, sink, fmt, memory);
+        EncoderRGB<8>(yuv_mode, W, H, rgb, stride, sink, fmt, memory);
   }
   if (enc == nullptr || !enc->Ok()) {
     delete enc;

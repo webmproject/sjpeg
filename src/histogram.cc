@@ -305,7 +305,7 @@ void Encoder::AnalyseHisto() {
       for (int delta = 0; delta <= delta_max; ++delta) {
         if (distortions[pos][delta] < FLT_MAX) {
           const float score =
-              distortions[pos][delta] + lambda * sizes[pos][delta];
+              (float)(distortions[pos][delta] + lambda * sizes[pos][delta]);
           if (score < best_score) {
             best_score = score;
             best_dq = delta + QDELTA_MIN;

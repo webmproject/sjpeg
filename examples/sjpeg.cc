@@ -136,7 +136,8 @@ int main(int argc, char* argv[]) {
       "  -adapt_bias ........ Use adaptive quantization bias (=slower)\n"
       "  -rdo ............... Use rate-distortion optimization\n"
       "  -trellis ........... use trellis-based quantization (=slower, "
-      "overrides -rdo)\n"
+      "overrides\n"
+      "                       -rdo and -adapt_bias)\n"
       "  -progressive ....... shortcut for '-prog 2,8'\n"
       "  -prog <int>[,<int>]. Progressive encoding: AC spectral split point "
       "for\n"
@@ -183,7 +184,7 @@ int main(int argc, char* argv[]) {
     } else if (!strcmp(argv[c], "-o") && c + 1 < argc) {
       output_file = argv[++c];
     } else if (!strcmp(argv[c], "-q") && c + 1 < argc) {
-      quality = atof(argv[++c]);
+      quality = (float)atof(argv[++c]);
       use_reduction = false;
       if (!(quality >= 0 && quality <= 100)) {  // catches NaN too
         fprintf(stdout, "Error: invalid range for option '%s': %s\n",
@@ -191,7 +192,7 @@ int main(int argc, char* argv[]) {
         return 1;
       }
     } else if (!strcmp(argv[c], "-r") && c + 1 < argc) {
-      reduction = atof(argv[++c]);
+      reduction = (float)atof(argv[++c]);
       use_reduction = true;
       if (!(reduction > 0 && reduction <= 100)) {  // catches NaN too
         fprintf(stdout, "Error: invalid range for option '%s': %s\n",
@@ -236,16 +237,16 @@ int main(int argc, char* argv[]) {
       }
     } else if (!strcmp(argv[c], "-psnr") && c + 1 < argc) {
       param.target_mode = EncoderParam::TARGET_PSNR;
-      param.target_value = atof(argv[++c]);
+      param.target_value = (float)atof(argv[++c]);
     } else if (!strcmp(argv[c], "-tolerance")) {
-      param.tolerance = atof(argv[++c]);
+      param.tolerance = (float)atof(argv[++c]);
     } else if (!strcmp(argv[c], "-qmin")) {
-      param.qmin = atof(argv[++c]);
+      param.qmin = (float)atof(argv[++c]);
     } else if (!strcmp(argv[c], "-qmax")) {
-      param.qmax = atof(argv[++c]);
+      param.qmax = (float)atof(argv[++c]);
     } else if (!strcmp(argv[c], "-size") && c + 1 < argc) {
       param.target_mode = EncoderParam::TARGET_SIZE;
-      param.target_value = atof(argv[++c]);
+      param.target_value = (float)atof(argv[++c]);
     } else if (!strcmp(argv[c], "-pass") && c + 1 < argc) {
       param.passes = atoi(argv[++c]);
     } else if (!strcmp(argv[c], "-restart") && c + 1 < argc) {
@@ -351,7 +352,7 @@ int main(int argc, char* argv[]) {
 
   if (estimate) {
     const int q =
-        is_jpeg ? SjpegEstimateQuality(quant_matrices[0], false) : 100;
+        is_jpeg ? (int)SjpegEstimateQuality(quant_matrices[0], false) : 100;
     fprintf(stdout, "%d\n", q);
     return 0;
   }
@@ -366,7 +367,7 @@ int main(int argc, char* argv[]) {
   if (!short_output && !quiet && !print_crc && !print_md5) {
     fprintf(stdout, "Input [%s]: %s (%u bytes, %.2f bpp, %d x %d)\n",
             ImageTypeName(input_type), input_file, (uint32_t)input.size(),
-            8.f * input.size() / (W * H), W, H);
+            8.f * (float)input.size() / (float)(W * H), W, H);
     if (info) {
       yuv_mode_rec = SjpegRiskiness(&in_bytes[0], W, H, 3 * W, &riskiness);
       fprintf(stdout, "Riskiness:   %.1f (recommended yuv_mode: %s)\n",
@@ -418,8 +419,8 @@ int main(int argc, char* argv[]) {
             "%s%.1f (adaptive: %s, Huffman: %s)\n"
             "yuv mode:    %s (riskiness: %.1lf%%)\n"
             "elapsed:     %d ms\n",
-            (uint32_t)out.size(), 8.f * out.size() / (W * H),
-            100. * out.size() / input.size(),
+            (uint32_t)out.size(), 8.f * (float)out.size() / (float)(W * H),
+            100. * (double)out.size() / (double)input.size(),
             show_reduction ? "reduction:   r=" : "quality:     q=",
             show_reduction ? reduction : quality,
             kNoYes[param.adaptive_quantization], kNoYes[param.Huffman_compress],
@@ -432,7 +433,8 @@ int main(int argc, char* argv[]) {
     PrintMetadataInfo(param);
   } else if (!quiet) {
     fprintf(stdout, "%u %u %.2lf %%\n", (uint32_t)input.size(),
-            (uint32_t)out.size(), 100. * out.size() / input.size());
+            (uint32_t)out.size(),
+            100. * (double)out.size() / (double)input.size());
   }
 
   // Save the result.
