@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cstdlib>
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
