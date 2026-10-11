@@ -24,11 +24,11 @@
 #endif
 
 #include <assert.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>  // IWYU pragma: keep
 
+#include <cmath>
 #include <vector>  // IWYU pragma: keep
 
 #if defined(SJPEG_HAVE_OPENGL) && \

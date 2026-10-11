@@ -21,10 +21,10 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <mutex>  // NOLINT
