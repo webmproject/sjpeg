@@ -108,12 +108,12 @@ inline void ConvertRGBToY(const __m128i* const R, const __m128i* const G,
                           __m128i* const Y) {
   const __m128i kRG_y = MK_CST_16(19595, 38469 - 16384);
   const __m128i kGB_y = MK_CST_16(16384, 7471);
-  const __m128i kROUND_Y = _mm_set1_epi32(HALF + (offset << FRAC));
+  const __m128i kRound = _mm_set1_epi32(HALF + offset * (1 << FRAC));
   const __m128i RG_lo = _mm_unpacklo_epi16(*R, *G);
   const __m128i RG_hi = _mm_unpackhi_epi16(*R, *G);
   const __m128i GB_lo = _mm_unpacklo_epi16(*G, *B);
   const __m128i GB_hi = _mm_unpackhi_epi16(*G, *B);
-  TRANSFORM(RG_lo, RG_hi, GB_lo, GB_hi, kRG_y, kGB_y, kROUND_Y, FRAC,
+  TRANSFORM(RG_lo, RG_hi, GB_lo, GB_hi, kRG_y, kGB_y, kRound, FRAC,
             _mm_add_epi32, *Y);
 }
 
@@ -127,7 +127,7 @@ inline void ConvertRGBToUV(const __m128i* const R, const __m128i* const G,
   const __m128i kGB_u = MK_CST_16(0, -32768);
   const __m128i kRG_v = MK_CST_16(-32768, 0);
   const __m128i kGB_v = MK_CST_16(-27439, -5329);
-  const __m128i kRound = _mm_set1_epi32((offset << FRAC) + HALF);
+  const __m128i kRound = _mm_set1_epi32(HALF + offset * (1 << FRAC));
 
   const __m128i RG_lo = _mm_unpacklo_epi16(*R, *G);
   const __m128i RG_hi = _mm_unpackhi_epi16(*R, *G);
