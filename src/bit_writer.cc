@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "common.h"
 #include "sjpeg.h"
 
 namespace sjpeg {
@@ -83,14 +84,22 @@ bool MemorySink::Commit(size_t used_size, size_t extra_size, uint8_t** data) {
 ///////////////////////////////////////////////////////////////////////////////
 // Sink factories
 
+// Returns an empty pointer if the sink can't be allocated.
+template <class S, class T>
+static std::shared_ptr<ByteSink> MakeSink(T* const output) {
+  std::shared_ptr<ByteSink> sink;
+  NoThrow([&] { sink.reset(new (std::nothrow) S(output)); });
+  return sink;
+}
+
 std::shared_ptr<ByteSink> MakeByteSink(std::string* const output) {
-  return std::shared_ptr<ByteSink>(new (std::nothrow) StringSink(output));
+  return MakeSink<StringSink>(output);
 }
 
 // specialization for vector<uint8_t>
 template <>
 std::shared_ptr<ByteSink> MakeByteSink(std::vector<uint8_t>* const output) {
-  return std::shared_ptr<ByteSink>(new (std::nothrow) VectorSink(output));
+  return MakeSink<VectorSink>(output);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

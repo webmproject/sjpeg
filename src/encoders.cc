@@ -162,9 +162,14 @@ const uint8_t* Encoder::GetReplicatedYSamples(const uint8_t* in, int step,
 }
 
 // useful common function. Declared in sjpegi.h: api.cc calls it too.
-bool FinishEncoding(Encoder* const enc, const EncoderParam& param) {
-  const bool ok = (enc != nullptr) && enc->Ok() && enc->InitFromParam(param) &&
-                  enc->Encode();
+bool FinishEncoding(Encoder* const enc, const EncoderParam* const param) {
+  bool ok = false;
+  if (enc != nullptr && enc->Ok()) {
+    // 'ok' stays false if this throws
+    NoThrow([&] {
+      ok = (param == nullptr || enc->InitFromParam(*param)) && enc->Encode();
+    });
+  }
   delete enc;
   return ok;
 }
@@ -318,7 +323,7 @@ static bool EncodeNV(const uint8_t* y, int y_stride, const uint8_t* uv,
   if (!CheckPlane(uv, uv_stride, 2 * ((width + 1) / 2))) return false;
   Encoder* const enc = new (std::nothrow) EncoderNV12(
       y, y_stride, uv, uv_stride, width, height, output, is_nv12, param.memory);
-  return FinishEncoding(enc, param);
+  return FinishEncoding(enc, &param);
 }
 
 // Encode from NV12 samples, using YUV420 format
@@ -387,7 +392,7 @@ bool EncodeYUV444(const uint8_t* Y, int Y_stride, const uint8_t* U,
   Encoder* const enc =
       new (std::nothrow) EncoderYUV444(Y, Y_stride, U, U_stride, V, V_stride,
                                        width, height, output, param.memory);
-  return FinishEncoding(enc, param);
+  return FinishEncoding(enc, &param);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -448,7 +453,7 @@ bool EncodeYUV420(const uint8_t* Y, int Y_stride, const uint8_t* U,
   Encoder* const enc =
       new (std::nothrow) EncoderYUV420(Y, Y_stride, U, U_stride, V, V_stride,
                                        width, height, output, param.memory);
-  return FinishEncoding(enc, param);
+  return FinishEncoding(enc, &param);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

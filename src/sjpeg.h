@@ -416,7 +416,16 @@ struct ByteSink {
   virtual void Reset() = 0;
 };
 
-// Some useful factories
+// Some useful factories. They return an empty pointer if the sink can't be
+// allocated.
+// Note on allocation failures: the library's own allocations are checked, and
+// make the encoding functions return false. std::string and std::vector
+// outputs (these sinks and the 'std::string* output' overloads above) grow
+// with the standard allocator instead, which reports a failure by throwing.
+// That is caught and turned into a 'false' too, unless the library is compiled
+// without exception support: the program is then terminated. In that case, a
+// custom ByteSink (reporting through Commit()) or the plain-C SjpegEncode()
+// keep the failure recoverable.
 std::shared_ptr<ByteSink> MakeByteSink(std::string* output);
 // Vector-based template, specialized for uint8_t
 template <typename T>

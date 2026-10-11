@@ -318,7 +318,7 @@ int main(int argc, char* argv[]) {
     }
   }
   // Read input file into the buffer in_bytes[]
-  const std::string input = ReadFile(input_file);
+  std::string input = ReadFile(input_file);
   if (input.empty()) return 1;
 
   const ImageType input_type = GuessImageType(input);
@@ -359,6 +359,8 @@ int main(int argc, char* argv[]) {
   int W, H;
   vector<uint8_t> in_bytes = ReadImage(input, &W, &H, &param);
   if (in_bytes.empty()) return 1;
+  const size_t input_size = input.size();
+  std::string().swap(input);  // not needed anymore: release the memory
 
   if (xmp_file != nullptr) param.xmp = ReadFile(xmp_file);
   if (icc_file != nullptr) param.iccp = ReadFile(icc_file);
@@ -366,8 +368,8 @@ int main(int argc, char* argv[]) {
 
   if (!short_output && !quiet && !print_crc && !print_md5) {
     fprintf(stdout, "Input [%s]: %s (%u bytes, %.2f bpp, %d x %d)\n",
-            ImageTypeName(input_type), input_file, (uint32_t)input.size(),
-            8.f * (float)input.size() / (float)(W * H), W, H);
+            ImageTypeName(input_type), input_file, (uint32_t)input_size,
+            8.f * (float)input_size / (float)(W * H), W, H);
     if (info) {
       yuv_mode_rec = SjpegRiskiness(&in_bytes[0], W, H, 3 * W, &riskiness);
       fprintf(stdout, "Riskiness:   %.1f (recommended yuv_mode: %s)\n",
@@ -420,7 +422,7 @@ int main(int argc, char* argv[]) {
             "yuv mode:    %s (riskiness: %.1lf%%)\n"
             "elapsed:     %d ms\n",
             (uint32_t)out.size(), 8.f * (float)out.size() / (float)(W * H),
-            100. * (double)out.size() / (double)input.size(),
+            100. * (double)out.size() / (double)input_size,
             show_reduction ? "reduction:   r=" : "quality:     q=",
             show_reduction ? reduction : quality,
             kNoYes[param.adaptive_quantization], kNoYes[param.Huffman_compress],
@@ -432,9 +434,9 @@ int main(int argc, char* argv[]) {
     }
     PrintMetadataInfo(param);
   } else if (!quiet) {
-    fprintf(stdout, "%u %u %.2lf %%\n", (uint32_t)input.size(),
+    fprintf(stdout, "%u %u %.2lf %%\n", (uint32_t)input_size,
             (uint32_t)out.size(),
-            100. * (double)out.size() / (double)input.size());
+            100. * (double)out.size() / (double)input_size);
   }
 
   // Save the result.

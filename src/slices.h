@@ -23,11 +23,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <string>
-#if !defined(SJPEG_NO_MULTITHREADING)
-#include <vector>
-#endif
+#include <new>
 
+#include "bit_writer.h"
 #include "blocks.h"
 #include "common.h"
 #include "entropy.h"
@@ -47,14 +45,17 @@ struct SliceStore {
   EntropyStats stats;
 };
 
-// Per-slice output and scratch. Cache-line aligned: the histogram pass hits
-// the stats once per coefficient, and neighbouring slices would otherwise
-// share lines.
-struct alignas(64) ThreadChunk {
-  explicit ThreadChunk(MemoryManager* memory) : store(memory) {}
-  std::string data;  // this slice's entropy-coded bytes (parallel scans only)
+// Per-slice output and scratch. Nothing in there throws on allocation
+// failure: slices run on worker threads.
+struct ThreadChunk {
+  explicit ThreadChunk(MemoryManager* memory = nullptr)
+      : data(0), store(memory) {}
+  MemorySink data;  // this slice's entropy-coded bytes (parallel scans only)
   SliceStore store;
   bool ok = true;
+  // The histogram pass hits the stats once per coefficient: keeps neighbouring
+  // slices from sharing a cache line.
+  uint8_t padding[64];
 };
 
 // The slices of a parallel pass. A lone slice runs on the calling thread, so
@@ -63,32 +64,32 @@ struct alignas(64) ThreadChunk {
 // multithreading, it is always a single slice.
 class ChunkSet {
  public:
-  explicit ChunkSet(MemoryManager* memory)
-#if !defined(SJPEG_NO_MULTITHREADING)
-      : memory_(memory){}
-#else
-      : chunk_(memory) {
-  }
-#endif
+  explicit ChunkSet(MemoryManager* memory) : chunk_(memory) {}
+  ChunkSet(const ChunkSet&) = delete;
+  ChunkSet& operator=(const ChunkSet&) = delete;
 
-        // Sets up 'num_slices' slices, keeping the buffers if the count is the
-        // same.
-        void Reset(int num_slices) {
 #if !defined(SJPEG_NO_MULTITHREADING)
-    if (chunks_.size() == (size_t)num_slices) return;
-    chunks_.clear();
-    chunks_.reserve(num_slices);
-    for (int t = 0; t < num_slices; ++t) {
-      chunks_.emplace_back((num_slices == 1) ? memory_ : nullptr);
+  ~ChunkSet() { delete[] chunks_; }
+  // Sets up 'num_slices' slices, keeping them if the count is the same.
+  // Returns false in case of allocation failure.
+  bool Reset(int num_slices) {
+    if (size_ == (size_t)num_slices) return true;
+    delete[] chunks_;
+    chunks_ = nullptr;
+    size_ = 1;
+    if (num_slices > 1) {
+      chunk_.store.coeffs.Release();  // the lone slice is out of use
+      chunk_.store.run_levels.Release();
+      chunks_ = new (std::nothrow) ThreadChunk[num_slices];
+      if (chunks_ == nullptr) return false;
+      size_ = (size_t)num_slices;
     }
-#else
-    (void)num_slices;
-#endif
+    return true;
   }
-#if !defined(SJPEG_NO_MULTITHREADING)
-  ThreadChunk* data() { return chunks_.data(); }
-  size_t size() const { return chunks_.size(); }
+  ThreadChunk* data() { return (chunks_ != nullptr) ? chunks_ : &chunk_; }
+  size_t size() const { return size_; }
 #else
+  bool Reset(int /*num_slices*/) { return true; }
   ThreadChunk* data() { return &chunk_; }
   size_t size() const { return 1; }
 #endif
@@ -97,11 +98,10 @@ class ChunkSet {
   const ThreadChunk* end() const { return begin() + size(); }
 
  private:
+  ThreadChunk chunk_;  // the lone slice
 #if !defined(SJPEG_NO_MULTITHREADING)
-  MemoryManager* const memory_;
-  std::vector<ThreadChunk> chunks_;
-#else
-  ThreadChunk chunk_;
+  ThreadChunk* chunks_ = nullptr;  // or several of them
+  size_t size_ = 1;
 #endif
 };
 

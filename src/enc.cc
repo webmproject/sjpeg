@@ -146,7 +146,7 @@ void Encoder::SetProgressive(int luma_split, int chroma_split) {
 #endif
 }
 
-void Encoder::SetMetadata(const std::string& data, MetadataType type) {
+void Encoder::SetMetadata(const std::string* data, MetadataType type) {
   switch (type) {
     case ICC:
       iccp_ = data;
@@ -528,7 +528,10 @@ void Encoder::QuantizeSlices(int num_slices, int total_intervals,
   const int rows_per_interval =
       (restart_interval_rows_ > 0) ? restart_interval_rows_ : mb_h_;
   const bool collect_stats = optimize_size_;
-  chunks->Reset(num_slices);
+  if (!chunks->Reset(num_slices)) {
+    SetError();
+    return;
+  }
 
   InitCostCodes();
 
@@ -590,8 +593,7 @@ void Encoder::ReplaySlices(int num_slices, int total_intervals,
       num_slices, total_intervals,
       [&](int t, int first_interval, int end_interval) {
         ThreadChunk& chunk = (*chunks)[t];
-        StringSink sink(&chunk.data);
-        BitWriter bw(&sink);
+        BitWriter bw(&chunk.data);
         const size_t slab = SliceSlabSize(first_interval, end_interval);
         if (!ReplayScanSlice(first_interval, end_interval, total_intervals,
                              chunk.store.nb_blocks, chunk.store.coeffs.data(),
@@ -683,8 +685,8 @@ bool Encoder::Encode() {
   }
 
   hw_.WriteAPP0();
-  if (!hw_.WriteAPPMarkers(app_markers_) || !hw_.WriteEXIF(exif_) ||
-      !hw_.WriteICCP(iccp_) || !hw_.WriteXMP(xmp_, xmp_split_)) {
+  if (!hw_.WriteAPPMarkers(*app_markers_) || !hw_.WriteEXIF(*exif_) ||
+      !hw_.WriteICCP(*iccp_) || !hw_.WriteXMP(*xmp_, xmp_split_)) {
     return false;
   }
 
