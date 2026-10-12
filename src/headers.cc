@@ -128,19 +128,19 @@ bool HeaderWriter::WriteXMPExtended(const std::string& data,
   size_t split = (xmp_split == 0) ? kMainSize : xmp_split;
   split = std::min(split, data.size());
   // search for the extension tag
-  const size_t note_pos = data.find(std::string("xmpNote:HasExtendedXMP=\""));
+  const size_t note_pos = data.find("xmpNote:HasExtendedXMP=\"");
   if (note_pos == std::string::npos) return false;   // no extension!
   if (note_pos + 24 + 32 + 1 > split) return false;  // ill-formed
   if (data[note_pos + 24 + 32] != '\"') return false;
-  // split in main / extension
-  std::string main_data(&data[0], split);
-  std::string ext_data(&data[split], data.size() - split);
-  // compute GUID
-  uint8_t* const guid = reinterpret_cast<uint8_t*>(&main_data[note_pos + 24]);
-  MD5Digest(ext_data).Get(guid);
+  // split in main / extension, and compute the GUID
+  const uint8_t* const main_data = (const uint8_t*)data.data();
+  const uint8_t* const ext_data = main_data + split;
+  const size_t ext_size = data.size() - split;
+  uint8_t guid[32];
+  MD5Digest(ext_data, ext_size).Get(guid);
 
-  // Main chunk.
-  if (!WriteXMP(main_data, xmp_split)) return false;
+  // Main chunk, with the GUID patched in.
+  if (!WriteXMPChunk(main_data, split, guid, note_pos + 24)) return false;
 
   // Extended chunks.
   const uint8_t kXMPExt[] = "http://ns.adobe.com/xmp/extension/";
@@ -149,42 +149,68 @@ bool HeaderWriter::WriteXMPExtended(const std::string& data,
 
   // 40 = 32 bytes for GUID + 4 bytes for size + 4 bytes for position
   const size_t kHeaderSize = kXMPExt_size + 40;
-  const size_t num_chunks = ext_data.size() / kBufSize + 1;
-  const size_t data_size = num_chunks * (kHeaderSize + 2 + 2) + ext_data.size();
+  const size_t num_chunks = ext_size / kBufSize + 1;
+  const size_t data_size = num_chunks * (kHeaderSize + 2 + 2) + ext_size;
   if (!Reserve(data_size)) return false;
   size_t read_pos = 0, write_pos = 0;
   for (uint32_t chunk = 0; chunk < num_chunks; ++chunk) {
     const uint32_t write_size =
-        (uint32_t)std::min(kBufSize, ext_data.size() - read_pos);
+        (uint32_t)std::min(kBufSize, ext_size - read_pos);
     Put16b(0xffe1);  // APP1
     Put16b(2 + kHeaderSize + write_size);
     bw_.PutBytes(kXMPExt, kXMPExt_size);
     bw_.PutBytes(guid, 32u);
-    Put32b((uint32_t)ext_data.size());  // total size, not chunk size!
+    Put32b((uint32_t)ext_size);  // total size, not chunk size!
     Put32b((uint32_t)read_pos);
-    bw_.PutBytes(reinterpret_cast<const uint8_t*>(&ext_data[read_pos]),
-                 write_size);
+    bw_.PutBytes(ext_data + read_pos, write_size);
     read_pos += write_size;
     write_pos += 2 + (2 + kHeaderSize + write_size);
   }
   return (write_pos == data_size);
 }
 
-bool HeaderWriter::WriteXMP(const std::string& data, uint16_t xmp_split) {
-  if (data.empty()) return true;
+// Writes a single-segment XMP chunk. If 'guid' is not null, its 32 bytes
+// replace the ones at 'guid_pos'. Returns false if the data is too large.
+bool HeaderWriter::WriteXMPChunk(const uint8_t* data, size_t size,
+                                 const uint8_t* guid, size_t guid_pos) {
   const uint8_t kXMP[] = "http://ns.adobe.com/xap/1.0/";
   const size_t kXMP_size = sizeof(kXMP);
-  const size_t data_size = 2 + data.size() + kXMP_size;
-  if (data_size <= 0xffff) {  // don't use extended XMP if small enough data
-    if (!Reserve(data_size + 2)) return false;
-    Put16b(0xffe1);
-    Put16b((uint32_t)data_size);
-    bw_.PutBytes(kXMP, kXMP_size);
-    bw_.PutBytes(reinterpret_cast<const uint8_t*>(data.data()), data.size());
-    return true;
+  const size_t data_size = 2 + size + kXMP_size;
+  if (data_size > 0xffff || !Reserve(data_size + 2)) return false;
+  Put16b(0xffe1);
+  Put16b((uint32_t)data_size);
+  bw_.PutBytes(kXMP, kXMP_size);
+  if (guid != nullptr) {
+    bw_.PutBytes(data, guid_pos);
+    bw_.PutBytes(guid, 32u);
+    data += guid_pos + 32;
+    size -= guid_pos + 32;
+  }
+  bw_.PutBytes(data, size);
+  return true;
+}
+
+bool HeaderWriter::WriteXMP(const std::string& data, uint16_t xmp_split) {
+  if (data.empty()) return true;
+  // don't use extended XMP if small enough data
+  if (data.size() <= 0xffff - 2 - 29) {
+    return WriteXMPChunk((const uint8_t*)data.data(), data.size(), nullptr, 0);
   }
   // need to split into main-chunk + extended sections
   return WriteXMPExtended(data, xmp_split);
+}
+
+// Size of what WriteXMP() emits: keep them in sync.
+size_t HeaderWriter::XMPSize(size_t size, uint16_t xmp_split) {
+  if (size == 0) return 0;
+  const size_t kMainHeader = 2 + 2 + 29;  // marker, length, namespace
+  if (size <= 0xffff - 2 - 29) return kMainHeader + size;
+  const size_t split =
+      std::min<size_t>((xmp_split == 0) ? 65503 : xmp_split, size);
+  const size_t ext_size = size - split;
+  const size_t num_chunks = ext_size / 65458 + 1;
+  // per extended chunk: marker, length, namespace (35), GUID + size + position
+  return kMainHeader + split + num_chunks * (2 + 2 + 35 + 40) + ext_size;
 }
 
 void HeaderWriter::WriteDQT(const Quantizer* quants, int num_matrices) {

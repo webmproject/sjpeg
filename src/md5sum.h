@@ -30,11 +30,13 @@ namespace sjpeg {
 class MD5Digest {
  public:
   explicit MD5Digest(const std::string& data = "")
+      : MD5Digest((const uint8_t*)data.data(), data.size()) {}
+  MD5Digest(const uint8_t* data, size_t size)
       : A(0x67452301), B(0xefcdab89), C(0x98badcfe), D(0x10325476) {
-    uint32_t s = (uint32_t)data.size();
-    assert((uint64_t)data.size() < (1ull << 32));
+    uint32_t s = (uint32_t)size;
+    assert((uint64_t)size < (1ull << 32));
     uint32_t i, j;
-    for (i = 0; i + 64 <= s; i += 64) Add((const uint8_t*)&data[i]);
+    for (i = 0; i + 64 <= s; i += 64) Add(data + i);
     uint8_t block[64 + 64];
     for (j = 0; i < s; ++i) block[j++] = data[i];
     block[j++] = 0x80;                      // bit 1

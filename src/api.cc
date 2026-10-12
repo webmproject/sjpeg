@@ -47,8 +47,7 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
   enc->SetQuality(quality);
   enc->SetCompressionMethod(method);
   size_t size = 0;
-  if (enc->Encode()) sink.Release(out_data, &size);
-  delete enc;
+  if (sjpeg::FinishEncoding(enc, nullptr)) sink.Release(out_data, &size);
   return size;
 }
 
@@ -182,10 +181,10 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);
   SetProgressive(param.progressive_luma_split, param.progressive_chroma_split);
 
-  SetMetadata(param.iccp, Encoder::ICC);
-  SetMetadata(param.exif, Encoder::EXIF);
-  SetMetadata(param.app_markers, Encoder::MARKERS);
-  SetMetadata(param.xmp, Encoder::XMP);
+  SetMetadata(&param.iccp, Encoder::ICC);
+  SetMetadata(&param.exif, Encoder::EXIF);
+  SetMetadata(&param.app_markers, Encoder::MARKERS);
+  SetMetadata(&param.xmp, Encoder::XMP);
   xmp_split_ = param.xmp_split_point;
 
   passes_ = (param.passes < 1) ? 1 : (param.passes > 20) ? 20 : param.passes;
@@ -221,7 +220,7 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
   Encoder* const enc =
       EncoderFactory(rgb, width, height, stride, param.yuv_mode, sink,
                      kRGBInput, param.memory, num_threads);
-  return FinishEncoding(enc, param);
+  return FinishEncoding(enc, &param);
 }
 
 size_t Encode(const uint8_t* rgb, int width, int height, int stride,
@@ -278,7 +277,7 @@ bool EncodePacked4(const uint8_t* src, int width, int height, int stride,
   const int num_threads = GetNumThreads(param);
   Encoder* const enc = EncoderFactory(src, width, height, stride, mode, sink,
                                       fmt, param.memory, num_threads);
-  return FinishEncoding(enc, param);
+  return FinishEncoding(enc, &param);
 }
 
 // Runs encode(ByteSink*) on a sink appending to *output.
@@ -286,7 +285,7 @@ template <typename F>
 bool EncodeToString(int width, int height, std::string* output, F encode) {
   if (output == nullptr) return false;
   output->clear();
-  output->reserve((size_t)width * height / 4);
+  NoThrow([&] { output->reserve((size_t)width * height / 4); });  // just a hint
   StringSink sink(output);
   return encode(&sink);
 }
@@ -312,7 +311,7 @@ bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
 
   Encoder* const enc =
       GrayEncoderFactory(gray, width, height, stride, sink, param.memory);
-  return FinishEncoding(enc, param);
+  return FinishEncoding(enc, &param);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

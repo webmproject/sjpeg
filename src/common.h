@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <new>
 #include <type_traits>
 
 #include "sjpeg.h"
@@ -224,6 +225,41 @@ static inline int TrailingZeros64(uint64_t x) {
 #endif
 }
 
+// Calls fn() and returns false if it threw std::bad_alloc, which is how the
+// standard library reports its allocation failures. Anything else (thrown by
+// a user's ByteSink, say) is not ours to handle.
+// This is the library's only try/catch. Without exception support, it's a
+// plain call.
+template <class F>
+bool NoThrow(F&& fn) {
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+  try {
+    fn();
+  } catch (const std::bad_alloc&) {
+    return false;
+  }
+#else
+  fn();
+#endif
+  return true;
+}
+
+// Non-owning reference to a callable: what std::function does, without its
+// heap allocation. The callable must outlive it.
+template <class... Args>
+class FuncRef {
+ public:
+  template <class F>
+  FuncRef(const F& fn)  // NOLINT: implicit, on purpose
+      : fn_(&fn),
+        call_([](const void* f, Args... args) { (*(const F*)f)(args...); }) {}
+  void operator()(Args... args) const { call_(fn_, args...); }
+
+ private:
+  const void* fn_;
+  void (*call_)(const void*, Args...);
+};
+
 // Growable, uninitialized array of trivially-copyable T. Storage comes from
 // 'memory' (the user's MemoryManager) or, if null, from the C heap (which is
 // safe to use from worker threads).
@@ -241,6 +277,11 @@ class Buffer {
   ~Buffer() { Free(ptr_); }
 
   T* data() const { return ptr_; }
+  void Release() {
+    Free(ptr_);
+    ptr_ = nullptr;
+    capacity_ = 0;
+  }
 
   // Makes room for at least 'n' elements, keeping the first 'used' ones.
   // Grows geometrically. Returns false on allocation failure.

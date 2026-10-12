@@ -56,6 +56,8 @@ class MemorySink : public ByteSink {
   bool Finalize() override { /* nothing to do */ return true; }
   void Reset() override;
   void Release(uint8_t** buf_ptr, size_t* size_ptr);
+  const uint8_t* data() const { return buf_; }
+  size_t size() const { return pos_; }
 
  private:
   uint8_t* buf_;

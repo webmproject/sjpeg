@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include <mutex>  // NOLINT
-#include <vector>
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "blocks.h"
@@ -33,17 +32,20 @@
 
 namespace sjpeg {
 
-static std::vector<const uint8_t*> kRowTable;
+enum { kMaxRGB3 = 8 * 8 * 8 };
+static const uint8_t* kRowTable[kMaxRGB3];
 
-void RiskinessScoreInitRowTableAVX2() {
+// Returns false if the score table is too large for kRowTable[].
+bool RiskinessScoreInitRowTableAVX2() {
+  const int kRGB3 = kRGBSize * kRGBSize * kRGBSize;
+  if (kRGB3 > kMaxRGB3) return false;
   static std::once_flag once;
-  std::call_once(once, []() {
-    const int kRGB3 = kRGBSize * kRGBSize * kRGBSize;
-    kRowTable.resize(kRGB3);
+  std::call_once(once, [kRGB3]() {
     for (int i = 0; i < kRGB3; ++i) {
       kRowTable[i] = &kSharpnessScore[i * kRGB3];
     }
   });
+  return true;
 }
 
 // Evaluates 8 pixels of riskiness scores starting at (row1, row2).

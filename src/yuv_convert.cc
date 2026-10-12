@@ -25,12 +25,9 @@
 
 #include <algorithm>
 #include <cstdlib>
-#include <functional>
 #include <memory>
 #include <mutex>  // NOLINT
 #include <new>
-#include <vector>
-using std::vector;
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
@@ -710,8 +707,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
     *head_buffer = reinterpret_cast<fixed_t*>(p);
   };
 
-  auto run_parallel = [&](int total,
-                          const std::function<void(int, int, int)>& fn) {
+  auto run_parallel = [&](int total, FuncRef<int, int, int> fn) {
 #if !defined(SJPEG_NO_MULTITHREADING)
     if (encoder != nullptr && num_threads > 1) {
       encoder->RunParallel(num_threads, total, fn);
@@ -759,8 +755,15 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
     int p_start;
     int p_end;
   };
-  std::vector<SliceRange> slices(num_threads, {0, 0});
-  std::vector<uint64_t> thread_diffs(num_threads, 0);
+  Buffer<SliceRange> slices_buf;
+  Buffer<uint64_t> thread_diffs_buf;
+  if (!slices_buf.Reserve(num_threads) ||
+      !thread_diffs_buf.Reserve(num_threads)) {
+    return false;
+  }
+  SliceRange* const slices = slices_buf.data();
+  uint64_t* const thread_diffs = thread_diffs_buf.data();
+  for (int t = 0; t < num_threads; ++t) slices[t] = {0, 0};
 
   // Iterate and resolve clipping conflicts using shifted iterations.
   for (int iter = 0; iter < kNumIterations; ++iter) {
@@ -770,7 +773,7 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
     fixed_t* const cur_in = best_uv_origin + in_offset * row_stride;
     fixed_t* const cur_out = best_uv_origin + out_offset * row_stride;
 
-    std::fill(thread_diffs.begin(), thread_diffs.end(), 0);
+    for (int t = 0; t < num_threads; ++t) thread_diffs[t] = 0;
 
     run_parallel(num_pairs, [&](int t, int p_start, int p_end) {
       slices[t] = {p_start, p_end};
