@@ -47,7 +47,7 @@ enc_srcs := \
         src/jpeg_tools.cc \
         src/quantize.$(NEON) \
         src/yuv_convert.$(NEON) \
-        src/score_7.cc \
+        src/score_175.cc \
 
 ifeq ($(SJPEG_HAVE_PROGRESSIVE),1)
 enc_srcs += src/prog.cc

@@ -252,12 +252,10 @@ namespace sjpeg {
 void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2, int size,
                          int noise_level, int64_t* score_sum,
                          int64_t* score_num, int64_t* gray_num) {
-  const int s = kRGBSize;  // shortcut
-  const int kRGB3 = s * s * s;
-  const int gray = (s / 2) * (1 + s) * s;  // gray level for y=0,u=128,v=128
-  // idx packs y + s * (u + s * v), so the samples with neutral chroma are
-  // exactly the ones in [gray_min, gray_min + s), whatever their luma.
-  const int gray_min = gray - gray % s;
+  const int s = kRiskYLevels;  // shortcut
+  const int kRGB3 = kRiskColors;
+  // gray samples: idx in [kRiskGrayMin, kRiskGrayMin + 7)
+  const int gray_min = kRiskGrayMin;
 
   SJPEG_UNROLL(4)
   for (int i = 0; i < size; ++i) {
@@ -304,21 +302,11 @@ static inline void Process8PixelsNEON(const uint16_t* const row1,
   *v_gray_cnt = vsubq_s16(*v_gray_cnt, vreinterpretq_s16_u16(is_gray));
 
   // row1/row2 already hold packed 3-channel indices in [0, kRGB3), so
-  // idx_a + kRGB3 * idx_b can reach ~kRGB3^2 (117648 for kRGBSize=7):
-  // needs a 32-bit widening multiply-accumulate, not a 16-bit one.
-  const uint16x4_t r1_lo = vget_low_u16(r1), r1_hi = vget_high_u16(r1);
-  const uint16x4_t r1s_lo = vget_low_u16(r1s), r1s_hi = vget_high_u16(r1s);
-  const uint16x4_t r2_lo = vget_low_u16(r2), r2_hi = vget_high_u16(r2);
-  const uint32x4_t idx0_lo = vmovl_u16(r1_lo), idx0_hi = vmovl_u16(r1_hi);
-  const uint32x4_t idx1_lo = vmovl_u16(r1s_lo), idx1_hi = vmovl_u16(r1s_hi);
-
-  uint32_t tmp_ab[8], tmp_ac[8], tmp_bc[8];
-  STORE_16(vmlal_n_u16(idx0_lo, r1s_lo, kRGB3), tmp_ab + 0);
-  STORE_16(vmlal_n_u16(idx0_hi, r1s_hi, kRGB3), tmp_ab + 4);
-  STORE_16(vmlal_n_u16(idx0_lo, r2_lo, kRGB3), tmp_ac + 0);
-  STORE_16(vmlal_n_u16(idx0_hi, r2_hi, kRGB3), tmp_ac + 4);
-  STORE_16(vmlal_n_u16(idx1_lo, r2_lo, kRGB3), tmp_bc + 0);
-  STORE_16(vmlal_n_u16(idx1_hi, r2_hi, kRGB3), tmp_bc + 4);
+  // idx_a + kRGB3 * idx_b is at most kRGB3^2 - 1 (30624): fits 16 bits.
+  uint16_t tmp_ab[8], tmp_ac[8], tmp_bc[8];
+  STORE_16(vmlaq_n_u16(r1, r1s, kRGB3), tmp_ab);
+  STORE_16(vmlaq_n_u16(r1, r2, kRGB3), tmp_ac);
+  STORE_16(vmlaq_n_u16(r1s, r2, kRGB3), tmp_bc);
 
   auto score_at = [&](int k) -> uint16_t {
     return (uint16_t)(kSharpnessScore[tmp_ab[k]] + kSharpnessScore[tmp_ac[k]] +
@@ -347,10 +335,9 @@ static inline void Process8PixelsNEON(const uint16_t* const row1,
 void RiskinessScoreRowNEON(const uint16_t* row1, const uint16_t* row2, int size,
                            int noise_level, int64_t* score_sum,
                            int64_t* score_num, int64_t* gray_num) {
-  const int s = kRGBSize;  // shortcut
-  const uint16_t kRGB3 = (uint16_t)(s * s * s);
-  const int gray = (s / 2) * (1 + s) * s;  // gray level for y=0,u=128,v=128
-  const int gray_min = gray - gray % s;    // see RiskinessScoreRow_C above
+  const int s = kRiskYLevels;  // shortcut
+  const uint16_t kRGB3 = (uint16_t)kRiskColors;
+  const int gray_min = kRiskGrayMin;  // see RiskinessScoreRow_C above
 
   const uint16x8_t v_gray_min = vdupq_n_u16((uint16_t)gray_min);
   const uint16x8_t v_s = vdupq_n_u16((uint16_t)s);
@@ -526,15 +513,22 @@ SjpegYUVMode SjpegRiskinessFullForEval(const uint8_t* rgb, int width,
 
 namespace sjpeg {
 
-// (X * 0x0101 >> 16) ~= X / 255
+// 7 levels: (x * 6 * 0x0101) >> 16 ~= 6 * x / 255
 static uint32_t Convert(uint32_t v) {
-  return (v * (0x0101u * (sjpeg::kRGBSize - 1))) >> 16;
+  return (v * (0x0101u * (sjpeg::kRiskYLevels - 1))) >> 16;
+}
+
+// 5 chroma levels: outer levels merged
+static uint32_t ConvertUV(uint32_t v) {
+  const int level = (int)Convert(v) - 1, max_level = sjpeg::kRiskUVLevels - 1;
+  return (level < 0) ? 0 : (level > max_level) ? max_level : (uint32_t)level;
 }
 
 // Convert 8b values y/u/v to index entry.
 int YUVToRiskIdx(int16_t y, int16_t u, int16_t v) {
-  const int idx = Convert(y + 128) + Convert(u + 128) * sjpeg::kRGBSize +
-                  Convert(v + 128) * sjpeg::kRGBSize * sjpeg::kRGBSize;
+  const int idx =
+      Convert(y + 128) + ConvertUV(u + 128) * sjpeg::kRiskYLevels +
+      ConvertUV(v + 128) * sjpeg::kRiskYLevels * sjpeg::kRiskUVLevels;
   return idx;
 }
 
@@ -545,7 +539,7 @@ double DCTRiskinessScore(const int16_t yuv[3 * 64], int16_t scores[8 * 8]) {
   for (int k = 0; k < 64; ++k) {
     idx[k] = YUVToRiskIdx(yuv[k + 0 * 64], yuv[k + 1 * 64], yuv[k + 2 * 64]);
   }
-  const int kRGB3 = sjpeg::kRGBSize * sjpeg::kRGBSize * sjpeg::kRGBSize;
+  const int kRGB3 = sjpeg::kRiskColors;
   double total_score = 0;
   double count = 0;
   for (int J = 0; J <= 7; ++J) {
