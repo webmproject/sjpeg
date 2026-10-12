@@ -20,7 +20,9 @@
 #include <stdint.h>
 
 #define SJPEG_NEED_ASM_HEADERS
-#include "sjpegi.h"  // IWYU pragma: keep
+#include "blocks.h"
+#include "common.h"
+#include "dsp.h"
 
 #if defined(SJPEG_USE_AVX2)
 

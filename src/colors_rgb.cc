@@ -25,7 +25,9 @@
 #include <string.h>
 
 #define SJPEG_NEED_ASM_HEADERS
-#include "sjpegi.h"
+#include "blocks.h"
+#include "common.h"
+#include "dsp.h"
 
 namespace sjpeg {
 
@@ -106,12 +108,12 @@ inline void ConvertRGBToY(const __m128i* const R, const __m128i* const G,
                           __m128i* const Y) {
   const __m128i kRG_y = MK_CST_16(19595, 38469 - 16384);
   const __m128i kGB_y = MK_CST_16(16384, 7471);
-  const __m128i kROUND_Y = _mm_set1_epi32(HALF + (offset << FRAC));
+  const __m128i kRound = _mm_set1_epi32(HALF + offset * (1 << FRAC));
   const __m128i RG_lo = _mm_unpacklo_epi16(*R, *G);
   const __m128i RG_hi = _mm_unpackhi_epi16(*R, *G);
   const __m128i GB_lo = _mm_unpacklo_epi16(*G, *B);
   const __m128i GB_hi = _mm_unpackhi_epi16(*G, *B);
-  TRANSFORM(RG_lo, RG_hi, GB_lo, GB_hi, kRG_y, kGB_y, kROUND_Y, FRAC,
+  TRANSFORM(RG_lo, RG_hi, GB_lo, GB_hi, kRG_y, kGB_y, kRound, FRAC,
             _mm_add_epi32, *Y);
 }
 
@@ -125,7 +127,7 @@ inline void ConvertRGBToUV(const __m128i* const R, const __m128i* const G,
   const __m128i kGB_u = MK_CST_16(0, -32768);
   const __m128i kRG_v = MK_CST_16(-32768, 0);
   const __m128i kGB_v = MK_CST_16(-27439, -5329);
-  const __m128i kRound = _mm_set1_epi32((offset << FRAC) + HALF);
+  const __m128i kRound = _mm_set1_epi32(HALF + offset * (1 << FRAC));
 
   const __m128i RG_lo = _mm_unpacklo_epi16(*R, *G);
   const __m128i RG_hi = _mm_unpackhi_epi16(*R, *G);
@@ -1212,10 +1214,8 @@ void Convert8To16b(const uint8_t* src, int src_step, int16_t* dst) {
     // Process two rows of 8 samples per iteration.
     const __m128i k128 = _mm_set1_epi16(128);
     for (int y = 0; y < 8; y += 2) {
-      const __m128i in0 = LOAD_64(src);
-      const __m128i in1 = LOAD_64(src + src_step);
-      const __m128i in0_16 = _mm_unpacklo_epi8(in0, _mm_setzero_si128());
-      const __m128i in1_16 = _mm_unpacklo_epi8(in1, _mm_setzero_si128());
+      const __m128i in0_16 = LOAD_U8_TO_U16(src);
+      const __m128i in1_16 = LOAD_U8_TO_U16(src + src_step);
       const __m128i out0 = _mm_sub_epi16(in0_16, k128);
       const __m128i out1 = _mm_sub_epi16(in1_16, k128);
       STORE_16(out0, dst);
@@ -1230,8 +1230,8 @@ void Convert8To16b(const uint8_t* src, int src_step, int16_t* dst) {
     // Process two rows of 8 samples per iteration.
     const uint8x8_t k128 = vdup_n_u8(128);
     for (int y = 0; y < 8; y += 2) {
-      const uint8x8_t in0 = LOAD_64(src);
-      const uint8x8_t in1 = LOAD_64(src + src_step);
+      const uint8x8_t in0 = LOAD_8(src);
+      const uint8x8_t in1 = LOAD_8(src + src_step);
       const int16x8_t out0 = vreinterpretq_s16_u16(vsubl_u8(in0, k128));
       const int16x8_t out1 = vreinterpretq_s16_u16(vsubl_u8(in1, k128));
       STORE_16(out0, dst + 0);

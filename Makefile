@@ -8,7 +8,9 @@
 
 #### Customizable part ####
 
-VERSION=1.0
+# Taken from SJPEG_VERSION (0xMMmmpp) in src/sjpeg.h.
+VERSION=$(shell sed -n 's/^\#define SJPEG_VERSION 0x\(..\)\(..\)\(..\).*/0x\1 0x\2 0x\3/p' \
+                 src/sjpeg.h | xargs printf '%d.%d.%d')
 ARCHIVE_FILE=sjpeg-$(VERSION).tar.gz
 
 # Set to 0 to build without progressive JPEG encoding support.
@@ -136,6 +138,12 @@ HDRS = \
     src/simd.h \
     src/sjpegi.h \
     src/bit_writer.h \
+    src/blocks.h \
+    src/common.h \
+    src/entropy.h \
+    src/headers.h \
+    src/dsp.h \
+    src/slices.h \
     $(HDRS_INSTALLED) \
 
 OUT_LIBS = src/libsjpeg.a examples/libutils.a
@@ -244,9 +252,15 @@ DIST_FILES= \
          src/enc_parallel.cc  \
          src/encoders.cc  \
          src/entropy.cc  \
+         src/entropy.h  \
          src/fdct.cc  \
          src/fdct_avx2.cc  \
          src/headers.cc \
+         src/headers.h \
+         src/dsp.h \
+         src/blocks.h \
+         src/common.h \
+         src/slices.h \
          src/histogram.cc  \
          src/histogram_avx2.cc  \
          src/jpeg_tools.cc  \
@@ -278,12 +292,13 @@ DIST_FILES= \
          tests/testdata/source4.ppm \
          tests/testdata/test_exif_xmp.png \
          tests/testdata/test_icc.jpg \
+         examples/vjpeg_sample.jpg \
 
 pak: clean
 ifeq ($(strip $(shell uname)), Darwin)
 	COPYFILE_DISABLE=1 tar -s ,.*,sjpeg-$(VERSION)\/~,p -czf $(ARCHIVE_FILE) $(DIST_FILES)
 else
-	tar --transform="s#^#sjpeg-1.0/#" -czf $(ARCHIVE_FILE) $(DIST_FILES)
+	tar --transform="s#^#sjpeg-$(VERSION)/#" -czf $(ARCHIVE_FILE) $(DIST_FILES)
 endif
 	@echo "GENERATED ARCHIVE: $(ARCHIVE_FILE)"
 

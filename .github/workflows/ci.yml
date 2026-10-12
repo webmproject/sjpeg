@@ -26,6 +26,30 @@ jobs:
       - run: cmake --build .
       - run: ctest --output-on-failure
 
+  make:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y libpng-dev libjpeg-dev freeglut3-dev
+      - run: make -j4 HAVE_AVX2=1
+      - run: make test
+
+  cmake-options:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        opts: ['-DSJPEG_HAVE_AVX2=ON', '-DSJPEG_ENABLE_PROGRESSIVE=OFF -DSJPEG_ENABLE_MULTITHREADING=OFF', '-DSJPEG_ENABLE_SIMD=OFF']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y libpng-dev libjpeg-dev
+      - run: cmake -B build ${{ matrix.opts }}
+      - run: cmake --build build -j4
+      - run: ctest --test-dir build --output-on-failure
+
   android:
     runs-on: ubuntu-latest
     steps:

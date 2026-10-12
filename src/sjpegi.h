@@ -12,20 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-//  Fast & simple JPEG encoder. Internal header.
+//  Fast & simple JPEG encoder: the Encoder class. Internal header.
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
 #ifndef SJPEG_JPEGI_H_
 #define SJPEG_JPEGI_H_
 
-#include <assert.h>
-#include <stddef.h>
-#include <stdint.h>
-
 #include <functional>
-#include <limits>
-#include <type_traits>
 #include <vector>
 
 #if !defined(SJPEG_NO_MULTITHREADING)
@@ -34,387 +28,16 @@
 
 // IWYU pragma: begin_exports
 #include "bit_writer.h"
+#include "blocks.h"
+#include "common.h"
+#include "dsp.h"
+#include "entropy.h"
+#include "headers.h"
 #include "sjpeg.h"
+#include "slices.h"
 // IWYU pragma: end_exports
 
-#define SJPEG_STRINGIFY_HELPER(x) #x
-#define SJPEG_STRINGIFY(x) SJPEG_STRINGIFY_HELPER(x)
-
-#if defined(__clang__)
-#define SJPEG_UNROLL(n) _Pragma(SJPEG_STRINGIFY(clang loop unroll_count(n)))
-#elif defined(__GNUC__) && (__GNUC__ >= 8)
-#define SJPEG_UNROLL(n) _Pragma(SJPEG_STRINGIFY(GCC unroll n))
-#else
-#define SJPEG_UNROLL(n)
-#endif
-
-// Progressive (spectral-split-only) encoding; on by default. Pass
-// -DSJPEG_NO_PROGRESSIVE to strip the feature's code out entirely.
-
-// Multi-threaded baseline encoding (EncoderParam::num_threads); on by default.
-// Pass -DSJPEG_NO_MULTITHREADING to strip the feature's code out entirely,
-// along with sjpeg's only use of <thread>. num_threads is then ignored and
-// encoding always runs on the calling thread.
-
-// SIMD feature-detection macros (SJPEG_USE_SSE2/SSSE3/AVX2/NEON,
-// SJPEG_AARCH64) and the intrinsic headers they gate live in simd.h; only
-// files that define SJPEG_NEED_ASM_HEADERS before including this one pull
-// them in.
-#if defined(SJPEG_NEED_ASM_HEADERS)
-#include "simd.h"  // IWYU pragma: export
-#endif             // SJPEG_NEED_ASM_HEADERS
-
-////////////////////////////////////////////////////////////////////////////////
-
 namespace sjpeg {
-
-#if defined(__has_builtin)
-#define SJPEG_HAS_BUILTIN(x) __has_builtin(x)
-#else
-#define SJPEG_HAS_BUILTIN(x) 0
-#endif
-
-////////////////////////////////////////////////////////////////////////////////
-// Safe integer arithmetic helpers for buffer sizing and allocations.
-
-#if (defined(__GNUC__) && __GNUC__ >= 5) ||                             \
-    (defined(__clang__) && SJPEG_HAS_BUILTIN(__builtin_mul_overflow) && \
-     SJPEG_HAS_BUILTIN(__builtin_add_overflow))
-#define SJPEG_HAS_BUILTIN_OVERFLOW 1
-#endif
-
-// Returns true if a * b does not overflow type T, storing the result in *out.
-// If overflow occurs, *out is set to 0 and false is returned.
-template <typename T>
-inline bool SafeMultiply(T a, T b, T* out) {
-  if (out == nullptr) return false;
-#if defined(SJPEG_HAS_BUILTIN_OVERFLOW)
-  return !__builtin_mul_overflow(a, b, out);
-#else
-  static_assert(std::is_integral<T>::value, "Integral type required");
-  if (a == 0 || b == 0) {
-    *out = 0;
-    return true;
-  }
-  if (a > 0 && b > 0) {
-    if (b > std::numeric_limits<T>::max() / a) {
-      *out = 0;
-      return false;
-    }
-  } else if (a < 0 && b < 0) {
-    if (a == std::numeric_limits<T>::min() ||
-        b == std::numeric_limits<T>::min()) {
-      *out = 0;
-      return false;
-    }
-    if (-b > std::numeric_limits<T>::max() / -a) {
-      *out = 0;
-      return false;
-    }
-  } else if (a < 0) {
-    if (a < std::numeric_limits<T>::min() / b) {
-      *out = 0;
-      return false;
-    }
-  } else {  // b < 0
-    if (b < std::numeric_limits<T>::min() / a) {
-      *out = 0;
-      return false;
-    }
-  }
-  *out = a * b;
-  return true;
-#endif
-}
-
-// Returns true if a + b does not overflow type T, storing the result in *out.
-// If overflow occurs, *out is set to 0 and false is returned.
-template <typename T>
-inline bool SafeAdd(T a, T b, T* out) {
-  if (out == nullptr) return false;
-#if defined(SJPEG_HAS_BUILTIN_OVERFLOW)
-  return !__builtin_add_overflow(a, b, out);
-#else
-  static_assert(std::is_integral<T>::value, "Integral type required");
-  if (b > 0 && a > std::numeric_limits<T>::max() - b) {
-    *out = 0;
-    return false;
-  }
-  if (b < 0 && a < std::numeric_limits<T>::min() - b) {
-    *out = 0;
-    return false;
-  }
-  *out = a + b;
-  return true;
-#endif
-}
-
-extern bool SupportsSSE2();
-extern bool SupportsNEON();
-extern bool SupportsAVX2();
-
-// Constants below are marker codes defined in JPEG spec
-// ISO/IEC 10918-1 : 1993(E) Table B.1
-// See also: http://www.w3.org/Graphics/JPEG/itu-t81.pdf
-
-#define M_SOF0 0xffc0
-#define M_SOF1 0xffc1
-#define M_DHT 0xffc4
-#define M_SOI 0xffd8
-#define M_EOI 0xffd9
-#define M_SOS 0xffda
-#define M_DQT 0xffdb
-
-// Maximum picture dimension: SOF stores the width and height on 16 bits.
-enum { kMaxDimension = 0xffff };
-
-// Forward 8x8 Fourier transforms, in-place.
-typedef void (*FdctFunc)(int16_t* coeffs, int num_blocks);
-FdctFunc GetFdct();
-
-// these are the default luma/chroma matrices (JPEG spec section K.1)
-extern const uint8_t kDefaultMatrices[2][64];
-extern const uint8_t kZigzag[64];
-extern const uint8_t kInvZigzag[64];
-
-// scoring tables in score_7.cc
-extern const int kRGBSize;
-extern const uint8_t kSharpnessScore[];
-
-// internal riskiness scoring functions:
-extern double DCTRiskinessScore(const int16_t yuv[3 * 64],
-                                int16_t scores[8 * 8]);
-extern double BlockRiskinessScore(const uint8_t* rgb, int stride,
-                                  int16_t scores[8 * 8]);
-enum class BlockActivityTier;  // see definition below
-extern BlockActivityTier BlockActivityScore(const uint8_t* rgb, int stride,
-                                            uint32_t* activity = nullptr);
-extern int YUVToRiskIdx(int16_t y, int16_t u, int16_t v);
-typedef void (*RiskinessScoreRowFunc)(const uint16_t* row1,
-                                      const uint16_t* row2, int size,
-                                      int noise_level, int64_t* score_sum,
-                                      int64_t* score_num, int64_t* gray_num);
-extern RiskinessScoreRowFunc GetRiskinessScoreRowFunc();
-// scalar C reference, also used for the remainder of the SIMD variants
-extern void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2,
-                                int size, int noise_level, int64_t* score_sum,
-                                int64_t* score_num, int64_t* gray_num);
-
-///////////////////////////////////////////////////////////////////////////////
-// RGB->YUV conversion
-
-// Internal pixel format for the input samples fed to the block functions.
-enum PixelFormat { kRGBInput = 0, kBGRAInput = 1, kRGBAInput = 2 };
-
-// convert 16x16 RGB block into YUV420, or 8x8 RGB block into YUV444 or YUV400
-typedef void (*RGBToYUVBlockFunc)(const uint8_t* src, int src_stride,
-                                  int16_t* blocks);
-extern RGBToYUVBlockFunc GetBlockFunc(SjpegYUVMode mode,
-                                      PixelFormat fmt = kRGBInput);
-
-// convert a row of RGB samples to YUV444
-typedef void (*RGBToIndexRowFunc)(const uint8_t* src, int width, uint16_t* dst);
-extern RGBToIndexRowFunc GetRowFunc();
-
-class Encoder;
-
-// Enhanced slower RGB->YUV conversion:
-//  y_plane[] has dimension W x H, whereas u_plane[] and v_plane[] have
-//  dimension (W + 1)/2 x (H + 1)/2.
-bool ApplySharpYUVConversion(const uint8_t* rgb, int W, int H, int stride,
-                             uint8_t* y_plane, uint8_t* u_plane,
-                             uint8_t* v_plane,
-                             const Encoder* encoder = nullptr);
-
-// Shared by yuv_convert.cc and yuv_convert_avx2.cc.
-typedef int16_t fixed_t;
-typedef uint16_t fixed_y_t;
-
-// Import one RGB row into planar fixed_y_t format starting at column start_x.
-void ImportOneRow_C(const uint8_t* rgb, int start_x, int pic_width,
-                    fixed_y_t* dst);
-void ImportOneRow_C(const uint8_t* rgb, int pic_width, fixed_y_t* dst);
-
-///////////////////////////////////////////////////////////////////////////////
-// Generic sample-replication function. Replicate sub_w x sub_h area of 'src'
-// into 'dst', assuming the individual samples are 'x_step' bytes each.
-void Replicate8b(const uint8_t* src, int src_stride, uint8_t* dst,
-                 int dst_stride, int sub_w, int sub_h, int w, int h,
-                 int x_step);
-
-// This variant will replicate src[] into a 16b output dst[], subtracting 128.
-// This function operates on a 8x8 block only.
-void Convert8To16bClipped(const uint8_t* src, int src_step, int16_t dst[8 * 8],
-                          int sub_w, int sub_h);
-
-// Convert a 8x8 block of unsigned-8b values to signed-16b, subtracting 128.
-void Convert8To16b(const uint8_t* src, int src_step, int16_t dst[8 * 8]);
-
-///////////////////////////////////////////////////////////////////////////////
-// some useful helper functions around quant matrices
-
-extern float GetQFactor(float q);  // convert quality factor -> scale factor
-extern void CopyQuantMatrix(const uint8_t in[64], uint8_t out[64]);
-extern void SetQuantMatrix(const uint8_t in[64], float q_factor,
-                           uint8_t out[64]);
-extern void SetMinQuantMatrix(const uint8_t* m, uint8_t out[64], int tolerance);
-extern void SetDefaultMinQuantMatrix(uint8_t out[64]);
-
-////////////////////////////////////////////////////////////////////////////////
-// Shared by files enc.cc was split into. Everything else in those files is
-// either a member of Encoder (already declared below) or file-local.
-
-// Encoder defaults. Also read by EncoderParam, hence not file-local.
-extern const float kDefaultQuality;
-extern const int kDefaultMethod;
-extern const int32_t kDefaultBias;      // rounding bias for AC coefficients
-extern const int kDefaultDeltaMaxLuma;  // for adaptive quantization
-extern const int kDefaultDeltaMaxChroma;
-
-// Manager used when the caller supplies none.
-extern MemoryManager* GetDefaultMemoryManager();
-
-// Fixed-point precisions: FP_BITS for the reciprocal dividers used in place of
-// a division, AC_BITS for the extra precision left over by the fdct's scaling.
-enum { FP_BITS = 16, AC_BITS = 4 };
-
-// Block activity classification for perceptual adaptive-bias quantization.
-enum class BlockActivityTier {
-  kFlatBlock = -1,
-  kNormalBlock = 0,
-  kBusyBlock = 1
-};
-enum {
-  kActivityLo = 28 << AC_BITS,
-  kActivityHi = 360 << AC_BITS,
-};
-
-// Returns the flat/normal/busy classification from an activity score.
-BlockActivityTier ClassifyActivity(uint32_t activity);
-
-// Classify an 8x8 block from its DCT coefficients.
-BlockActivityTier ClassifyBlockActivity(const int16_t in[64],
-                                        uint32_t* score = nullptr);
-
-#if SJPEG_HAS_BUILTIN(__builtin_clz) || \
-    (defined(__GNUC__) &&               \
-     ((__GNUC__ == 3 && __GNUC_MINOR__ >= 4) || __GNUC__ >= 4))
-#define SJPEG_HAVE_CLZ
-#endif
-
-#if SJPEG_HAS_BUILTIN(__builtin_ctzll) || \
-    (defined(__GNUC__) &&                 \
-     ((__GNUC__ == 3 && __GNUC_MINOR__ >= 4) || __GNUC__ >= 4))
-#define SJPEG_HAVE_CTZ
-#endif
-
-// Number of bits needed to code 'v' > 0, i.e. 1 + floor(log2(v)).
-static inline int CalcLog2(int v) {
-#if defined(SJPEG_HAVE_CLZ)
-  return 32 - __builtin_clz(v);
-#else
-  const int kLog2[16] = {0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4};
-  assert(v > 0 && v < (1 << 12));
-  return (v & ~0xff)   ? 8 + kLog2[v >> 8]
-         : (v & ~0x0f) ? 4 + kLog2[v >> 4]
-                       : 0 + kLog2[v];
-#endif
-}
-
-// Count trailing zeros of a non-zero 64-bit value.
-// 'x' must be non-zero.
-static inline int TrailingZeros64(uint64_t x) {
-#if defined(SJPEG_HAVE_CTZ)
-  return __builtin_ctzll(x);
-#else
-  int c = 63;
-  x &= ~x + 1;
-  if (x & 0x00000000FFFFFFFF) c -= 32;
-  if (x & 0x0000FFFF0000FFFF) c -= 16;
-  if (x & 0x00FF00FF00FF00FF) c -= 8;
-  if (x & 0x0F0F0F0F0F0F0F0F) c -= 4;
-  if (x & 0x3333333333333333) c -= 2;
-  if (x & 0x5555555555555555) c -= 1;
-  return c;
-#endif
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// main structs
-
-// Huffman tables
-struct HuffmanTable {
-  uint8_t bits_[16];     // number of symbols per bit count
-  const uint8_t* syms_;  // symbol map, in increasing bit length
-  int nb_syms_;          // cached value of sum(bits_[])
-};
-
-// quantizer matrices
-struct Quantizer {
-  uint8_t quant_[64];      // direct quantizer matrix
-  uint8_t min_quant_[64];  // min quantizer value allowed
-  uint16_t iquant_[64];    // precalc'd reciprocal for divisor
-  uint16_t qthresh_[64];   // minimal absolute value that produce non-zero coeff
-  uint32_t qthresh2_[64];  // qthresh_[]^2 for fast comparison against coeff^2
-  uint16_t bias_[64];      // bias, for coring
-  // Alternate thresholds for adaptive-bias mode.
-  uint16_t qthresh_flat_[64];
-  uint16_t qthresh_busy_[64];
-  const uint32_t* codes_;  // codes for bit-cost calculation
-};
-
-// Testing hook: exposes Encoder::GetQuantizeErrorFunc(), which is private.
-typedef uint32_t (*QuantizeErrorTestFunc)(const int16_t in[64],
-                                          const Quantizer* const Q);
-QuantizeErrorTestFunc GetQuantizeErrorFuncForTest();
-
-// compact Run/Level storage, separate from DCTCoeffs infos
-// Run/Level Information is not yet entropy-coded, but just stored
-struct RunLevel {
-  int16_t run_;
-  uint16_t level_;  // 4bits for length, 12bits for mantissa
-};
-
-// short infos about the block of quantized coefficients
-struct DCTCoeffs {
-  int16_t last_;       // last position (inclusive) of non-zero coeff
-  int16_t nb_coeffs_;  // total number of non-zero AC coeffs
-  uint16_t dc_code_;   // DC code (4bits for length, 12bits for suffix)
-  int8_t idx_;         // component idx
-};
-
-// Histogram of transform coefficients, for adaptive quant matrices
-// * HSHIFT controls the trade-off between storage size for counts[]
-//   and precision: the fdct doesn't descale and returns coefficients as
-//   signed 16bit value. We are only interested in the absolute values
-//   of coefficients that are less than MAX_HISTO_DCT_COEFF, which are our
-//   best contributors.
-//   Still, storing histogram up to MAX_HISTO_DCT_COEFF can be costly, so
-//   we further aggregate the statistics in bins of size 1 << HSHIFT to save
-//   space.
-// * HLAMBDA roughly measures how much you are willing to trade in distortion
-//   for a 1-bit gain in filesize.
-// * QDELTA_MIN / QDELTA_MAX control how much we allow wandering around the
-//   initial point. This helps reducing the CPU cost, as long as keeping the
-//   optimization around the initial desired quality-factor (HLAMBDA also
-//   serve this purpose).
-enum {
-  HSHIFT = 2,  // size of bins is (1 << HSHIFT)
-  HHALF = 1 << (HSHIFT - 1),
-  MAX_HISTO_DCT_COEFF = (1 << 7),  // max coefficient, descaled by HSHIFT
-  HLAMBDA = 0x80,
-  // Limits on range of alternate quantizers explored around
-  // the initial value.  (see details in AnalyseHisto())
-  QDELTA_MIN = -12,
-  QDELTA_MAX = 12,
-  QSIZE = QDELTA_MAX + 1 - QDELTA_MIN,
-};
-
-struct Histo {
-  // Reserve one extra entry for counting all coeffs greater than
-  // MAX_HISTO_DCT_COEFF. Result isn't used, but it makes the loop easier.
-  int counts_[64][MAX_HISTO_DCT_COEFF + 1];
-};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -473,9 +96,7 @@ class Encoder {
  private:
   static constexpr size_t kMaxMCUSize = 2560;
 
-  bool CheckBuffers();  // returns false in case of memory alloc error
-  bool ReserveSlab();   // shared by CheckBuffers()/CheckProgBuffers()
-  bool EnsureRunLevels(size_t needed);
+  bool ReserveSlab();
   int TotalRestartIntervals() const {
     return (restart_interval_rows_ > 0)
                ? (mb_h_ + restart_interval_rows_ - 1) / restart_interval_rows_
@@ -488,54 +109,12 @@ class Encoder {
   // (grain <= 0: linear kMinMCUsPerThread model; else ScaledThreadLimit()).
   int GetNumSlices(int cap, int grain = 64) const;
 
-  void Put16b(uint32_t size);
-  void Put32b(uint32_t size);
-
-  void WriteAPP0();
-  bool WriteAPPMarkers(const std::string& data);
-  bool WriteEXIF(const std::string& data);
-  bool WriteICCP(const std::string& data);
-  bool WriteXMP(const std::string& data);
-  bool WriteXMPExtended(const std::string& data);
+  // Marker writers: thin wrappers around hw_ that gather the frame state.
   void WriteDQT();
   void WriteSOF(bool progressive = false);
   void WriteDHT();
   void WriteDRI();
   void WriteSOS();
-  void WriteEOI();
-
-  // General per-scan marker writers; WriteDHT()/WriteSOS() above use these
-  // too, in addition to the progressive path (see SetProgressive()).
-  // Writes one Huffman table as its own DHT segment (table_class: 0=DC, 1=AC).
-  void WriteOneDHT(int table_class, int table_id, const HuffmanTable* table);
-  struct ScanComponent {
-    int comp_idx;     // 0, 1 or 2
-    int dc_table_id;  // Huffman DC table selector for this component
-    int ac_table_id;  // Huffman AC table selector for this component
-  };
-  // Writes one SOS for the given component list and spectral range.
-  void WriteProgSOS(const ScanComponent* comps, int nb_comps, int Ss, int Se);
-
-#if !defined(SJPEG_NO_PROGRESSIVE)
-  void AddEntropyStatsDC(const DCTCoeffs* coeffs);
-  void CodeBlockDC(const DCTCoeffs* coeffs);
-  void CompileEntropyStatsDC();  // builds dc_codes_[] from freq_dc_[] directly
-
-  // Restricts a block's RunLevel list to window [Ss,Se]; see entropy.cc.
-  static int WindowRunLevels(const DCTCoeffs* coeffs, const RunLevel* rl,
-                             int Ss, int Se, RunLevel* out, bool* out_has_eob);
-
-  void ResetEntropyStatsAC();  // resets prog_planes_->freq_ac only
-  // WindowRunLevels()'s explicit entries only; has_eob (EOBn) is separate.
-  void AddEntropyStatsACWindowed(const RunLevel* windowed, int nb_windowed);
-  void CodeBlockACWindowed(const RunLevel* windowed, int nb_windowed);
-  // EOBn run-length coding across empty blocks; see entropy.cc.
-  void AddEntropyStatsEOBRun(int run);
-  void CodeEOBRun(int run);
-  void CompileEntropyStatsAC();  // builds prog_planes_->opt_table_ac/ac_codes
-
-  bool EncodeProgressive();  // the whole progressive-mode encode path
-#endif                       // !SJPEG_NO_PROGRESSIVE
 
   void ResetDCs();
   bool EmitRestartMarker(sjpeg::BitWriter* bw, int interval_idx,
@@ -560,11 +139,11 @@ class Encoder {
   bool CodeScanSlice(int first_interval, int end_interval, int total_intervals,
                      sjpeg::BitWriter* bw, size_t slab_size, int16_t* scratch,
                      uint8_t* rep_buf);
+  // 'store' (null if the run/levels aren't kept) and 'stats' (null if not
+  // collected) receive the quantized blocks.
   bool QuantizeScanSlice(int first_interval, int end_interval,
-                         DCTCoeffs* coeffs, std::vector<RunLevel>* rl_vec,
-                         size_t* out_nb_rl, uint32_t freq_ac[2][256 + 1],
-                         uint32_t freq_dc[2][12 + 1], int16_t* scratch,
-                         uint8_t* rep_buf);
+                         SliceStore* store, EntropyStats* stats,
+                         int16_t* scratch, uint8_t* rep_buf);
   bool ReplayScanSlice(int first_interval, int end_interval,
                        int total_intervals, size_t nb_blocks,
                        const DCTCoeffs* coeffs, const RunLevel* rl,
@@ -574,27 +153,18 @@ class Encoder {
   void CollectCoeffs();
   void CollectCoeffsSlice(int y_start, int y_end, uint8_t* rep_buf);
 
-  // points Huffman_tables_[] at the standard tables of JPEG section K.3
-  void SetDefaultHuffmanTables();
-
-  // 2-pass Huffman optimizing scan
-  void ResetEntropyStats();
-  void AddEntropyStats(const DCTCoeffs* coeffs, const RunLevel* run_levels);
-  // Same, into the supplied histograms rather than freq_ac_/freq_dc_. The
-  // parallel scan tallies into per-worker copies and sums them afterwards.
-  static void AddEntropyStats(const DCTCoeffs* coeffs,
-                              const RunLevel* run_levels, uint32_t* freq_ac,
-                              uint32_t* freq_dc);
-  void CompileEntropyStats();
-  size_t EntropySize() const;  // size, in bits, derived from freq_ac_/freq_dc_
+  // Seeds the AC codes the trellis / RDO quantizers read their costs from.
+  void InitCostCodes() {
+    if (use_trellis_ || use_rdo_) entropy_.InitCodes(/*only_ac=*/true);
+  }
 
   void SinglePassScan();           // finalizing scan
   void SinglePassScanOptimized();  // optimize the Huffman table + finalize scan
 
   void SinglePassEncode();  // non-iterating encoding pass
   // WriteSOF()/WriteDRI() + the optimize_size_ scan dispatch. Shared by
-  // SinglePassEncode()'s baseline path and LoopScan()'s serial PSNR-target
-  // finalize step.
+  // SinglePassEncode()'s baseline path and LoopScan()'s PSNR-target finalize
+  // step.
   void WriteBaselineAndScan();
 
 #if !defined(SJPEG_NO_MULTITHREADING)
@@ -616,45 +186,37 @@ class Encoder {
     return threads;
   }
 
-  // Per-worker output and scratch. Cache-line aligned: the histogram pass hits
-  // freq_ac[] once per coefficient, and neighbouring slices would otherwise
-  // share lines.
-  struct alignas(64) ThreadChunk {
-    std::string data;                  // this slice's entropy-coded bytes
-    std::vector<DCTCoeffs> coeffs;     // optimized path only: one per block
-    std::vector<RunLevel> run_levels;  // optimized path only: their run/levels
-    size_t nb_run_levels = 0;          // entries of run_levels[] in use
-    uint32_t freq_ac[2][256 + 1];      // optimized path only: local histograms
-    uint32_t freq_dc[2][12 + 1];
-    bool ok = true;
-  };
-
-  // Parallel equivalents of the histogram pass, coefficient collection,
-  // dichotomy search evaluation, and baseline scans. They emit the same
-  // bitstream, byte for byte.
+  // Parallel equivalents of the serial passes, emitting the same results.
   void CollectHistogramsMultiThreaded(int num_threads);
   void CollectCoeffsMultiThreaded(int num_threads);
   float ComputePSNRMultiThreaded(int num_threads) const;
-  float EvaluateSizeMultiThreaded(int num_threads, int total_intervals,
-                                  std::vector<ThreadChunk>* chunks);
-  void QuantizeSlicesMultiThreaded(int num_threads, int total_intervals,
-                                   std::vector<ThreadChunk>* chunks);
-  void ReplaySlicesMultiThreaded(int num_threads, int total_intervals,
-                                 std::vector<ThreadChunk>* chunks);
   void SinglePassScanMultiThreaded(int num_threads, int total_intervals);
-  void SinglePassScanOptimizedMultiThreaded(int num_threads,
-                                            int total_intervals);
-
   // Appends the slices to bw_ in order, freeing each one as it goes.
   void ConcatenateChunks(ThreadChunk* chunks, int num_chunks);
-  // Sums each slice's AC/DC symbol frequencies into freq_ac_ / freq_dc_.
-  void MergeChunkStats(const ThreadChunk* chunks, int num_chunks);
 #endif  // !SJPEG_NO_MULTITHREADING
-  // quantize and compute run/levels from already stored coeffs
-  void StoreRunLevels(DCTCoeffs* coeffs);
-  // just write already stored run_levels & coeffs:
-  void FinalPassScan(size_t nb_mbs, const DCTCoeffs* coeffs);
 
+  // Slice-based passes: a slice is a range of restart intervals. They run on
+  // 'num_slices' threads (a single slice when serial), and emit the same
+  // bitstream, byte for byte.
+  // Runs fn(slice_idx, first, end) over a partition of [0, total).
+  template <class F>
+  void ForEachSlice(int num_slices, int total, const F& fn) const {
+#if !defined(SJPEG_NO_MULTITHREADING)
+    RunParallel(num_slices, total, fn);
+#else
+    (void)num_slices;
+    fn(0, 0, total);
+#endif
+  }
+  // Quantizes the slices into (*chunks)[], gathering the entropy statistics
+  // into stats_ if optimizing the Huffman tables.
+  void QuantizeSlices(int num_slices, int total_intervals, ChunkSet* chunks);
+  // Codes the stored run/levels of the slices, in order, into bw_.
+  void ReplaySlices(int num_slices, int total_intervals, ChunkSet* chunks);
+  // Size, in bytes, of the stream coded from the quantized slices.
+  float EvaluateSize(int num_slices, int total_intervals, ChunkSet* chunks);
+  // Sums each slice's symbol frequencies into stats_.
+  void MergeChunkStats(const ThreadChunk* chunks, int num_chunks);
   // dichotomy loop
   void LoopScan();
 
@@ -694,24 +256,21 @@ class Encoder {
   static QuantizeErrorFunc GetQuantizeErrorFunc();
   friend QuantizeErrorTestFunc GetQuantizeErrorFuncForTest();
 
-  void CodeBlock(const DCTCoeffs* coeffs, const RunLevel* rl) {
-    CodeBlock(coeffs, rl, &bw_);
-  }
   void CodeBlock(const DCTCoeffs* coeffs, const RunLevel* rl,
-                 sjpeg::BitWriter* bw);
+                 sjpeg::BitWriter* bw) const {
+    entropy_.CodeBlock(coeffs, rl, quant_idx_[coeffs->idx_], bw);
+  }
   // returns DC code (4bits for length, 12bits for suffix), updates DC_predictor
   static uint16_t GenerateDCDiffCode(int DC, int* DC_predictor);
 
   static void FinalizeQuantMatrix(Quantizer* q, int bias,
                                   bool adaptive = false);
   void SetCostCodes(int idx);
-  void InitCodes(bool only_ac);
 
   size_t HeaderSize() const;
   void BlocksSize(int nb_mbs, const DCTCoeffs* coeffs, const RunLevel* rl,
                   sjpeg::BitCounter* bc) const;
   float ComputeSize(size_t entropy_bits) const;
-  float ComputeSize(const DCTCoeffs* coeffs);
   uint64_t ComputePSNRSlice(int y_start, int y_end) const;
   float ComputePSNR() const;
   static float GetPSNR(uint64_t err, uint64_t size);
@@ -786,6 +345,7 @@ class Encoder {
 
  private:
   sjpeg::BitWriter bw_;  // output buffer
+  HeaderWriter hw_;      // marker segments, written to bw_
 
   std::string iccp_, xmp_, exif_, app_markers_;  // metadata
   uint16_t xmp_split_;  // user-supplied split point for extended metadata
@@ -813,23 +373,9 @@ class Encoder {
   bool AllocateBlocks(size_t num_blocks);  // returns false in case of error
   void DeallocateBlocks();
 
-  // this is the extra memory for compression method 1
-  RunLevel* all_run_levels_;
-  size_t nb_run_levels_, max_run_levels_;
-
-  // Huffman_tables_ indices:
-  //  0: luma dc, 1: chroma dc, 2: luma ac, 3: chroma ac
-  const HuffmanTable* Huffman_tables_[4];
-  uint32_t ac_codes_[2][256];
-  uint32_t dc_codes_[2][12];
-
+  EntropyCoder entropy_;  // Huffman tables and codes
   // histograms for dynamic codes. Could be temporaries.
-  uint32_t freq_ac_[2][256 + 1];  // frequency distribution for AC coeffs
-  uint32_t freq_dc_[2][12 + 1];   // frequency distribution for DC coeffs
-  uint8_t opt_syms_ac_[2][256];   // optimal table for AC symbols
-  uint8_t opt_syms_dc_[2][12];    // optimal table for DC symbols
-  HuffmanTable opt_tables_ac_[2];
-  HuffmanTable opt_tables_dc_[2];
+  EntropyStats stats_;
 
   // Limits on how much we will decrease the bitrate in the luminance
   // and chrominance channels (respectively).
@@ -864,6 +410,7 @@ class Encoder {
   ProgPlanes* prog_planes_;
 
 #if !defined(SJPEG_NO_PROGRESSIVE)
+  bool EncodeProgressive();  // the whole progressive-mode encode path
   struct ProgPlanes {
     // Non-MCU-interleaved storage (non-interleaved AC scans need true raster
     // order). Fixed 63-entry RunLevel slot per block.
@@ -874,19 +421,19 @@ class Encoder {
     // non-interleaved AC scans must actually visit.
     int true_w[MAX_COMP], true_h[MAX_COMP];
     // Scratch AC Huffman state, rebuilt per progressive scan (unlike
-    // freq_ac_/ac_codes_, which hold 2 permanent baseline tables).
-    uint32_t freq_ac[256 + 1];
-    uint32_t ac_codes[256];
-    uint8_t opt_syms_ac[256];
-    HuffmanTable opt_table_ac;
+    // entropy_, which holds 2 permanent baseline tables).
+    ProgACCoder ac;
   };
   bool AllocateProgPlanes();
   void DeallocateProgPlanes();
   // index of sub-block 'i' of MCU (mb_x,mb_y) in component c's plane
   int ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const;
-  bool CheckProgBuffers();  // like CheckBuffers(), but for the bw_ slab only
+  bool CheckProgBuffers() { return ReserveSlab(); }
   void EncodeProgAC(int c, int split);  // all AC scans for one component
-#endif                                  // !SJPEG_NO_PROGRESSIVE
+  template <class BlockFn, class EOBFn, class StartFn>
+  bool WalkACBand(int c, int Ss, int Se, BlockFn on_block, EOBFn on_eob,
+                  StartFn on_start) const;
+#endif  // !SJPEG_NO_PROGRESSIVE
 
   // multi-pass parameters
   int passes_;

@@ -82,55 +82,21 @@ void SearchHook::NextMatrix(int idx, uint8_t dst[64]) {
 ////////////////////////////////////////////////////////////////////////////////
 // Helpers for the search
 
-void Encoder::StoreRunLevels(DCTCoeffs* coeffs) {
-  assert(use_extra_memory_);
-  assert(reuse_run_levels_);
-
-  if (use_trellis_ || use_rdo_) InitCodes(true);
-
-  // run/levels are in registers here, so frequencies come for free. Whoever
-  // needs the tables afterwards only has to CompileEntropyStats().
-  const bool collect_stats = optimize_size_;
-  if (collect_stats) ResetEntropyStats();
-
-  nb_run_levels_ = 0;
-  const int total_intervals = TotalRestartIntervals();
-  if (!QuantizeScanSlice(0, total_intervals, coeffs, /*rl_vec=*/nullptr,
-                         &nb_run_levels_, collect_stats ? freq_ac_ : nullptr,
-                         collect_stats ? freq_dc_ : nullptr, in_blocks_,
-                         replicated_buffer_)) {
-    return;
-  }
-}
-
 void Encoder::LoopScan() {
   assert(use_extra_memory_);
   assert(reuse_run_levels_);
 
-#if !defined(SJPEG_NO_MULTITHREADING)
   const int total_intervals = TotalRestartIntervals();
-  const int search_threads = search_hook_->for_size
-                                 ? GetNumSlices(total_intervals)
-                                 : GetNumSlices(mb_h_);
-#endif  // !SJPEG_NO_MULTITHREADING
+  const int num_slices = search_hook_->for_size ? GetNumSlices(total_intervals)
+                                                : GetNumSlices(mb_h_);
   if (use_adaptive_quant_) {
     CollectHistograms();
   } else {
     CollectCoeffs();  // we just need the coeffs
   }
 
-  const size_t nb_mbs = mb_w_ * mb_h_ * mcu_blocks_;
-  DCTCoeffs* base_coeffs = nullptr;
-#if !defined(SJPEG_NO_MULTITHREADING)
-  // Reused every iteration, like base_coeffs -- see the finalize step below.
-  std::vector<ThreadChunk> chunks;
-  if (search_threads <= 1)
-#endif
-  {
-    base_coeffs = Alloc<DCTCoeffs>(nb_mbs);
-    if (base_coeffs == nullptr) return;
-  }
-
+  // Reused every iteration, like the matrices below.
+  ChunkSet chunks(memory_hook_);
   uint8_t opt_quants[2][64];
 
   // Dichotomy passes
@@ -151,23 +117,8 @@ void Encoder::LoopScan() {
 
     float result;
     if (search_hook_->for_size) {
-#if !defined(SJPEG_NO_MULTITHREADING)
-      if (search_threads > 1) {
-        result =
-            EvaluateSizeMultiThreaded(search_threads, total_intervals, &chunks);
-        if (!ok_) break;
-      } else
-#endif
-      {
-        // compute pass to store coeffs / runs / dc_code_
-        StoreRunLevels(base_coeffs);
-        if (!ok_) break;
-        if (optimize_size_) {
-          CompileEntropyStats();  // stats were gathered by StoreRunLevels()
-          if (use_trellis_ || use_rdo_) InitCodes(true);
-        }
-        result = ComputeSize(base_coeffs);
-      }
+      result = EvaluateSize(num_slices, total_intervals, &chunks);
+      if (!ok_) break;
     } else {
       // if we're just targeting PSNR, we don't need to compute the run/levels
       // within the loop. We just need to quantize the coeffs and measure the
@@ -192,60 +143,36 @@ void Encoder::LoopScan() {
   }
   // If the search was interrupted by a failed allocation, opt_quants[] was
   // never filled in: there is nothing to transfer back, and nothing to write.
-  if (ok_) {
-    // transfer back the final matrices
-    SetQuantMatrices(opt_quants);
-    for (int c = 0; c < 2; ++c)
-      FinalizeQuantMatrix(&quants_[c], q_bias_, adaptive_bias_);
+  if (!ok_) return;
 
-    // return informative values to the user
-    search_hook_->q = best_q;
-    search_hook_->value = best_result;
-
-#if !defined(SJPEG_NO_MULTITHREADING)
-    if (search_threads > 1) {
-      if (search_hook_->for_size) {
-        // Like the serial fallback below, redo the quantization pass if the
-        // search's last try wasn't the winner.
-        if (!last_is_best) {
-          QuantizeSlicesMultiThreaded(search_threads, total_intervals, &chunks);
-          if (!ok_) return;
-          if (optimize_size_) CompileEntropyStats();
-        }
-        DeallocateBlocks();
-        WriteDQT();
-        WriteSOF();
-        WriteDRI();
-        WriteDHT();
-        WriteSOS();
-        ReplaySlicesMultiThreaded(search_threads, total_intervals, &chunks);
-      } else {
-        WriteDQT();
-        WriteBaselineAndScan();
-      }
-    } else
-#endif
-    {
-      // optimize Huffman table now, if we haven't already during the search
-      if (!search_hook_->for_size || !last_is_best) {
-        StoreRunLevels(base_coeffs);
-        if (ok_ && optimize_size_) {
-          CompileEntropyStats();
-        }
-      }
-
-      // finish bitstream
-      if (ok_) {
-        WriteDQT();
-        WriteSOF();
-        WriteDRI();
-        WriteDHT();
-        WriteSOS();
-        FinalPassScan(nb_mbs, base_coeffs);
-      }
-    }
+  // transfer back the final matrices
+  SetQuantMatrices(opt_quants);
+  for (int c = 0; c < 2; ++c) {
+    FinalizeQuantMatrix(&quants_[c], q_bias_, adaptive_bias_);
   }
-  if (base_coeffs != nullptr) Free(base_coeffs);
+
+  // return informative values to the user
+  search_hook_->q = best_q;
+  search_hook_->value = best_result;
+
+  if (!search_hook_->for_size) {
+    WriteDQT();
+    WriteBaselineAndScan();
+    return;
+  }
+  // Redo the quantization pass if the search's last try wasn't the winner.
+  if (!last_is_best) {
+    QuantizeSlices(num_slices, total_intervals, &chunks);
+    if (!ok_) return;
+    if (optimize_size_) entropy_.Compile(stats_);
+  }
+  DeallocateBlocks();
+  WriteDQT();
+  WriteSOF();
+  WriteDRI();
+  WriteDHT();
+  WriteSOS();
+  ReplaySlices(num_slices, total_intervals, &chunks);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -278,7 +205,7 @@ size_t Encoder::HeaderSize() const {
   // DHT:
   for (int c = 0; c < (nb_comps_ == 1 ? 1 : 2); ++c) {  // luma, chroma
     for (int type = 0; type <= 1; ++type) {             // dc, ac
-      const HuffmanTable* const h = Huffman_tables_[type * 2 + c];
+      const HuffmanTable* const h = entropy_.table(type, c);
       size += 2 + 3 + 16 + h->nb_syms_;
     }
   }
@@ -294,12 +221,12 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
 
     // DC
     const int dc_len = c.dc_code_ & 0x0f;
-    const uint32_t code = dc_codes_[q_idx][dc_len];
+    const uint32_t code = entropy_.dc_codes(q_idx)[dc_len];
     bc->AddPackedCode(code);
     if (dc_len) bc->AddBits(c.dc_code_ >> 4, dc_len);
 
     // AC
-    const uint32_t* const codes = ac_codes_[q_idx];
+    const uint32_t* const codes = entropy_.ac_codes(q_idx);
     for (int i = 0; i < c.nb_coeffs_; ++i) {
       int run = rl[i].run_;
       while (run & ~15) {  // escapes
@@ -331,22 +258,7 @@ float Encoder::ComputeSize(size_t entropy_bits) const {
         (mb_h_ + restart_interval_rows_ - 1) / restart_interval_rows_ - 1;
     size += nb_restarts * (2 * 8 + 4);
   }
-  return size / 8.f;
-}
-
-float Encoder::ComputeSize(const DCTCoeffs* coeffs) {
-  InitCodes(false);
-  if (optimize_size_) {
-    // not counting the 0xff byte-stuffing that BlocksSize() tracks exactly
-    // these depends on the bit sequence, not on symbol counts.
-    // it's a little approximation we can live with.
-    // Under-estimated ~1/256 = 0.39%: uniform bytes, 0xff produces 2 bytes.
-    // Not worth correcting: below the search's own convergence precision.
-    return ComputeSize(EntropySize());
-  }
-  BitCounter bc;
-  BlocksSize(mb_w_ * mb_h_ * mcu_blocks_, coeffs, all_run_levels_, &bc);
-  return ComputeSize(bc.Size());
+  return (float)size / 8.f;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

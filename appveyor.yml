@@ -1,16 +1,24 @@
-image: Visual Studio 2019
+image: Visual Studio 2022
 configuration: Release
 
 environment:
   matrix:
   - arch: x64
+    options: ""
+  - arch: x64
+    options: -DSJPEG_HAVE_AVX2=ON
   - arch: ARM64
+    options: ""
 
-before_build: cmake . -A %arch%
+before_build:
+- cmake -S . -B build -A %arch% %options%
 
-build:
-  project: sjpeg.sln
-  verbosity: minimal
+build_script:
+- cmake --build build --config %configuration% --parallel
+
+test_script:
+# ARM64 binaries can't run on the x64 build host.
+- if "%arch%"=="x64" ctest --test-dir build -C %configuration% -R unit_test --output-on-failure
 
 artifacts:
-- path: /Release/*.exe
+- path: build\Release\*.exe

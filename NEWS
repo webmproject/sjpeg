@@ -1,1 +1,17 @@
+- 10/26: version 0.1.4
+  * progressive JPEG encoding (partial)
+  * restart markers (DRI/RST0-7) and multi-threaded encoding using them:
+    parallel scans, adaptive-quantization histograms, multi-pass search and
+    sharp-YUV conversion
+  * new quantization options: fast RDO (-rdo), adaptive bias
+  * progressive-aware SjpegRiskiness() with early exit (~2.6x faster)
+  * native RGBA/BGRA input paths (zero-copy)
+  * AVX2 functions: fdct, quantization, histogram, color conversion, sharp-YUV, riskiness
+  * faster SSE2/SSSE3/NEON: planar conversion, quantization (branch-free
+    run-length scan), histogram, trellis, fdct, JPEG scoring
+  * MSVC x86/ARM64 SIMD support, thread-safe lazy init, overflow fixes
+  * pkg-config file, unit-test binary, 'check' CMake target, CI
+- 01/20: add YUV400 (grayscale) support
+- 06/23: fix search-to-target-size mode
+- 03/18: PSNR/size search hooks, SetMinQuantization(), NEON QuantizeError
 - 11/17: initial release version 0.1

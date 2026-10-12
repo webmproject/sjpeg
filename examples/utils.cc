@@ -447,7 +447,7 @@ vector<uint8_t> ReadJPEG(const std::string& in, int* const width,
   ctx.data = (const uint8_t*)in.data();
   ctx.data_size = in.size();
 
-  memset((j_decompress_ptr)&dinfo, 0, sizeof(dinfo));  // for setjmp sanity
+  memset((j_decompress_ptr)&dinfo, 0, sizeof(dinfo));  // for setjmp safety
   dinfo.err = jpeg_std_error(&jerr.pub);
   jerr.pub.error_exit = my_error_exit;
 

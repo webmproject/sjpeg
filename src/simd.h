@@ -14,6 +14,9 @@
 //
 //  Common SIMD load/store helpers for SSE2, AVX2, and NEON.
 //
+//  Naming: LOAD_N / STORE_N move N bytes; the other helpers (ABS_N, CLAMP_N)
+//  work on a vector register of N bytes (16 for SSE2/NEON, 32 for AVX2).
+//
 // Author: Skal (pascal.massimino@gmail.com)
 
 #ifndef SJPEG_SIMD_H_
@@ -80,8 +83,11 @@
   _mm_store_si128(reinterpret_cast<__m128i*>(dst), (V))
 
 // Load / store 8 bytes (64 bits) into lower half of __m128i.
-#define LOAD_64(src) _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src))
-#define STORE_64(V, dst) _mm_storel_epi64(reinterpret_cast<__m128i*>(dst), (V))
+#define LOAD_8(src) _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src))
+#define STORE_8(V, dst) _mm_storel_epi64(reinterpret_cast<__m128i*>(dst), (V))
+
+// Load 8 bytes, zero-extended to 8 unsigned 16-bit lanes.
+#define LOAD_U8_TO_U16(src) _mm_unpacklo_epi8(LOAD_8(src), _mm_setzero_si128())
 
 // 16-bit integer absolute value (SSSE3 has hardware instruction; SSE2
 // fallbacks).
@@ -127,11 +133,9 @@ static inline int32_t HorizontalSumS16(__m128i v) {
 #define LOAD_ALIGNED_32(src) \
   _mm256_load_si256(reinterpret_cast<const __m256i*>(src))
 
-// Store 32 bytes unaligned / aligned from __m256i.
+// Store 32 bytes unaligned from __m256i.
 #define STORE_32(V, dst) \
   _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst), (V))
-#define STORE_ALIGNED_32(V, dst) \
-  _mm256_store_si256(reinterpret_cast<__m256i*>(dst), (V))
 
 // 16-bit integer absolute value for 256-bit vectors.
 #define ABS_32(V) _mm256_abs_epi16(V)
@@ -218,8 +222,8 @@ static inline void Store8_NEON(NeonVector8 v, void* dst) {
 #define STORE_16(V, dst) Store16_NEON((V), (dst))
 #define STORE_ALIGNED_16(V, dst) Store16_NEON((V), (dst))
 
-#define LOAD_64(src) Load8_NEON(src)
-#define STORE_64(V, dst) Store8_NEON((V), (dst))
+#define LOAD_8(src) Load8_NEON(src)
+#define STORE_8(V, dst) Store8_NEON((V), (dst))
 
 static inline int16x8_t Abs16_NEON(int16x8_t v) { return vabsq_s16(v); }
 static inline int16x8_t Abs16_NEON(NeonVector16 v) {

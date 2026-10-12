@@ -212,10 +212,12 @@ cmake --build build -j4
 | `SJPEG_BUILD_EXAMPLES` | `ON` | Builds `examples/sjpeg` and `examples/vjpeg`. |
 | `SJPEG_BUILD_TESTS` | `ON` | Builds `tests/unit_test`. |
 
-To run unit tests:
+To run the tests (unit tests, plus the `sjpeg` command-line tests):
 
 ```bash
-./build/unit_test
+ctest --test-dir build --output-on-failure
+# or, to build and run them in one go:
+cmake --build build --target check
 ```
 
 ## Using GNU Make
@@ -228,6 +230,12 @@ To enable AVX2 with GNU Make:
 
 ```bash
 make HAVE_AVX2=1 -j4
+```
+
+To build and run the tests:
+
+```bash
+make test
 ```
 
 ## Compiling with Android NDK
@@ -252,7 +260,7 @@ can be enabled or disabled via compiler definitions (`-D...`):
 
 | Macro / Flag | Default | Description |
 |---|---|---|
-| `SJPEG_HAVE_AVX2` | Off (`CMake`) | Compiles optimized AVX2 kernels for FDCT, quantization, histogram, and color conversion on x86-64. Safely falls back to SSE2 on older CPUs at runtime. |
+| `SJPEG_HAVE_AVX2` | Off (`CMake`) | Compiles optimized AVX2 kernels for FDCT, quantization, histogram, color conversion, sharp-YUV and riskiness scoring on x86-64. Safely falls back to SSE2 on older CPUs at runtime. |
 | `SJPEG_USE_PEXT` | Off | In `src/quantize_avx2.cc`, uses BMI2 `_pext_u32` to compact the natural-order non-zero coefficient mask (2 ops vs 5). Off by default because `pext` is microcoded with multi-cycle latency on AMD Zen 1/Zen+. Requires `-mbmi2`. |
 | `SJPEG_NO_PROGRESSIVE` | Off | Completely strips progressive encoding code, structures, and buffers, reducing binary footprint for baseline-only deployments. (Set automatically by `-DSJPEG_ENABLE_PROGRESSIVE=OFF`). |
 | `SJPEG_FORCE_32BIT` | Off | Forces 32-bit bit-writer paths on 64-bit platforms for cross-architecture verification (`src/bit_writer.h`). |

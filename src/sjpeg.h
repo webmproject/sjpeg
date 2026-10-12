@@ -279,6 +279,8 @@ struct EncoderParam {
   void ResetMetadata();           // clears the above
 
   // Memory manager used by the codec. If null, default one will be used.
+  // It is only called from the calling thread. With num_threads > 1, the
+  // per-thread scratch buffers come from the C heap instead.
   sjpeg::MemoryManager* memory;
 
  protected:

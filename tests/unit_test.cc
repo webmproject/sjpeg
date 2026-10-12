@@ -724,7 +724,7 @@ SJPEG_TEST(TargetSize) {
     param.yuv_mode = kModes[m];
     std::string out;
     SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &out));
-    const double target = out.size();
+    const double target = (double)out.size();
 
     param.target_mode = sjpeg::EncoderParam::TARGET_SIZE;
     param.target_value = (float)target;
@@ -733,7 +733,7 @@ SJPEG_TEST(TargetSize) {
     SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &out));
     // The search stops on |dq| rather than on the size, so it only lands
     // close by. One quantization matrix too many costs several percent.
-    SJPEG_CHECK(fabs(out.size() - target) < 0.03 * target);
+    SJPEG_CHECK(fabs((double)out.size() - target) < 0.03 * target);
   }
 }
 
@@ -809,10 +809,11 @@ SJPEG_TEST(QuantMatrix) {
   for (int quality = 0; quality <= 100; quality += 5) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
       uint8_t matrix[64];
-      SjpegQuantMatrix(quality, chroma != 0, matrix);
+      const float q = (float)quality;
+      SjpegQuantMatrix(q, chroma != 0, matrix);
       for (size_t i = 0; i < 64; ++i) SJPEG_CHECK(matrix[i] >= 1);
       const float estimate = SjpegEstimateQuality(matrix, chroma != 0);
-      SJPEG_CHECK(estimate >= quality - 1.f && estimate <= quality + 1.f);
+      SJPEG_CHECK(estimate >= q - 1.f && estimate <= q + 1.f);
     }
   }
   // The matrices used for encoding must be recoverable from the bitstream.
@@ -942,7 +943,7 @@ SJPEG_TEST(Progressive) {
     SJPEG_CHECK(sof == 0xc2);
     SJPEG_CHECK(num_sos == 7);
   }
-  // Regression: trellis + progressive used ac_codes_[] uninitialized
+  // Regression: trellis + progressive used the AC codes uninitialized
   // (InitCodes(true) was missing), tripping an assert in SearchBestPrev().
   {
     sjpeg::EncoderParam param(75.f);
@@ -1187,7 +1188,7 @@ SJPEG_TEST(RestartMarkers) {
 
   // Test 5: trellis-based quantization (methods 7 and 8) substitutes its own
   // quantizer but reaches the very same scan loops, through either
-  // SinglePassScan() or SinglePassScanOptimized()/FinalPassScan() depending on
+  // SinglePassScan() or SinglePassScanOptimized()/ReplaySlices() depending on
   // Huffman_compress. Restart markers must survive both.
   {
     const int w = 160, h = 120;

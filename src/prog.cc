@@ -79,84 +79,76 @@ int Encoder::ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const {
   return block_row * prog_planes_->plane_w[c] + block_col;
 }
 
-bool Encoder::CheckProgBuffers() {
-  // progressive mode doesn't use all_run_levels_ => no growth needed here,
-  // unlike CheckBuffers().
-  return ReserveSlab();
+// Visits component c's blocks for band [Ss,Se], in raster order. Calls
+// on_start() before each block (stops if it returns false), on_block() with
+// the block's windowed run/levels if any, and on_eob() for each completed
+// EOB run, across empty blocks.
+template <class BlockFn, class EOBFn, class StartFn>
+bool Encoder::WalkACBand(int c, int Ss, int Se, BlockFn on_block, EOBFn on_eob,
+                         StartFn on_start) const {
+  const int stride = prog_planes_->plane_w[c];
+  const int tw = prog_planes_->true_w[c];
+  const int th = prog_planes_->true_h[c];
+  RunLevel windowed[64];
+  int eobrun = 0;  // persists across blocks
+  for (int row = 0; row < th; ++row) {
+    for (int col = 0; col < tw; ++col) {
+      if (!on_start()) return false;
+      const int n = row * stride + col;
+      const DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][n];
+      const RunLevel* const rl = prog_planes_->run_levels[c] + n * 63;
+      bool has_eob;
+      const int nb_w =
+          ProgACCoder::WindowRunLevels(coeffs, rl, Ss, Se, windowed, &has_eob);
+      if (nb_w > 0) {
+        if (eobrun > 0) {
+          on_eob(eobrun);
+          eobrun = 0;
+        }
+        on_block(windowed, nb_w);
+      }
+      if (has_eob) {
+        if (++eobrun == kMaxEOBRun) {
+          on_eob(eobrun);
+          eobrun = 0;
+        }
+      }
+    }
+  }
+  if (eobrun > 0) on_eob(eobrun);  // flush trailing run
+  return true;
 }
 
 void Encoder::EncodeProgAC(int c, int split) {
   const bool has_high = (split < 63);
   const int nb_bands = has_high ? 2 : 1;
   const int bands[2][2] = {{1, has_high ? split : 63}, {split + 1, 63}};
-  const int stride = prog_planes_->plane_w[c];
-  const int tw = prog_planes_->true_w[c];
-  const int th = prog_planes_->true_h[c];
-  RunLevel windowed[64];
+  ProgACCoder& ac = prog_planes_->ac;
   for (int b = 0; b < nb_bands; ++b) {
     const int Ss = bands[b][0];
     const int Se = bands[b][1];
 
-    ResetEntropyStatsAC();
-    int eobrun = 0;  // persists across blocks
-    for (int row = 0; row < th; ++row) {
-      for (int col = 0; col < tw; ++col) {
-        const int n = row * stride + col;
-        const DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][n];
-        const RunLevel* const rl = prog_planes_->run_levels[c] + n * 63;
-        bool has_eob;
-        const int nb_w =
-            WindowRunLevels(coeffs, rl, Ss, Se, windowed, &has_eob);
-        if (nb_w > 0) {
-          if (eobrun > 0) {
-            AddEntropyStatsEOBRun(eobrun);
-            eobrun = 0;
-          }
-          AddEntropyStatsACWindowed(windowed, nb_w);
-        }
-        if (has_eob) {
-          if (++eobrun == kMaxEOBRun) {
-            AddEntropyStatsEOBRun(eobrun);
-            eobrun = 0;
-          }
-        }
-      }
-    }
-    if (eobrun > 0) AddEntropyStatsEOBRun(eobrun);  // flush trailing run
-    CompileEntropyStatsAC();
+    // pass 1: gather the stats and build the table
+    ac.Reset();
+    WalkACBand(
+        c, Ss, Se, [&](const RunLevel* rl, int n) { ac.AddWindowed(rl, n); },
+        [&](int run) { ac.AddEOBRun(run); }, [] { return true; });
+    ac.Compile();
 
     if (!CheckProgBuffers()) return;
-    WriteOneDHT(/*table_class=*/1, /*table_id=*/0, &prog_planes_->opt_table_ac);
-    const ScanComponent sc = {c, /*dc=*/0, /*ac=*/0};
-    WriteProgSOS(&sc, 1, Ss, Se);
+    hw_.WriteOneDHT(/*table_class=*/1, /*table_id=*/0, &ac.table);
+    const HeaderWriter::ScanComponent sc = {c, /*dc=*/0, /*ac=*/0};
+    hw_.WriteSOS(&sc, 1, Ss, Se);
 
-    eobrun = 0;
-    for (int row = 0; row < th; ++row) {
-      for (int col = 0; col < tw; ++col) {
-        // per-block: a whole row can exceed the 2560-byte guarantee
-        if (!CheckProgBuffers()) return;
-        const int n = row * stride + col;
-        const DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][n];
-        const RunLevel* const rl = prog_planes_->run_levels[c] + n * 63;
-        bool has_eob;
-        const int nb_w =
-            WindowRunLevels(coeffs, rl, Ss, Se, windowed, &has_eob);
-        if (nb_w > 0) {
-          if (eobrun > 0) {
-            CodeEOBRun(eobrun);
-            eobrun = 0;
-          }
-          CodeBlockACWindowed(windowed, nb_w);
-        }
-        if (has_eob) {
-          if (++eobrun == kMaxEOBRun) {
-            CodeEOBRun(eobrun);
-            eobrun = 0;
-          }
-        }
-      }
+    // pass 2: code the scan. Per-block buffer check: a whole row can exceed
+    // the 2560-byte guarantee.
+    if (!WalkACBand(
+            c, Ss, Se,
+            [&](const RunLevel* rl, int n) { ac.CodeWindowed(rl, n, &bw_); },
+            [&](int run) { ac.CodeEOBRun(run, &bw_); },
+            [&] { return CheckProgBuffers(); })) {
+      return;
     }
-    if (eobrun > 0) CodeEOBRun(eobrun);  // flush trailing run
     bw_.Flush();
   }
 }
@@ -168,9 +160,9 @@ bool Encoder::EncodeProgressive() {
   // 1. Quantize every block once, gathering DC entropy stats along the way.
   // Same mb_y/mb_x/c/i nest as the DC-code pass below -- keep them in sync.
   const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
-  // trellis/rdo need ac_codes_[] seeded, like the baseline path does
-  if (use_trellis_ || use_rdo_) InitCodes(true);
-  memset(freq_dc_, 0, sizeof(freq_dc_));
+  // trellis/rdo need the AC codes seeded, like the baseline path does
+  InitCostCodes();
+  stats_.Reset();
   int16_t* in = in_blocks_;
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
@@ -183,7 +175,7 @@ bool Encoder::EncodeProgressive() {
           const int dc = quantize_block(in, c, &quants_[quant_idx_[c]], coeffs,
                                         run_levels);
           coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs_[c]);
-          AddEntropyStatsDC(coeffs);
+          stats_.AddDC(quant_idx_[c], coeffs);
           in += 64;
         }
       }
@@ -196,19 +188,20 @@ bool Encoder::EncodeProgressive() {
   }
 
   // 2. DC scan: one interleaved scan, baseline MCU order.
-  CompileEntropyStatsDC();
+  entropy_.CompileDC(stats_);
   if (!CheckProgBuffers()) {
     DeallocateProgPlanes();
     return false;
   }
   {
-    ScanComponent scs[MAX_COMP];
+    HeaderWriter::ScanComponent scs[MAX_COMP];
     for (int c = 0; c < nb_comps_; ++c) {
       scs[c] = {c, quant_idx_[c], 0};
     }
-    WriteOneDHT(0, 0, &opt_tables_dc_[0]);
-    if (nb_comps_ > 1) WriteOneDHT(0, 1, &opt_tables_dc_[1]);
-    WriteProgSOS(scs, nb_comps_, 0, 0);
+    for (int q = 0; q < entropy_.nb_tables(); ++q) {
+      hw_.WriteOneDHT(0, q, entropy_.opt_table_dc(q));
+    }
+    hw_.WriteSOS(scs, nb_comps_, 0, 0);
   }
   for (int mb_y = 0; mb_y < mb_h_; ++mb_y) {
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
@@ -219,7 +212,8 @@ bool Encoder::EncodeProgressive() {
       for (int c = 0; c < nb_comps_; ++c) {
         for (int i = 0; i < nb_blocks_[c]; ++i) {
           const int idx = ProgPlaneIndex(c, mb_x, mb_y, i);
-          CodeBlockDC(&prog_planes_->coeffs[c][idx]);
+          const DCTCoeffs* const coeffs = &prog_planes_->coeffs[c][idx];
+          entropy_.CodeBlockDC(coeffs, quant_idx_[c], &bw_);
         }
       }
     }

@@ -16,6 +16,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#include "entropy.h"
+
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -65,8 +67,14 @@ static const HuffmanTable kHuffmanTables[4] = {
     {{0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 125}, kACSyms[0], 162},
     {{0, 2, 1, 2, 4, 4, 3, 4, 7, 5, 4, 4, 0, 1, 2, 119}, kACSyms[1], 162}};
 
-void Encoder::SetDefaultHuffmanTables() {
-  for (int i = 0; i < 4; ++i) Huffman_tables_[i] = &kHuffmanTables[i];
+EntropyCoder::EntropyCoder() : nb_tables_(2) {
+  memset(dc_codes_, 0, sizeof(dc_codes_));  // safety
+  memset(ac_codes_, 0, sizeof(ac_codes_));
+  SetDefaultTables();
+}
+
+void EntropyCoder::SetDefaultTables() {
+  for (int i = 0; i < 4; ++i) tables_[i] = &kHuffmanTables[i];
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -97,11 +105,10 @@ static int BuildHuffmanTable(const uint8_t bits[16], const uint8_t* symbols,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void Encoder::InitCodes(bool only_ac) {
-  const int nb_tables = (nb_comps_ == 1 ? 1 : 2);
-  for (int c = 0; c < nb_tables; ++c) {  // luma, chroma
+void EntropyCoder::InitCodes(bool only_ac) {
+  for (int c = 0; c < nb_tables_; ++c) {  // luma, chroma
     for (int type = (only_ac ? 1 : 0); type <= 1; ++type) {
-      const HuffmanTable* const h = Huffman_tables_[type * 2 + c];
+      const HuffmanTable* const h = tables_[type * 2 + c];
       const int nb_syms = BuildHuffmanTable(
           h->bits_, h->syms_, type == 1 ? ac_codes_[c] : dc_codes_[c]);
       assert(nb_syms == h->nb_syms_);
@@ -179,11 +186,9 @@ static inline void CodeACRunLevels(const RunLevel* const rl, int n,
   }
 }
 
-void Encoder::CodeBlock(const DCTCoeffs* const coeffs, const RunLevel* const rl,
-                        sjpeg::BitWriter* bw) {
-  const int idx = coeffs->idx_;
-  const int q_idx = quant_idx_[idx];
-
+void EntropyCoder::CodeBlock(const DCTCoeffs* const coeffs,
+                             const RunLevel* const rl, int q_idx,
+                             BitWriter* bw) const {
   CodeDC(coeffs->dc_code_, dc_codes_[q_idx], bw);
 
   // AC coeffs
@@ -197,13 +202,20 @@ void Encoder::CodeBlock(const DCTCoeffs* const coeffs, const RunLevel* const rl,
 ////////////////////////////////////////////////////////////////////////////////
 // Huffman tables optimization
 
-void Encoder::ResetEntropyStats() {
-  memset(freq_ac_, 0, sizeof(freq_ac_));
-  memset(freq_dc_, 0, sizeof(freq_dc_));
+void EntropyStats::Reset() {
+  memset(ac, 0, sizeof(ac));
+  memset(dc, 0, sizeof(dc));
+}
+
+void EntropyStats::Add(const EntropyStats& other, int nb_tables) {
+  for (int q = 0; q < nb_tables; ++q) {
+    for (int i = 0; i <= 256; ++i) ac[q][i] += other.ac[q][i];
+    for (int i = 0; i <= 12; ++i) dc[q][i] += other.dc[q][i];
+  }
 }
 
 // Tallies one block's AC run-level list into freq[]. Shared by
-// AddEntropyStats()/AddEntropyStatsACWindowed().
+// EntropyStats::AddBlock()/ProgACCoder::AddWindowed().
 static inline void AddACRunLevelStats(const RunLevel* const rl, int n,
                                       uint32_t* const freq) {
   for (int i = 0; i < n; ++i) {
@@ -216,38 +228,29 @@ static inline void AddACRunLevelStats(const RunLevel* const rl, int n,
   }
 }
 
-void Encoder::AddEntropyStats(const DCTCoeffs* coeffs,
-                              const RunLevel* run_levels, uint32_t* freq_ac,
-                              uint32_t* freq_dc) {
-  AddACRunLevelStats(run_levels, coeffs->nb_coeffs_, freq_ac);
+void EntropyStats::AddBlock(int q_idx, const DCTCoeffs* coeffs,
+                            const RunLevel* run_levels) {
+  AddACRunLevelStats(run_levels, coeffs->nb_coeffs_, ac[q_idx]);
   if (coeffs->last_ < 63) {  // EOB
-    ++freq_ac[0x00];
+    ++ac[q_idx][0x00];
   }
-  ++freq_dc[coeffs->dc_code_ & 0x0f];
+  AddDC(q_idx, coeffs);
 }
 
-void Encoder::AddEntropyStats(const DCTCoeffs* const coeffs,
-                              const RunLevel* const run_levels) {
-  // freq_ac_[] and freq_dc_[] cannot overflow 32bits, since the maximum
-  // resolution allowed is 65535 * 65535. The sum of all frequencies cannot
-  // be greater than 32bits, either.
-  const int idx = coeffs->idx_;
-  const int q_idx = quant_idx_[idx];
-  AddEntropyStats(coeffs, run_levels, freq_ac_[q_idx], freq_dc_[q_idx]);
+void EntropyStats::AddDC(int q_idx, const DCTCoeffs* coeffs) {
+  ++dc[q_idx][coeffs->dc_code_ & 0x0f];
 }
 
-// Same total as BlocksSize(), minus uncounted 0xff byte-stuffing
-size_t Encoder::EntropySize() const {
+size_t EntropyCoder::Size(const EntropyStats& stats) const {
   size_t size = 0;
-  const int nb_tables = (nb_comps_ == 1) ? 1 : 2;
-  for (int q = 0; q < nb_tables; ++q) {
+  for (int q = 0; q < nb_tables_; ++q) {
     for (int len = 0; len < 12; ++len) {
-      const uint32_t freq = freq_dc_[q][len];
+      const uint32_t freq = stats.dc[q][len];
       if (freq > 0) size += freq * ((dc_codes_[q][len] & 0xff) + len);
     }
     const uint32_t* const codes = ac_codes_[q];
     for (int sym = 0; sym < 256; ++sym) {
-      const uint32_t freq = freq_ac_[q][sym];
+      const uint32_t freq = stats.ac[q][sym];
       if (freq > 0) size += freq * ((codes[sym] & 0xff) + (sym & 0x0f));
     }
   }
@@ -439,40 +442,35 @@ static void BuildOptimalTable(HuffmanTable* const t, const uint32_t* const freq,
   }
 }
 
-void Encoder::CompileEntropyStats() {
+void EntropyCoder::Compile(const EntropyStats& stats) {
   // plug and build new tables
-  for (int q_idx = 0; q_idx < (nb_comps_ == 1 ? 1 : 2); ++q_idx) {
+  for (int q_idx = 0; q_idx < nb_tables_; ++q_idx) {
     // DC tables
-    Huffman_tables_[q_idx] = &opt_tables_dc_[q_idx];
+    tables_[q_idx] = &opt_tables_dc_[q_idx];
     opt_tables_dc_[q_idx].syms_ = opt_syms_dc_[q_idx];
-    BuildOptimalTable(&opt_tables_dc_[q_idx], freq_dc_[q_idx], 12);
+    BuildOptimalTable(&opt_tables_dc_[q_idx], stats.dc[q_idx], 12);
     // AC tables
-    Huffman_tables_[2 + q_idx] = &opt_tables_ac_[q_idx];
+    tables_[2 + q_idx] = &opt_tables_ac_[q_idx];
     opt_tables_ac_[q_idx].syms_ = opt_syms_ac_[q_idx];
-    BuildOptimalTable(&opt_tables_ac_[q_idx], freq_ac_[q_idx], 256);
+    BuildOptimalTable(&opt_tables_ac_[q_idx], stats.ac[q_idx], 256);
   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // progressive (spectral-split-only) mode
 //
-// DC coding matches baseline exactly, so it reuses freq_dc_/dc_codes_. AC
-// needs its own per-scan tables (prog_planes_->freq_ac etc.): each spectral
-// window has a different symbol alphabet.
+// DC coding matches baseline exactly, so it reuses the DC stats and codes. AC
+// needs its own per-scan tables (ProgACCoder): each spectral window has a
+// different symbol alphabet.
 #if !defined(SJPEG_NO_PROGRESSIVE)
 
-void Encoder::AddEntropyStatsDC(const DCTCoeffs* const coeffs) {
-  const int q_idx = quant_idx_[coeffs->idx_];
-  ++freq_dc_[q_idx][coeffs->dc_code_ & 0x0f];
-}
-
-void Encoder::CodeBlockDC(const DCTCoeffs* const coeffs) {
-  const int q_idx = quant_idx_[coeffs->idx_];
-  CodeDC(coeffs->dc_code_, dc_codes_[q_idx], &bw_);
+void EntropyCoder::CodeBlockDC(const DCTCoeffs* const coeffs, int q_idx,
+                               BitWriter* bw) const {
+  CodeDC(coeffs->dc_code_, dc_codes_[q_idx], bw);
 }
 
 // Builds an optimal table from freq[] and its codes[], in one go. Shared by
-// CompileEntropyStatsDC()/CompileEntropyStatsAC().
+// EntropyCoder::CompileDC()/ProgACCoder::Compile().
 static inline void CompileTable(HuffmanTable* const t, const uint8_t* syms,
                                 int size, const uint32_t* const freq,
                                 uint32_t* const codes) {
@@ -481,20 +479,19 @@ static inline void CompileTable(HuffmanTable* const t, const uint8_t* syms,
   BuildHuffmanTable(t->bits_, t->syms_, codes);
 }
 
-void Encoder::CompileEntropyStatsDC() {
-  for (int c = 0; c < (nb_comps_ == 1 ? 1 : 2); ++c) {
-    CompileTable(&opt_tables_dc_[c], opt_syms_dc_[c], 12, freq_dc_[c],
+void EntropyCoder::CompileDC(const EntropyStats& stats) {
+  for (int c = 0; c < nb_tables_; ++c) {
+    CompileTable(&opt_tables_dc_[c], opt_syms_dc_[c], 12, stats.dc[c],
                  dc_codes_[c]);
   }
 }
 
-// Re-derives (run,level) for window [Ss,Se] from the block's full RunLevel
-// list. Only the first retained run_ is re-based (a window boundary can
-// only split a run, not change gaps); level_ is untouched since Al is
-// always 0 in this mode.
-int Encoder::WindowRunLevels(const DCTCoeffs* const coeffs,
-                             const RunLevel* const rl, int Ss, int Se,
-                             RunLevel* const out, bool* const out_has_eob) {
+// Only the first retained run_ is re-based (a window boundary can only split
+// a run, not change gaps); level_ is untouched since Al is always 0 in this
+// mode.
+int ProgACCoder::WindowRunLevels(const DCTCoeffs* const coeffs,
+                                 const RunLevel* const rl, int Ss, int Se,
+                                 RunLevel* const out, bool* const out_has_eob) {
   int pos = 0;
   int nb_out = 0;
   bool first_in_window = true;
@@ -514,18 +511,15 @@ int Encoder::WindowRunLevels(const DCTCoeffs* const coeffs,
   return nb_out;
 }
 
-void Encoder::ResetEntropyStatsAC() {
-  memset(prog_planes_->freq_ac, 0, sizeof(prog_planes_->freq_ac));
+void ProgACCoder::Reset() { memset(freq, 0, sizeof(freq)); }
+
+void ProgACCoder::AddWindowed(const RunLevel* const windowed, int nb_windowed) {
+  AddACRunLevelStats(windowed, nb_windowed, freq);
 }
 
-void Encoder::AddEntropyStatsACWindowed(const RunLevel* const windowed,
-                                        int nb_windowed) {
-  AddACRunLevelStats(windowed, nb_windowed, prog_planes_->freq_ac);
-}
-
-void Encoder::CodeBlockACWindowed(const RunLevel* const windowed,
-                                  int nb_windowed) {
-  CodeACRunLevels(windowed, nb_windowed, prog_planes_->ac_codes, &bw_);
+void ProgACCoder::CodeWindowed(const RunLevel* const windowed, int nb_windowed,
+                               BitWriter* bw) const {
+  CodeACRunLevels(windowed, nb_windowed, codes, bw);
 }
 
 // EOBn: end-of-band run coding across empty blocks (spec Annex G.1.2.2).
@@ -543,19 +537,16 @@ static int EOBRunClass(int run) {
 #endif
 }
 
-void Encoder::AddEntropyStatsEOBRun(int run) {
-  ++prog_planes_->freq_ac[EOBRunClass(run) << 4];
-}
+void ProgACCoder::AddEOBRun(int run) { ++freq[EOBRunClass(run) << 4]; }
 
-void Encoder::CodeEOBRun(int run) {
+void ProgACCoder::CodeEOBRun(int run, BitWriter* bw) const {
   const int r = EOBRunClass(run);
-  bw_.PutPackedCode(prog_planes_->ac_codes[r << 4]);
-  if (r > 0) bw_.PutBits(run - (1 << r), r);
+  bw->PutPackedCode(codes[r << 4]);
+  if (r > 0) bw->PutBits(run - (1 << r), r);
 }
 
-void Encoder::CompileEntropyStatsAC() {
-  CompileTable(&prog_planes_->opt_table_ac, prog_planes_->opt_syms_ac, 256,
-               prog_planes_->freq_ac, prog_planes_->ac_codes);
+void ProgACCoder::Compile() {
+  CompileTable(&table, opt_syms, 256, freq, codes);
 }
 
 #endif  // !SJPEG_NO_PROGRESSIVE

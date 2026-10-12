@@ -25,7 +25,9 @@
 #include <vector>
 
 #define SJPEG_NEED_ASM_HEADERS
-#include "sjpegi.h"
+#include "blocks.h"
+#include "common.h"
+#include "dsp.h"
 
 #if defined(SJPEG_USE_AVX2)
 
