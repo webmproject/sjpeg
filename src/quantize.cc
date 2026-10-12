@@ -746,7 +746,8 @@ static uint32_t QuantizeErrorNEON(const int16_t in[64],
   for (int i = 0; i < 64; i += 8) {
     const uint16x8_t m_bias = LOAD_16(bias + i);
     const uint16x8_t m_mult = LOAD_16(iquant + i);
-    const uint16x8_t m_quant = LOAD_U8_TO_U16(quant + i);
+    // widened: it multiplies a 16-bit value below (no vmull_u8)
+    const uint16x8_t m_quant = vmovl_u8(LOAD_8(quant + i));
     const uint16x8_t A = vreinterpretq_u16_s16(ABS_16(LOAD_16(in + i)));
     const uint16x8_t B = vaddq_u16(A, m_bias);
     const uint32x4_t C0 = vmull_u16(vget_low_u16(B), vget_low_u16(m_mult));

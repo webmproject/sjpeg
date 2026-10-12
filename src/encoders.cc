@@ -167,7 +167,7 @@ bool FinishEncoding(Encoder* const enc, const EncoderParam& param) {
   return ok;
 }
 
-// Input-plane sanity check for the direct-YUV entry points.
+// Input-plane validity check for the direct-YUV entry points.
 static bool CheckPlane(const uint8_t* plane, int stride, int min_width) {
   return (plane != nullptr) && (std::abs(stride) >= min_width);
 }

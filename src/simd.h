@@ -225,8 +225,6 @@ static inline void Store8_NEON(NeonVector8 v, void* dst) {
 #define LOAD_8(src) Load8_NEON(src)
 #define STORE_8(V, dst) Store8_NEON((V), (dst))
 
-#define LOAD_U8_TO_U16(src) vmovl_u8(LOAD_8(src))
-
 static inline int16x8_t Abs16_NEON(int16x8_t v) { return vabsq_s16(v); }
 static inline int16x8_t Abs16_NEON(NeonVector16 v) {
   return vabsq_s16(static_cast<int16x8_t>(v));

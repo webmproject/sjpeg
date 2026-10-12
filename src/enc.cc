@@ -301,7 +301,7 @@ bool Encoder::AllocateBlocks(size_t num_blocks) {
 
 void Encoder::DeallocateBlocks() {
   FreePtr(&in_blocks_base_);
-  in_blocks_ = nullptr;  // sanity
+  in_blocks_ = nullptr;  // safety
 }
 
 ////////////////////////////////////////////////////////////////////////////////
