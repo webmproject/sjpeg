@@ -35,7 +35,10 @@
 #define SJPEG_USE_SSE2
 #endif
 
-#if !defined(SJPEG_USE_SSSE3) && (defined(__SSSE3__) || SJPEG_MSC_X86)
+// SSSE3 is not enabled for Visual Studio (cl.exe) builds because it would
+// defeat runtime CPU detection, as the code is contained within SSE2
+// functions.
+#if !defined(SJPEG_USE_SSSE3) && defined(__SSSE3__)
 #define SJPEG_USE_SSSE3
 #endif
 
