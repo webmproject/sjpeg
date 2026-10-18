@@ -158,7 +158,7 @@ void SharpFilterRow_AVX2(const int16_t* A, const int16_t* B, int len,
   }
 }
 
-void StoreGray_AVX2(const fixed_y_t* const rgb, fixed_y_t* const y, int w) {
+void StoreGray_AVX2(const fixed_y_t* rgb, fixed_y_t* y, int w) {
   int i = 0;
   const __m256i mult_rg = _mm256_set_epi16(
       46871 - 32768, 13933, 46871 - 32768, 13933, 46871 - 32768, 13933,
@@ -243,8 +243,7 @@ static inline void RGB24ToPlanar8(const uint8_t* const rgb, __m128i* const r,
   *b = _mm_unpacklo_epi8(b_bytes, zero);
 }
 
-void ImportOneRow_AVX2(const uint8_t* const rgb, int pic_width,
-                       fixed_y_t* const dst) {
+void ImportOneRow_AVX2(const uint8_t* rgb, int pic_width, fixed_y_t* dst) {
   const int w = (pic_width + 1) & ~1;
   int i = 0;
   const __m256i shalf = _mm256_set1_epi16(SHALF);

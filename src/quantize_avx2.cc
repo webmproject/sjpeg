@@ -48,8 +48,8 @@
 
 namespace sjpeg {
 
-int QuantizeBlockAVX2(const int16_t in[64], int idx, const Quantizer* const Q,
-                      DCTCoeffs* const out, RunLevel* const rl) {
+int QuantizeBlockAVX2(const int16_t in[64], int idx, const Quantizer* Q,
+                      DCTCoeffs* out, RunLevel* rl) {
   const uint16_t* const bias = Q->bias_;
   const uint16_t* const iquant = Q->iquant_;
   int prev = 1;
