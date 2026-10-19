@@ -28,9 +28,9 @@
 #include <vector>
 
 #define SJPEG_NEED_ASM_HEADERS
-#include "blocks.h"
 #include "common.h"
 #include "dsp.h"
+#include "sjpeg.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 // Dimensions (SOF)

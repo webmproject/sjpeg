@@ -24,11 +24,14 @@
 #include <stdint.h>
 
 #include <string>
+#if !defined(SJPEG_NO_MULTITHREADING)
 #include <vector>
+#endif
 
 #include "blocks.h"
 #include "common.h"
 #include "entropy.h"
+#include "sjpeg.h"
 
 namespace sjpeg {
 

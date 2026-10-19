@@ -20,6 +20,7 @@
 #define SJPEG_JPEG_H_
 
 #include <inttypes.h>
+#include <stdint.h>
 
 #include <memory>
 #include <string>

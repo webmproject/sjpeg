@@ -26,7 +26,6 @@
 #include <string.h>
 
 #define SJPEG_NEED_ASM_HEADERS
-#include "blocks.h"
 #include "common.h"
 #include "dsp.h"
 

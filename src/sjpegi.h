@@ -19,10 +19,10 @@
 #ifndef SJPEG_JPEGI_H_
 #define SJPEG_JPEGI_H_
 
-#include <functional>
 #include <vector>
 
 #if !defined(SJPEG_NO_MULTITHREADING)
+#include <functional>
 #include <memory>
 #endif
 

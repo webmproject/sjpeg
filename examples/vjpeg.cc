@@ -24,6 +24,7 @@
 #endif
 
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>  // IWYU pragma: keep
@@ -45,6 +46,7 @@
 #endif
 
 #include "./utils.h"
+#include "sjpeg.h"
 
 #if defined(_MSC_VER) && _MSC_VER < 1900
 #define snprintf _snprintf
