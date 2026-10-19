@@ -56,10 +56,8 @@ struct EntropyStats {
 // derived from them.
 class EntropyCoder {
  public:
-  EntropyCoder();
-
   // Number of tables (luma, chroma) in use: 1 for grayscale, 2 otherwise.
-  void SetNumTables(int nb_tables) { nb_tables_ = nb_tables; }
+  explicit EntropyCoder(int nb_tables);
   int nb_tables() const { return nb_tables_; }
 
   // Points the tables at the standard ones of JPEG section K.3.
@@ -94,7 +92,7 @@ class EntropyCoder {
 #endif
 
  private:
-  int nb_tables_;
+  const int nb_tables_;
   const HuffmanTable* tables_[4];  // indices: dc0, dc1, ac0, ac1
   uint32_t ac_codes_[2][256];
   uint32_t dc_codes_[2][12];
