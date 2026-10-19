@@ -27,8 +27,8 @@
 #include <string.h>
 
 #include <algorithm>
-#include <limits>
-#include <type_traits>
+#include <limits>       // IWYU pragma: keep
+#include <type_traits>  // IWYU pragma: keep
 
 #include "sjpeg.h"
 
