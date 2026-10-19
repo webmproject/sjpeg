@@ -297,32 +297,32 @@ static inline void ConvertRGBToYUV_Fused_AVX2(
 // Map 16 Y, U, V values to quantized riskiness histogram indices.
 static inline __m256i YUVToIndices_AVX2(const __m256i& Y, const __m256i& U,
                                         const __m256i& V, const __m256i& mult,
-                                        const __m256i& mult1,
-                                        const __m256i& k255) {
-  // Fast Clamping: Y strictly in [0, 255] requires no clamp; U, V in [1, 256]
-  // require only min(255).
-  const __m256i u1 = _mm256_min_epi16(U, k255);
-  const __m256i v1 = _mm256_min_epi16(V, k255);
-
+                                        const __m256i& mult1) {
+  // no clamping needed (see RGBToRiskIndex())
   const __m256i y2 = _mm256_mulhi_epi16(Y, mult);
-  const __m256i u2 = _mm256_mulhi_epi16(u1, mult);
-  const __m256i v2 = _mm256_mulhi_epi16(v1, mult);
+  // merge outer chroma levels: min(c - 1, 4), saturated at 0
+  const __m256i one = _mm256_set1_epi16(1);
+  const __m256i k4 = _mm256_set1_epi16(kRiskUVLevels - 1);
+  const __m256i u2 =
+      _mm256_min_epi16(_mm256_subs_epu16(_mm256_mulhi_epi16(U, mult), one), k4);
+  const __m256i v2 =
+      _mm256_min_epi16(_mm256_subs_epu16(_mm256_mulhi_epi16(V, mult), one), k4);
 
-  // Factored Index Arithmetic: y + 7 * (u + 7 * v)
-  const __m256i v7 = _mm256_mullo_epi16(v2, mult1);
-  const __m256i uv7 = _mm256_add_epi16(u2, v7);
-  const __m256i uv = _mm256_mullo_epi16(uv7, mult1);
+  // Factored Index Arithmetic: y + 7 * (u + 5 * v)
+  const __m256i v5 = _mm256_mullo_epi16(v2, _mm256_set1_epi16(kRiskUVLevels));
+  const __m256i uv5 = _mm256_add_epi16(u2, v5);
+  const __m256i uv = _mm256_mullo_epi16(uv5, mult1);
   return _mm256_add_epi16(y2, uv);
 }
 
 // Convert 16 RGB pixels to riskiness indices.
 static inline void RowToIndex16_AVX2(const uint8_t* rgb, uint16_t* dst,
-                                     const __m256i& mult, const __m256i& mult1,
-                                     const __m256i& k255) {
+                                     const __m256i& mult,
+                                     const __m256i& mult1) {
   __m256i r, g, b, Y, U, V;
   RGB24PackedToPlanar_AVX2(rgb, &r, &g, &b);
   ConvertRGBToYUV_Fused_AVX2(&r, &g, &b, &Y, &U, &V);
-  const __m256i idx = YUVToIndices_AVX2(Y, U, V, mult, mult1, k255);
+  const __m256i idx = YUVToIndices_AVX2(Y, U, V, mult, mult1);
   STORE_32(idx, dst);
 }
 
@@ -330,19 +330,17 @@ static inline void RowToIndex16_AVX2(const uint8_t* rgb, uint16_t* dst,
 extern void RowToIndexC(const uint8_t* rgb, int width, uint16_t* dst);
 
 void RowToIndexAVX2(const uint8_t* rgb, int width, uint16_t* dst) {
-  const __m256i mult = _mm256_set1_epi16(0x0101u * (sjpeg::kRGBSize - 1));
-  const __m256i mult1 = _mm256_set1_epi16(sjpeg::kRGBSize);
-  const __m256i k255 = _mm256_set1_epi16(255);
-
+  const __m256i mult = _mm256_set1_epi16(0x0101u * (sjpeg::kRiskYLevels - 1));
+  const __m256i mult1 = _mm256_set1_epi16(sjpeg::kRiskYLevels);
   while (width >= 32) {
-    RowToIndex16_AVX2(rgb + 0, dst + 0, mult, mult1, k255);
-    RowToIndex16_AVX2(rgb + 48, dst + 16, mult, mult1, k255);
+    RowToIndex16_AVX2(rgb + 0, dst + 0, mult, mult1);
+    RowToIndex16_AVX2(rgb + 48, dst + 16, mult, mult1);
     rgb += 2 * 48;
     dst += 32;
     width -= 32;
   }
   while (width >= 16) {
-    RowToIndex16_AVX2(rgb, dst, mult, mult1, k255);
+    RowToIndex16_AVX2(rgb, dst, mult, mult1);
     rgb += 48;
     dst += 16;
     width -= 16;

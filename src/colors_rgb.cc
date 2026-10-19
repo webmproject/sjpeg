@@ -987,49 +987,36 @@ void RowToIndexC(const uint8_t* rgb, int width, uint16_t* dst);
 
 namespace {
 
-uint8_t clip_8b(int v) {
-  return (!(v & ~0xff)) ? (uint8_t)v : (v < 0) ? 0u : 255u;
-}
-
-int ToY(int r, int g, int b) {
-  const int luma = 19595 * r + 38469 * g + 7471 * b;
-  return (luma + HALF) >> FRAC;  // no need to clip
-}
-
-uint32_t clip_uv(int v) { return clip_8b(128 + ((v + HALF) >> FRAC)); }
-
-uint32_t ToU(int r, int g, int b) {
-  const int u = -11059 * r - 21709 * g + 32768 * b;
-  return clip_uv(u);
-}
-
-uint32_t ToV(int r, int g, int b) {
-  const int v = 32768 * r - 27439 * g - 5329 * b;
-  return clip_uv(v);
-}
-
-// (X * 0x0101 >> 16) ~= X / 255
-uint32_t Convert(uint32_t v) {
-  return (v * (0x0101u * (sjpeg::kRGBSize - 1))) >> 16;
-}
-
-int ConvertToYUVIndex(const uint8_t* const rgb) {
-  const int r = rgb[0];
-  const int g = rgb[1];
-  const int b = rgb[2];
-  const uint32_t y = Convert(ToY(r, g, b));
-  const uint32_t u = Convert(ToU(r, g, b));
-  const uint32_t v = Convert(ToV(r, g, b));
-  return (y + u * sjpeg::kRGBSize + v * sjpeg::kRGBSize * sjpeg::kRGBSize);
+// rgb -> riskiness index: BT.601 yuv, 7 levels per channel, outer chroma
+// levels merged. No clipping: y is in [0, 255], u and v in [1, 256], and 256
+// lands in the same top level as 255.
+int RGBToRiskIndex(const uint8_t* const rgb) {
+  const int r = rgb[0], g = rgb[1], b = rgb[2];
+  const int kMult = 0x0101 * (sjpeg::kRiskYLevels - 1);
+  const int y = (19595 * r + 38469 * g + 7471 * b + HALF) >> FRAC;
+  const int u = 128 + ((-11059 * r - 21709 * g + 32768 * b + HALF) >> FRAC);
+  const int v = 128 + ((32768 * r - 27439 * g - 5329 * b + HALF) >> FRAC);
+  const int ly = (y * kMult) >> 16;
+  int lu = ((u * kMult) >> 16) - 1;
+  int lv = ((v * kMult) >> 16) - 1;
+  const int max_uv = sjpeg::kRiskUVLevels - 1;
+  lu = (lu < 0) ? 0 : (lu > max_uv) ? max_uv : lu;
+  lv = (lv < 0) ? 0 : (lv > max_uv) ? max_uv : lv;
+  return ly + sjpeg::kRiskYLevels * (lu + sjpeg::kRiskUVLevels * lv);
 }
 
 #if defined(SJPEG_USE_SSE2)
 void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
-  const __m128i zero = _mm_setzero_si128();
-  const __m128i mult = _mm_set1_epi16(0x0101u * (sjpeg::kRGBSize - 1));
-  const __m128i mult1 = _mm_set1_epi16(sjpeg::kRGBSize);
-  const __m128i mult2 = _mm_set1_epi16(sjpeg::kRGBSize * sjpeg::kRGBSize);
-  const __m128i k255 = _mm_set1_epi16(255);
+  const __m128i mult = _mm_set1_epi16(0x0101u * (sjpeg::kRiskYLevels - 1));
+  const __m128i mult1 = _mm_set1_epi16(sjpeg::kRiskYLevels);
+  const __m128i mult2 =
+      _mm_set1_epi16(sjpeg::kRiskYLevels * sjpeg::kRiskUVLevels);
+  const __m128i one = _mm_set1_epi16(1);
+  const __m128i k4 = _mm_set1_epi16(sjpeg::kRiskUVLevels - 1);
+  // merge outer chroma levels: min(c - 1, 4), saturated at 0
+  const auto ToUV = [&](const __m128i c) {
+    return _mm_min_epi16(_mm_subs_epu16(c, one), k4);
+  };
   while (width >= 16) {
     __m128i r0, g0, b0, r1, g1, b1;
     __m128i Y0, U0, V0, Y1, U1, V1;
@@ -1040,15 +1027,10 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
     ConvertRGBToUV(&r0, &g0, &b0, 128, &U0, &V0);
     ConvertRGBToUV(&r1, &g1, &b1, 128, &U1, &V1);
 
-    // clamping to [0, 255]
-    const __m128i y1_0 = CLAMP_16(Y0, zero, k255);
-    const __m128i u1_0 = CLAMP_16(U0, zero, k255);
-    const __m128i v1_0 = CLAMP_16(V0, zero, k255);
-    // convert to idx and divide by 255:
-    // (v * (kRGBSize - 1) * 0x0101) >> 16 ~= v * (kRGBSize - 1) / 255
-    const __m128i y2_0 = _mm_mulhi_epi16(y1_0, mult);
-    const __m128i u2_0 = _mm_mulhi_epi16(u1_0, mult);
-    const __m128i v2_0 = _mm_mulhi_epi16(v1_0, mult);
+    // convert to idx, no clamping needed (see RGBToRiskIndex())
+    const __m128i y2_0 = _mm_mulhi_epi16(Y0, mult);
+    const __m128i u2_0 = ToUV(_mm_mulhi_epi16(U0, mult));
+    const __m128i v2_0 = ToUV(_mm_mulhi_epi16(V0, mult));
     // store final idx
     const __m128i u3_0 = _mm_mullo_epi16(u2_0, mult1);
     const __m128i v3_0 = _mm_mullo_epi16(v2_0, mult2);
@@ -1056,15 +1038,10 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
     const __m128i idx0 = _mm_add_epi16(tmp0, v3_0);
     STORE_16(idx0, dst);
 
-    // clamping to [0, 255]
-    const __m128i y1_1 = CLAMP_16(Y1, zero, k255);
-    const __m128i u1_1 = CLAMP_16(U1, zero, k255);
-    const __m128i v1_1 = CLAMP_16(V1, zero, k255);
-    // convert to idx and divide by 255:
-    // (v * (kRGBSize - 1) * 0x0101) >> 16 ~= v * (kRGBSize - 1) / 255
-    const __m128i y2_1 = _mm_mulhi_epi16(y1_1, mult);
-    const __m128i u2_1 = _mm_mulhi_epi16(u1_1, mult);
-    const __m128i v2_1 = _mm_mulhi_epi16(v1_1, mult);
+    // convert to idx, no clamping needed (see RGBToRiskIndex())
+    const __m128i y2_1 = _mm_mulhi_epi16(Y1, mult);
+    const __m128i u2_1 = ToUV(_mm_mulhi_epi16(U1, mult));
+    const __m128i v2_1 = ToUV(_mm_mulhi_epi16(V1, mult));
     // store final idx
     const __m128i u3_1 = _mm_mullo_epi16(u2_1, mult1);
     const __m128i v3_1 = _mm_mullo_epi16(v2_1, mult2);
@@ -1082,14 +1059,10 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
     RGB24PackedToPlanar(rgb, &r, &g, &b);
     ConvertRGBToY(&r, &g, &b, 0, &Y);
     ConvertRGBToUV(&r, &g, &b, 128, &U, &V);
-    // clamping to [0, 255]
-    const __m128i y1 = CLAMP_16(Y, zero, k255);
-    const __m128i u1 = CLAMP_16(U, zero, k255);
-    const __m128i v1 = CLAMP_16(V, zero, k255);
-    // convert to idx
-    const __m128i y2 = _mm_mulhi_epi16(y1, mult);
-    const __m128i u2 = _mm_mulhi_epi16(u1, mult);
-    const __m128i v2 = _mm_mulhi_epi16(v1, mult);
+    // convert to idx, no clamping needed (see RGBToRiskIndex())
+    const __m128i y2 = _mm_mulhi_epi16(Y, mult);
+    const __m128i u2 = ToUV(_mm_mulhi_epi16(U, mult));
+    const __m128i v2 = ToUV(_mm_mulhi_epi16(V, mult));
     // store final idx
     const __m128i u3 = _mm_mullo_epi16(u2, mult1);
     const __m128i v3 = _mm_mullo_epi16(v2, mult2);
@@ -1106,9 +1079,12 @@ void RowToIndexSSE2(const uint8_t* rgb, int width, uint16_t* dst) {
 #elif defined(SJPEG_USE_NEON)
 void RowToIndexNEON(const uint8_t* rgb, int width, uint16_t* dst) {
   const int16x8_t k128 = vdupq_n_s16(128);
-  const uint8x8_t mult = vdup_n_u8(sjpeg::kRGBSize - 1);
-  const uint16x8_t mult1 = vdupq_n_u16(sjpeg::kRGBSize);
-  const uint16x8_t mult2 = vdupq_n_u16(sjpeg::kRGBSize * sjpeg::kRGBSize);
+  const uint8x8_t mult = vdup_n_u8(sjpeg::kRiskYLevels - 1);
+  const uint16x8_t mult1 = vdupq_n_u16(sjpeg::kRiskYLevels);
+  const uint16x8_t mult2 =
+      vdupq_n_u16(sjpeg::kRiskYLevels * sjpeg::kRiskUVLevels);
+  const uint16x8_t one = vdupq_n_u16(1);
+  const uint16x8_t k4 = vdupq_n_u16(sjpeg::kRiskUVLevels - 1);
   const int16x4_t coeffs1 = vld1_s16(kCoeff1);
   const int16x4_t coeffs2 = vld1_s16(kCoeff2);
   while (width >= 8) {
@@ -1127,8 +1103,11 @@ void RowToIndexNEON(const uint8_t* rgb, int width, uint16_t* dst) {
     const uint16x8_t v2 = vmull_u8(v1, mult);
     // divide by 255 using v/255 = (v * 0x0101) >> 16
     const uint16x8_t y3 = vshrq_n_u16(vsraq_n_u16(y2, y2, 8), 8);
-    const uint16x8_t u3 = vshrq_n_u16(vsraq_n_u16(u2, u2, 8), 8);
-    const uint16x8_t v3 = vshrq_n_u16(vsraq_n_u16(v2, v2, 8), 8);
+    // merge outer chroma levels
+    const uint16x8_t u3 =
+        vminq_u16(vqsubq_u16(vshrq_n_u16(vsraq_n_u16(u2, u2, 8), 8), one), k4);
+    const uint16x8_t v3 =
+        vminq_u16(vqsubq_u16(vshrq_n_u16(vsraq_n_u16(v2, v2, 8), 8), one), k4);
     // store final idx
     const uint16x8_t tmp = vmlaq_u16(y3, u3, mult1);
     const uint16x8_t idx = vmlaq_u16(tmp, v3, mult2);
@@ -1146,7 +1125,7 @@ void RowToIndexNEON(const uint8_t* rgb, int width, uint16_t* dst) {
 
 void RowToIndexC(const uint8_t* rgb, int width, uint16_t* dst) {
   for (int i = 0; i < width; ++i, rgb += 3) {
-    dst[i] = ConvertToYUVIndex(rgb);
+    dst[i] = RGBToRiskIndex(rgb);
   }
 }
 

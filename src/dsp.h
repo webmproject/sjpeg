@@ -36,8 +36,15 @@ extern const uint8_t kDefaultMatrices[2][64];
 extern const uint8_t kZigzag[64];
 extern const uint8_t kInvZigzag[64];
 
-// scoring tables in score_7.cc
-extern const int kRGBSize;
+// riskiness index = y + 7 * u + 35 * v: 7 luma levels, 5 chroma levels
+// (7 levels with the two outer ones merged on each side)
+static const int kRiskYLevels = 7;
+static const int kRiskUVLevels = 5;
+static const int kRiskColors = kRiskYLevels * kRiskUVLevels * kRiskUVLevels;
+// first gray index (u = v = 2), followed by the other luma levels
+static const int kRiskGrayMin = 2 * kRiskYLevels * (1 + kRiskUVLevels);
+
+// pair scores, kRiskColors x kRiskColors, in score_175.cc
 extern const uint8_t kSharpnessScore[];
 
 // internal riskiness scoring functions:

@@ -107,7 +107,7 @@ SJPEG_OBJS = \
     src/histogram.o \
     src/jpeg_tools.o \
     src/quantize.o \
-    src/score_7.o  \
+    src/score_175.o  \
     src/yuv_convert.o \
 
 ifeq ($(SJPEG_HAVE_PROGRESSIVE), 1)
@@ -269,7 +269,7 @@ DIST_FILES= \
          src/quantize_avx2.cc  \
          src/riskiness_avx2.cc  \
          src/md5sum.h \
-         src/score_7.cc  \
+         src/score_175.cc  \
          src/simd.h  \
          src/sjpeg.h  \
          src/sjpegi.h  \
