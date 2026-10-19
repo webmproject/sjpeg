@@ -251,6 +251,8 @@ SJPEG_TEST(InvalidArguments) {
       !sjpeg::Encode(nullptr, kWidth, kHeight, 3 * kWidth, param, &out));
   SJPEG_CHECK(!EncodeRGB(rgb, kWidth, kHeight, param, (std::string*)nullptr));
   SJPEG_CHECK(!EncodeRGB(rgb, kWidth, 0, param, &out));
+  SJPEG_CHECK(!EncodeRGB(rgb, kWidth, -1, param, &out));
+  SJPEG_CHECK(!sjpeg::EncodeGray(rgb.data(), -1, kHeight, kWidth, param, &out));
   SJPEG_CHECK(
       !sjpeg::EncodeGray(nullptr, kWidth, kHeight, kWidth, param, &out));
 
@@ -506,10 +508,34 @@ SJPEG_TEST(LargeDimensions) {
   SJPEG_CHECK(!EncodeRGB(rgb, kSmallDim, kMaxDim + 1, param, &out));
   SJPEG_CHECK(!sjpeg::EncodeGray(rgb.data(), kMaxDim + 1, kSmallDim,
                                  kMaxDim + 1, param, &out));
+  SJPEG_CHECK(
+      !sjpeg::EncodeGray(rgb.data(), INT_MAX, INT_MAX, INT_MAX, param, &out));
   uint8_t* data = nullptr;
   SJPEG_CHECK(SjpegEncode(rgb.data(), kMaxDim + 1, kSmallDim, 3 * (kMaxDim + 1),
                           &data, 50.f, 4, SJPEG_YUV_420) == 0);
   SJPEG_CHECK(data == nullptr);
+
+  // rejected before any 'k * width' or std::abs(stride) can overflow
+  const uint8_t* const src = rgb.data();
+  SJPEG_CHECK(SjpegEncode(src, INT_MAX, kSmallDim, INT_MAX, &data, 50.f, 4,
+                          SJPEG_YUV_420) == 0);
+  SJPEG_CHECK(!sjpeg::Encode(src, INT_MAX, kSmallDim, INT_MAX, param, &out));
+  SJPEG_CHECK(SjpegCompress(src, INT_MAX, kSmallDim, 50.f, &data) == 0);
+  SJPEG_CHECK(!SjpegCompress(src, INT_MAX, kSmallDim, 50.f, &out));
+  SJPEG_CHECK(sjpeg::Encode(src, INT_MAX, INT_MAX, INT_MAX, param, &data) == 0);
+  SJPEG_CHECK(
+      !sjpeg::EncodeRGBA(src, INT_MAX, kSmallDim, INT_MAX, param, &out));
+  SJPEG_CHECK(!sjpeg::EncodeYUV420(src, INT_MAX, src, INT_MAX, src, INT_MAX,
+                                   INT_MAX, kSmallDim, param,
+                                   sjpeg::MakeByteSink(&out).get()));
+  SJPEG_CHECK(!sjpeg::EncodeNV12(src, INT_MAX, src, INT_MAX, INT_MAX, kSmallDim,
+                                 param, sjpeg::MakeByteSink(&out).get()));
+  SJPEG_CHECK(!sjpeg::Encode(src, kSmallDim, kSmallDim, INT_MIN, param, &out));
+  SJPEG_CHECK(
+      !sjpeg::EncodeGray(src, kSmallDim, kSmallDim, INT_MIN, param, &out));
+  SJPEG_CHECK(!sjpeg::EncodeYUV420(src, INT_MIN, src, kSmallDim, src, kSmallDim,
+                                   kSmallDim, kSmallDim, param,
+                                   sjpeg::MakeByteSink(&out).get()));
 }
 
 // Refuses to allocate after the first 'num_ok' calls.
@@ -715,6 +741,19 @@ std::vector<uint8_t> MakeFlatRGB(int width, int height, int r, int g, int b) {
 }
 
 SJPEG_TEST(Riskiness) {
+  // invalid input
+  const std::vector<uint8_t> rgb = MakeFlatRGB(8, 8, 128, 128, 128);
+  float bad_risk = -1.f;
+  SJPEG_CHECK(SjpegRiskiness(nullptr, 8, 8, 24, &bad_risk) == SJPEG_YUV_420);
+  SJPEG_CHECK(bad_risk == 0.f);
+  SJPEG_CHECK(SjpegRiskiness(rgb.data(), 0, 8, 24, nullptr) == SJPEG_YUV_420);
+  SJPEG_CHECK(SjpegRiskiness(rgb.data(), 8, -1, 24, nullptr) == SJPEG_YUV_420);
+  SJPEG_CHECK(SjpegRiskiness(rgb.data(), 8, 8, 23, nullptr) == SJPEG_YUV_420);
+  SJPEG_CHECK(SjpegRiskiness(rgb.data(), 8, 8, INT_MIN, nullptr) ==
+              SJPEG_YUV_420);
+  SJPEG_CHECK(SjpegRiskiness(rgb.data(), INT_MAX, 8, INT_MAX, nullptr) ==
+              SJPEG_YUV_420);
+
   const int kSizes[] = {8, 16, 32, 64, 128, 400};
   for (size_t s = 0; s < ARRAY_SIZE(kSizes); ++s) {
     const int size = kSizes[s];

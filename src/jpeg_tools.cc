@@ -385,6 +385,12 @@ RiskinessScoreRowFunc GetRiskinessScoreRowFunc() {
 // evaluation, not exposed in the public API.
 static SjpegYUVMode RiskinessImpl(const uint8_t* rgb, int width, int height,
                                   int stride, float* risk, bool full_scan) {
+  // invalid input: same answer as for a featureless picture
+  if (rgb == nullptr || !sjpeg::ValidDimensions(width, height) ||
+      !sjpeg::ValidStride(stride, 3 * width)) {
+    if (risk != nullptr) *risk = 0.f;
+    return SJPEG_YUV_420;
+  }
   const sjpeg::RGBToIndexRowFunc cvrt_func = sjpeg::GetRowFunc();
   const sjpeg::RiskinessScoreRowFunc score_row_func =
       sjpeg::GetRiskinessScoreRowFunc();
