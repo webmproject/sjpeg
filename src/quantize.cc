@@ -356,8 +356,8 @@ struct RunCost {
   int run;
   int pos;
 
-  static inline uint32_t Get(const uint32_t codes[], uint32_t zrl_len, int run,
-                             int n) {
+  static uint32_t Get(const uint32_t codes[], uint32_t zrl_len, int run,
+                      int n) {
     return (run >> 4) * zrl_len + (codes[((run & 15) << 4) | n] & 0xff);
   }
 };

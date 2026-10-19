@@ -48,7 +48,7 @@ struct EntropyStats {
   void Add(const EntropyStats& other, int nb_tables);
   // Tallies one block. Counts cannot overflow 32 bits, since the maximum
   // resolution allowed is 65535 * 65535.
-  void AddBlock(int q_idx, const DCTCoeffs* coeffs, const RunLevel* rl);
+  void AddBlock(int q_idx, const DCTCoeffs* coeffs, const RunLevel* run_levels);
   void AddDC(int q_idx, const DCTCoeffs* coeffs);  // DC only
 };
 
