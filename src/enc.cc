@@ -130,6 +130,8 @@ void Encoder::SetCompressionMethod(int method) {
 
 void Encoder::SetRDO(bool use_rdo) { use_rdo_ = use_rdo; }
 
+void Encoder::SetTrellis(bool use_trellis) { use_trellis_ = use_trellis; }
+
 void Encoder::SetProgressive(int luma_split, int chroma_split) {
 #if !defined(SJPEG_NO_PROGRESSIVE)
   luma_split = (luma_split < 1) ? 1 : (luma_split > 64) ? 64 : luma_split;

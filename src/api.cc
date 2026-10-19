@@ -171,11 +171,8 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
 
   int method = param.Huffman_compress ? 1 : 0;
   if (param.adaptive_quantization) method += 3;
-  if (param.use_trellis) {
-    method = (method == 4) ? 7 : (method == 6) ? 8 : method;
-  }
-
   SetCompressionMethod(method);
+  SetTrellis(param.use_trellis);  // independent of the method preset
   SetRDO(param.use_rdo);
   SetQuantizationBias(param.quantization_bias, param.adaptive_bias);
   SetQuantizationDeltas(param.qdelta_max_luma, param.qdelta_max_chroma);

@@ -1503,6 +1503,20 @@ SJPEG_TEST(RateDistortionOptimization) {
     SJPEG_CHECK(out_rdo != out_default);
   }
 
+  // 6b. Trellis applies whatever the Huffman / adaptive-quant settings.
+  for (int mode = 0; mode < 4; ++mode) {
+    sjpeg::EncoderParam param(75.0f);
+    param.Huffman_compress = (mode & 1);
+    param.adaptive_quantization = (mode & 2);
+    std::string out_default;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out_default));
+
+    param.use_trellis = true;
+    std::string out_trellis;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out_trellis));
+    SJPEG_CHECK(out_trellis != out_default);
+  }
+
   // 7. Multi-pass target-size (dichotomy) search with RDO also differs.
   {
     sjpeg::EncoderParam param(75.0f);
