@@ -278,22 +278,22 @@ class Encoder {
  protected:
   bool SetError() const;  // sets ok_ to false, and returns false
 
-  // format-specific parameters, set by virtual InitComponents()
+  // format-specific parameters, set at construction by InitComponents()
   const SjpegYUVMode yuv_mode_;  // 444, 420 or 400 only
   enum { MAX_COMP = 3 };
-  int nb_comps_;
-  int quant_idx_[MAX_COMP];       // indices for quantization matrices
-  int nb_blocks_[MAX_COMP];       // number of 8x8 blocks per components
-  uint8_t block_dims_[MAX_COMP];  // component dimensions (8-pixels units)
-  int block_w_, block_h_;         // maximum mcu width / height
-  int mcu_blocks_;                // total blocks in mcu (= sum of nb_blocks_[])
+  int nb_comps_ = 0;
+  int quant_idx_[MAX_COMP];        // indices for quantization matrices
+  int nb_blocks_[MAX_COMP];        // number of 8x8 blocks per components
+  uint8_t block_dims_[MAX_COMP];   // component dimensions (8-pixels units)
+  int block_w_ = 0, block_h_ = 0;  // maximum mcu width / height
+  int mcu_blocks_ = 0;  // total blocks in mcu (= sum of nb_blocks_[])
 
   void InitComponents();
 
   // data accessible to sub-classes implementing alternate input format
-  int W_, H_;                // width, height
-  int mb_w_, mb_h_;          // width / height in units of mcu
-  int mb_x_max_, mb_y_max_;  // clip boundary: last full MCU column/row
+  const int W_, H_;                  // width, height
+  int mb_w_ = 0, mb_h_ = 0;          // width / height in units of mcu
+  int mb_x_max_ = 0, mb_y_max_ = 0;  // clip boundary: last full MCU col/row
 
   // Replicate an RGB source sub_w x sub_h block, expanding it to w x h size.
   const uint8_t* GetReplicatedSamples(const uint8_t* rgb,    // block source
@@ -313,8 +313,9 @@ class Encoder {
   uint8_t replicated_buffer_[4 * 16 * 16];  // tmp buffer for replication
   int pix_step_ = 3;  // bytes per input pixel (3=RGB, 4=BGRA/RGBA)
 
-  sjpeg::RGBToYUVBlockFunc get_yuv_block_;  // set by GetBlockFunc()
-  bool adaptive_bias_;  // if true, use per-block perceptual bias modulation
+  sjpeg::RGBToYUVBlockFunc get_yuv_block_ = nullptr;  // set by GetBlockFunc()
+  // if true, use per-block perceptual bias modulation
+  bool adaptive_bias_ = false;
 
   // Memory management
   template <class T>
@@ -341,35 +342,36 @@ class Encoder {
   }
 
  protected:
-  mutable bool ok_;  // set to false if a new[] fails
+  mutable bool ok_ = true;  // set to false if a new[] fails
 
  private:
   sjpeg::BitWriter bw_;  // output buffer
   HeaderWriter hw_;      // marker segments, written to bw_
 
   std::string iccp_, xmp_, exif_, app_markers_;  // metadata
-  uint16_t xmp_split_;  // user-supplied split point for extended metadata
+  uint16_t xmp_split_ = 0;  // user-supplied split point for extended metadata
 
-  // compression tools. See sjpeg.h for description of methods.
-  bool optimize_size_;       // Huffman-optimize the codes  (method 0, 3)
-  bool use_adaptive_quant_;  // modulate the quant matrix   (method 3-8)
-  bool use_extra_memory_;    // save the unquantized coeffs (method 3, 4)
-  bool reuse_run_levels_;    // save quantized run/levels   (method 1, 4, 5)
-  bool use_trellis_;         // use trellis-quantization    (method 7, 8)
-  bool use_rdo_ = false;     // use fast rate-distortion optimization
-  int restart_interval_rows_ = 0;  // MCU rows per restart interval (0 = off)
-  int num_threads_ = 1;            // total threads for parallel scan
-                                   // (1 = single-threaded)
+  // compression tools, and the methods using them. See sjpeg.h for
+  // description of methods.
+  bool optimize_size_ = false;       // Huffman-optimize the codes  (0, 3)
+  bool use_adaptive_quant_ = false;  // modulate the quant matrix   (3-8)
+  bool use_extra_memory_ = false;    // save the unquantized coeffs (3, 4)
+  bool reuse_run_levels_ = false;    // save quantized run/levels   (1, 4, 5)
+  bool use_trellis_ = false;         // use trellis-quantization    (7, 8)
+  bool use_rdo_ = false;             // use fast rate-distortion optimization
+  int restart_interval_rows_ = 0;    // MCU rows per restart interval (0 = off)
+  int num_threads_ = 1;              // total threads for parallel scan
+                                     // (1 = single-threaded)
 
-  int q_bias_;           // [0..255]: rounding bias for quant. of AC coeffs.
+  int q_bias_ = 0;       // [0..255]: rounding bias for quant. of AC coeffs.
   Quantizer quants_[2];  // quant matrices
   int DCs_[3];           // DC predictors
 
   // DCT coefficients storage, aligned to 32 bytes
   static constexpr size_t ALIGN_CST = 31;
-  uint8_t* in_blocks_base_;  // base memory for blocks
-  int16_t* in_blocks_;       // aligned pointer to in_blocks_base_
-  bool have_coeffs_;         // true if the Fourier coefficients are stored
+  uint8_t* in_blocks_base_ = nullptr;  // base memory for blocks
+  int16_t* in_blocks_ = nullptr;       // aligned pointer to in_blocks_base_
+  bool have_coeffs_ = false;  // true if the Fourier coefficients are stored
   bool AllocateBlocks(size_t num_blocks);  // returns false in case of error
   void DeallocateBlocks();
 
@@ -400,14 +402,15 @@ class Encoder {
 
   // --- progressive (spectral-split-only) mode. See SetProgressive(). ---
   // prog_luma_split_ == 64 means progressive mode is off.
-  int prog_luma_split_, prog_chroma_split_;  // Se of the low band, or >=63
+  int prog_luma_split_ = 64;  // Se of the low band, or >=63
+  int prog_chroma_split_ = 8;
 
   // Per-component planes + scratch AC-Huffman state. Allocated by
   // AllocateProgPlanes(), freed by DeallocateProgPlanes(); nullptr otherwise
   // (always, if SJPEG_NO_PROGRESSIVE). Only forward-declared here so this
   // pointer can stay unconditional; see the full definition below.
   struct ProgPlanes;
-  ProgPlanes* prog_planes_;
+  ProgPlanes* prog_planes_ = nullptr;
 
 #if !defined(SJPEG_NO_PROGRESSIVE)
   bool EncodeProgressive();  // the whole progressive-mode encode path
@@ -436,9 +439,9 @@ class Encoder {
 #endif  // !SJPEG_NO_PROGRESSIVE
 
   // multi-pass parameters
-  int passes_;
+  int passes_ = 1;
   SearchHook default_hook_;
-  SearchHook* search_hook_;
+  SearchHook* search_hook_ = nullptr;
 
   // lower memory management
   MemoryManager* memory_hook_;

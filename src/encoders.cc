@@ -82,10 +82,12 @@ void Encoder::InitComponents() {
     case SJPEG_YUV_AUTO:
     case SJPEG_YUV_SHARP:
     default:
-      assert(0);  // shouldn't happen
+      assert(0);    // shouldn't happen
+      ok_ = false;  // block_w_ and block_h_ are still 0
       break;
   }
-  entropy_.SetNumTables((nb_comps_ == 1) ? 1 : 2);
+  assert(nb_comps_ <= MAX_COMP);
+  assert(mcu_blocks_ <= 6);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -194,7 +196,7 @@ class EncoderRGB final : public Encoder {
              int step, ByteSink* const sink, PixelFormat fmt = kRGBInput,
              MemoryManager* const memory = nullptr)
       : Encoder(yuv_mode, W, H, sink, memory), rgb_(rgb), step_(step) {
-    ok_ = (rgb != nullptr);
+    ok_ = ok_ && (rgb != nullptr);
     if (fmt != kRGBInput) {
       pix_step_ = 4;
       get_yuv_block_ = GetBlockFunc(yuv_mode_, fmt);
@@ -350,7 +352,7 @@ class EncoderYUV444 final : public Encoder {
         y_step_(y_step),
         u_step_(u_step),
         v_step_(v_step) {
-    ok_ = (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
+    ok_ = ok_ && (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
   }
   ~EncoderYUV444() override = default;
 
@@ -396,14 +398,8 @@ class EncoderYUV420 : public Encoder {
   EncoderYUV420(const uint8_t* y, int y_step, const uint8_t* u, int u_step,
                 const uint8_t* v, int v_step, int W, int H,
                 ByteSink* const sink, MemoryManager* const memory = nullptr)
-      : Encoder(SJPEG_YUV_420, W, H, sink, memory),
-        y_(y),
-        u_(u),
-        v_(v),
-        y_step_(y_step),
-        u_step_(u_step),
-        v_step_(v_step) {
-    ok_ = (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
+      : EncoderYUV420(W, H, sink, memory) {
+    SetPlanes(y, y_step, u, u_step, v, v_step);
   }
   ~EncoderYUV420() override = default;
 
@@ -421,10 +417,25 @@ class EncoderYUV420 : public Encoder {
   }
 
  protected:
-  const uint8_t* y_;
-  const uint8_t* u_;
-  const uint8_t* v_;
-  int y_step_, u_step_, v_step_;
+  // the planes are set later, with SetPlanes()
+  EncoderYUV420(int W, int H, ByteSink* const sink, MemoryManager* const memory)
+      : Encoder(SJPEG_YUV_420, W, H, sink, memory) {}
+  void SetPlanes(const uint8_t* y, int y_step, const uint8_t* u, int u_step,
+                 const uint8_t* v, int v_step) {
+    y_ = y;
+    u_ = u;
+    v_ = v;
+    y_step_ = y_step;
+    u_step_ = u_step;
+    v_step_ = v_step;
+    ok_ = ok_ && (y_ != nullptr) && (u_ != nullptr) && (v_ != nullptr);
+  }
+
+ private:
+  const uint8_t* y_ = nullptr;
+  const uint8_t* u_ = nullptr;
+  const uint8_t* v_ = nullptr;
+  int y_step_ = 0, u_step_ = 0, v_step_ = 0;
 };
 
 bool EncodeYUV420(const uint8_t* Y, int Y_stride, const uint8_t* U,
@@ -448,13 +459,9 @@ class EncoderSharp420 final : public EncoderYUV420 {
   EncoderSharp420(int W, int H, const uint8_t* const rgb, int step,
                   ByteSink* const sink, MemoryManager* const memory = nullptr,
                   int num_threads = 1)
-      : EncoderYUV420(nullptr, 0, nullptr, 0, nullptr, 0, W, H, sink, memory),
-        yuv_memory_(nullptr) {
+      : EncoderYUV420(W, H, sink, memory), yuv_memory_(nullptr) {
     SetNumThreads(num_threads);
-    if (W <= 0 || H <= 0 || W > kMaxDimension || H > kMaxDimension) {
-      ok_ = false;
-      return;
-    }
+    if (!ok_) return;
     const int uv_w = (W + 1) >> 1;
     const int uv_h = (H + 1) >> 1;
     size_t y_size = 0, uv_size = 0, uv_2size = 0, total_size = 0;
@@ -466,18 +473,12 @@ class EncoderSharp420 final : public EncoderYUV420 {
       return;
     }
     yuv_memory_ = Alloc<uint8_t>(total_size);
-    ok_ = (yuv_memory_ != nullptr);
-    if (ok_) {
-      y_ = yuv_memory_;
-      y_step_ = W;
-      u_ = yuv_memory_ + y_size;
-      v_ = u_ + uv_size;
-      u_step_ = uv_w;
-      v_step_ = uv_w;
-      ok_ = ApplySharpYUVConversion(rgb, W, H, step, const_cast<uint8_t*>(y_),
-                                    const_cast<uint8_t*>(u_),
-                                    const_cast<uint8_t*>(v_), this);
-    }
+    if (yuv_memory_ == nullptr) return;  // Alloc() set the error
+    uint8_t* const y = yuv_memory_;
+    uint8_t* const u = y + y_size;
+    uint8_t* const v = u + uv_size;
+    SetPlanes(y, W, u, uv_w, v, uv_w);
+    ok_ = ok_ && ApplySharpYUVConversion(rgb, W, H, step, y, u, v, this);
   }
   ~EncoderSharp420() override { Free(yuv_memory_); }
 

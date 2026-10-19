@@ -67,7 +67,7 @@ static const HuffmanTable kHuffmanTables[4] = {
     {{0, 2, 1, 3, 3, 2, 4, 3, 5, 5, 4, 4, 0, 0, 1, 125}, kACSyms[0], 162},
     {{0, 2, 1, 2, 4, 4, 3, 4, 7, 5, 4, 4, 0, 1, 2, 119}, kACSyms[1], 162}};
 
-EntropyCoder::EntropyCoder() : nb_tables_(2) {
+EntropyCoder::EntropyCoder(int nb_tables) : nb_tables_(nb_tables) {
   memset(dc_codes_, 0, sizeof(dc_codes_));  // safety
   memset(ac_codes_, 0, sizeof(ac_codes_));
   SetDefaultTables();

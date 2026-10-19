@@ -65,21 +65,20 @@ Encoder::Encoder(SjpegYUVMode yuv_mode, int W, int H, ByteSink* const sink,
     : yuv_mode_(yuv_mode),
       W_(W),
       H_(H),
-      ok_(true),
       bw_(sink),
       hw_(&bw_, &ok_),
-      use_rdo_(false),
-      in_blocks_base_(nullptr),
-      in_blocks_(nullptr),
-      have_coeffs_(false),
+      entropy_((yuv_mode == SJPEG_YUV_400) ? 1 : 2),
       qdelta_max_luma_(kDefaultDeltaMaxLuma),
       qdelta_max_chroma_(kDefaultDeltaMaxChroma),
-      prog_luma_split_(64),
-      prog_chroma_split_(8),
-      prog_planes_(nullptr),
-      passes_(1),
-      search_hook_(nullptr),
       memory_hook_((memory == nullptr) ? &kDefaultMemory : memory) {
+  InitComponents();
+  ok_ = ok_ && (W_ > 0 && H_ > 0 && W_ <= kMaxDimension && H_ <= kMaxDimension);
+  if (ok_) {
+    mb_w_ = (W_ + (block_w_ - 1)) / block_w_;
+    mb_h_ = (H_ + (block_h_ - 1)) / block_h_;
+    mb_x_max_ = W_ / block_w_;
+    mb_y_max_ = H_ / block_h_;
+  }
   SetCompressionMethod(kDefaultMethod);
   SetQuality(kDefaultQuality);
   get_yuv_block_ = GetBlockFunc(yuv_mode_);
@@ -635,9 +634,7 @@ float Encoder::EvaluateSize(int num_slices, int total_intervals,
 ////////////////////////////////////////////////////////////////////////////////
 // Marker writers: gather the frame state for the HeaderWriter (headers.cc)
 
-void Encoder::WriteDQT() {
-  hw_.WriteDQT(quants_, (yuv_mode_ == SJPEG_YUV_400) ? 1 : 2);
-}
+void Encoder::WriteDQT() { hw_.WriteDQT(quants_, entropy_.nb_tables()); }
 
 void Encoder::WriteSOF(bool progressive) {
   hw_.WriteSOF(W_, H_, nb_comps_, block_dims_, quant_idx_, progressive);
@@ -660,28 +657,13 @@ void Encoder::WriteSOS() { hw_.WriteSOS(nb_comps_, quant_idx_); }
 bool Encoder::Encode() {
   if (!ok_) return false;
 
-  // validate some input parameters
-  if (W_ <= 0 || H_ <= 0 || W_ > kMaxDimension || H_ > kMaxDimension) {
-    return SetError();
-  }
-
   FinalizeQuantMatrix(&quants_[0], q_bias_, adaptive_bias_);
   FinalizeQuantMatrix(&quants_[1], q_bias_, adaptive_bias_);
   SetCostCodes(0);
   SetCostCodes(1);
 
-  // colorspace init
-  InitComponents();
-
   entropy_.SetDefaultTables();
   InitCostCodes();
-  assert(nb_comps_ <= MAX_COMP);
-  assert(mcu_blocks_ <= 6);
-
-  mb_w_ = (W_ + (block_w_ - 1)) / block_w_;
-  mb_h_ = (H_ + (block_h_ - 1)) / block_h_;
-  mb_x_max_ = W_ / block_w_;
-  mb_y_max_ = H_ / block_h_;
   // DRI stores the interval as a 16-bit count of MCUs, so a row-based interval
   // can't exceed 0xffff MCUs. Clamp to the coarsest whole number of MCU rows
   // that fits: restarts become more frequent than asked for, never less, and
