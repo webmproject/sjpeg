@@ -110,7 +110,7 @@ void SetAverage(int DC, int16_t* const out) {
 void Encoder::GetLumaBlock16x16(const uint8_t* y, int y_step, int mb_x,
                                 int mb_y, bool clipped, int16_t* out,
                                 uint8_t* rep_buf) {
-  const uint8_t* Y1 = y + (mb_x + mb_y * y_step) * 16;
+  const uint8_t* Y1 = y + (ptrdiff_t)(mb_y * 16) * y_step + mb_x * 16;
   if (clipped) {
     Y1 = GetReplicatedYSamples(Y1, y_step, W_ - mb_x * 16, H_ - mb_y * 16,
                                rep_buf);
@@ -176,7 +176,7 @@ bool FinishEncoding(Encoder* const enc, const EncoderParam* const param) {
 
 // Input-plane validity check for the direct-YUV entry points.
 static bool CheckPlane(const uint8_t* plane, int stride, int min_width) {
-  return (plane != nullptr) && (std::abs(stride) >= min_width);
+  return (plane != nullptr) && ValidStride(stride, min_width);
 }
 
 // Loads one 8x8 block of samples, padding the missing ones if 'clipped'.
@@ -211,7 +211,8 @@ class EncoderRGB final : public Encoder {
 
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
-    const uint8_t* rgb = rgb_ + (pix_step_ * mb_x + mb_y * step_) * kMCUSize;
+    const uint8_t* rgb = rgb_ + (ptrdiff_t)(mb_y * kMCUSize) * step_ +
+                         pix_step_ * mb_x * kMCUSize;
     int step = step_;
     const int sub_w = W_ - mb_x * kMCUSize;
     const int sub_h = H_ - mb_y * kMCUSize;
@@ -240,8 +241,8 @@ class Encoder400G final : public Encoder {
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
     (void)rep_buf;
-    LoadBlock(gray_ + (mb_x + mb_y * step_) * 8, step_, clipped, W_ - mb_x * 8,
-              H_ - mb_y * 8, out);
+    LoadBlock(gray_ + (ptrdiff_t)(mb_y * 8) * step_ + mb_x * 8, step_, clipped,
+              W_ - mb_x * 8, H_ - mb_y * 8, out);
   }
 
  protected:
@@ -283,7 +284,7 @@ class EncoderNV12 final : public Encoder {
   }
   void GetUVSamples(int mb_x, int mb_y, bool clipped, int16_t* const U,
                     int16_t* const V, uint8_t* rep_buf) {
-    const uint8_t* UV = uv_ + (2 * mb_x + mb_y * uv_step_) * 8;
+    const uint8_t* UV = uv_ + (ptrdiff_t)(mb_y * 8) * uv_step_ + mb_x * 16;
     int uv_step = uv_step_;
     if (clipped) {
       const int uv_w = ((W_ + 1) >> 1) - mb_x * 8;
@@ -318,7 +319,7 @@ class EncoderNV12 final : public Encoder {
 static bool EncodeNV(const uint8_t* y, int y_stride, const uint8_t* uv,
                      int uv_stride, int width, int height, bool is_nv12,
                      const EncoderParam& param, ByteSink* output) {
-  if (output == nullptr || width <= 0 || height <= 0) return false;
+  if (output == nullptr || !ValidDimensions(width, height)) return false;
   if (!CheckPlane(y, y_stride, width)) return false;
   if (!CheckPlane(uv, uv_stride, 2 * ((width + 1) / 2))) return false;
   Encoder* const enc = new (std::nothrow) EncoderNV12(
@@ -364,9 +365,10 @@ class EncoderYUV444 final : public Encoder {
   void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out,
                   uint8_t* rep_buf) override {
     (void)rep_buf;
-    const uint8_t* const y = y_ + (mb_x + mb_y * y_step_) * 8;
-    const uint8_t* const u = u_ + (mb_x + mb_y * u_step_) * 8;
-    const uint8_t* const v = v_ + (mb_x + mb_y * v_step_) * 8;
+    const ptrdiff_t row = mb_y * 8;
+    const uint8_t* const y = y_ + row * y_step_ + mb_x * 8;
+    const uint8_t* const u = u_ + row * u_step_ + mb_x * 8;
+    const uint8_t* const v = v_ + row * v_step_ + mb_x * 8;
     const int sub_w = W_ - mb_x * 8;
     const int sub_h = H_ - mb_y * 8;
     LoadBlock(y, y_step_, clipped, sub_w, sub_h, out + 0 * 64);
@@ -385,7 +387,7 @@ class EncoderYUV444 final : public Encoder {
 bool EncodeYUV444(const uint8_t* Y, int Y_stride, const uint8_t* U,
                   int U_stride, const uint8_t* V, int V_stride, int width,
                   int height, const EncoderParam& param, ByteSink* output) {
-  if (output == nullptr || width <= 0 || height <= 0) return false;
+  if (output == nullptr || !ValidDimensions(width, height)) return false;
   if (!CheckPlane(Y, Y_stride, width)) return false;
   if (!CheckPlane(U, U_stride, width)) return false;
   if (!CheckPlane(V, V_stride, width)) return false;
@@ -413,8 +415,9 @@ class EncoderYUV420 : public Encoder {
     // Luma
     GetLumaBlock16x16(y_, y_step_, mb_x, mb_y, clipped, out, rep_buf);
     // U/V
-    const uint8_t* U = u_ + (mb_x + mb_y * u_step_) * 8;
-    const uint8_t* V = v_ + (mb_x + mb_y * v_step_) * 8;
+    const ptrdiff_t row = mb_y * 8;
+    const uint8_t* U = u_ + row * u_step_ + mb_x * 8;
+    const uint8_t* V = v_ + row * v_step_ + mb_x * 8;
     const int sub_w = ((W_ + 1) >> 1) - mb_x * 8;
     const int sub_h = ((H_ + 1) >> 1) - mb_y * 8;
     LoadBlock(U, u_step_, clipped, sub_w, sub_h, out + 4 * 64);
@@ -446,7 +449,7 @@ class EncoderYUV420 : public Encoder {
 bool EncodeYUV420(const uint8_t* Y, int Y_stride, const uint8_t* U,
                   int U_stride, const uint8_t* V, int V_stride, int width,
                   int height, const EncoderParam& param, ByteSink* output) {
-  if (output == nullptr || width <= 0 || height <= 0) return false;
+  if (output == nullptr || !ValidDimensions(width, height)) return false;
   if (!CheckPlane(Y, Y_stride, width)) return false;
   if (!CheckPlane(U, U_stride, (width + 1) / 2)) return false;
   if (!CheckPlane(V, V_stride, (width + 1) / 2)) return false;

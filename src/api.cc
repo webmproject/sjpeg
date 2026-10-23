@@ -37,7 +37,10 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
                    uint8_t** out_data, float quality, int method,
                    SjpegYUVMode yuv_mode) {
   if (rgb == nullptr || out_data == nullptr) return 0;
-  if (width <= 0 || height <= 0 || std::abs(stride) < 3 * width) return 0;
+  if (!sjpeg::ValidDimensions(width, height) ||
+      !sjpeg::ValidStride(stride, 3 * width)) {
+    return 0;
+  }
   *out_data = nullptr;  // safety
 
   sjpeg::MemorySink sink((size_t)width * height / 4);
@@ -55,6 +58,7 @@ size_t SjpegEncode(const uint8_t* rgb, int width, int height, int stride,
 
 size_t SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
                      uint8_t** out_data) {
+  if (!sjpeg::ValidDimensions(width, height)) return 0;  // before '3 * width'
   return SjpegEncode(rgb, width, height, 3 * width, out_data, quality, 4,
                      SJPEG_YUV_AUTO);
 }
@@ -214,7 +218,9 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
 bool Encode(const uint8_t* rgb, int width, int height, int stride,
             const EncoderParam& param, ByteSink* sink) {
   if (rgb == nullptr || sink == nullptr) return false;
-  if (width <= 0 || height <= 0 || std::abs(stride) < 3 * width) return false;
+  if (!ValidDimensions(width, height) || !ValidStride(stride, 3 * width)) {
+    return false;
+  }
 
   const int num_threads = GetNumThreads(param);
   Encoder* const enc =
@@ -225,7 +231,8 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
 
 size_t Encode(const uint8_t* rgb, int width, int height, int stride,
               const EncoderParam& param, uint8_t** out_data) {
-  MemorySink sink((size_t)width * height / 4);  // estimation of output size
+  if (!ValidDimensions(width, height)) return 0;  // before the MemorySink
+  MemorySink sink((size_t)width * height / 4);    // estimation of output size
   if (!Encode(rgb, width, height, stride, param, &sink)) return 0;
   size_t size;
   sink.Release(out_data, &size);
@@ -262,7 +269,9 @@ bool EncodePacked4(const uint8_t* src, int width, int height, int stride,
                    PixelFormat fmt, int r_idx, int b_idx,
                    const EncoderParam& param, ByteSink* sink) {
   if (src == nullptr || sink == nullptr) return false;
-  if (width <= 0 || height <= 0 || std::abs(stride) < 4 * width) return false;
+  if (!ValidDimensions(width, height) || !ValidStride(stride, 4 * width)) {
+    return false;
+  }
   const SjpegYUVMode mode = param.yuv_mode;
   if (mode == SJPEG_YUV_AUTO || mode == SJPEG_YUV_SHARP) {
     // Fallback: convert to a scratch RGB plane and reuse the RGB path.
@@ -285,6 +294,7 @@ template <typename F>
 bool EncodeToString(int width, int height, std::string* output, F encode) {
   if (output == nullptr) return false;
   output->clear();
+  if (!ValidDimensions(width, height)) return false;  // before reserve()
   NoThrow([&] { output->reserve((size_t)width * height / 4); });  // just a hint
   StringSink sink(output);
   return encode(&sink);
@@ -307,7 +317,9 @@ bool EncodeRGBA(const uint8_t* rgba, int width, int height, int stride,
 bool EncodeGray(const uint8_t* gray, int width, int height, int stride,
                 const EncoderParam& param, ByteSink* sink) {
   if (gray == nullptr || sink == nullptr) return false;
-  if (width <= 0 || height <= 0 || std::abs(stride) < width) return false;
+  if (!ValidDimensions(width, height) || !ValidStride(stride, width)) {
+    return false;
+  }
 
   Encoder* const enc =
       GrayEncoderFactory(gray, width, height, stride, sink, param.memory);

@@ -627,10 +627,7 @@ static void ConvertWRGBToYUVSlice(const fixed_y_t* best_y,
 static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
                            int stride, uint8_t* y_plane, uint8_t* u_plane,
                            uint8_t* v_plane, const Encoder* encoder) {
-  if (width <= 0 || height <= 0 || width > kMaxDimension ||
-      height > kMaxDimension) {
-    return false;
-  }
+  if (!ValidDimensions(width, height)) return false;
   // We expand the right/bottom border if needed.
   const size_t w = ((size_t)width + 1) & ~1ULL;
   const size_t h = ((size_t)height + 1) & ~1ULL;
@@ -870,12 +867,7 @@ bool sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb, int W, int H,
       v_plane == nullptr) {
     return false;
   }
-  if (W <= 0 || H <= 0 || W > kMaxDimension || H > kMaxDimension) {
-    return false;
-  }
-  if (stride == INT_MIN) return false;
-  const int abs_stride = std::abs(stride);
-  if (abs_stride < 3 * W) return false;
+  if (!ValidDimensions(W, H) || !ValidStride(stride, 3 * W)) return false;
 
   if (W <= kMinDimensionIterativeConversion ||
       H <= kMinDimensionIterativeConversion) {

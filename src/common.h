@@ -21,6 +21,7 @@
 #define SJPEG_COMMON_H_
 
 #include <assert.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -163,6 +164,18 @@ extern bool SupportsAVX2();
 
 // Maximum picture dimension: SOF stores the width and height on 16 bits.
 enum { kMaxDimension = 0xffff };
+
+// True if both dimensions are in [1, kMaxDimension].
+inline bool ValidDimensions(int width, int height) {
+  return (width > 0 && height > 0 && width <= kMaxDimension &&
+          height <= kMaxDimension);
+}
+
+// True if |stride| >= min_stride (>= 0). INT_MIN, which has no |stride|, is
+// rejected.
+inline bool ValidStride(int stride, int min_stride) {
+  return (stride != INT_MIN) && (stride >= min_stride || stride <= -min_stride);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Shared by files enc.cc was split into. Everything else in those files is

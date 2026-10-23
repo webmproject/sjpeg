@@ -747,6 +747,7 @@ bool SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
                    std::string* output) {
   EncoderParam param;
   param.SetQuality(quality);
+  if (!ValidDimensions(width, height)) return false;  // before '3 * width'
   return Encode(rgb, width, height, 3 * width, param, output);
 }
 
