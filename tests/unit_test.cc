@@ -200,6 +200,33 @@ SJPEG_TEST(Compress) {
   SJPEG_CHECK(is_yuv420 == 0 || is_yuv420 == 1);
 }
 
+// The uint8_t** and std::vector<> outputs give the same bytes as std::string.
+SJPEG_TEST(OutputOverloads) {
+  const int kWidth = 45, kHeight = 29;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  const sjpeg::EncoderParam param(77.f);
+  std::string ref;
+  SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &ref));
+
+  uint8_t* data = nullptr;
+  size_t size =
+      sjpeg::Encode(rgb.data(), kWidth, kHeight, 3 * kWidth, param, &data);
+  SJPEG_CHECK(size == ref.size() && memcmp(data, ref.data(), size) == 0);
+  SjpegFreeBuffer(data);
+
+  std::vector<uint8_t> vec;
+  SJPEG_CHECK(sjpeg::Encode(rgb.data(), kWidth, kHeight, 3 * kWidth, param,
+                            sjpeg::MakeByteSink(&vec).get()));
+  SJPEG_CHECK(std::string(vec.begin(), vec.end()) == ref);
+
+  std::string out;
+  SJPEG_CHECK(SjpegCompress(rgb.data(), kWidth, kHeight, 75.f, &out));
+  data = nullptr;
+  size = SjpegCompress(rgb.data(), kWidth, kHeight, 75.f, &data);
+  SJPEG_CHECK(size == out.size() && memcmp(data, out.data(), size) == 0);
+  SjpegFreeBuffer(data);
+}
+
 SJPEG_TEST(EncodeParams) {
   const int kWidth = 32, kHeight = 16;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
@@ -446,6 +473,36 @@ SJPEG_TEST(NegativeStrides) {
                                 -uv_stride, W, H, p,
                                 sjpeg::MakeByteSink(&b).get()));
   match();
+}
+
+// RGBA/BGRA input gives the same bitstream as the RGB it was made from, the
+// alpha channel being ignored. 444 and 400 use the 8x8 block functions.
+SJPEG_TEST(PackedRGBA) {
+  const int W = 37, H = 21;
+  const std::vector<uint8_t> rgb = MakeRGB(W, H);
+  std::vector<uint8_t> rgba(4 * (size_t)W * H), bgra(rgba.size());
+  for (size_t i = 0; i < (size_t)W * H; ++i) {
+    const uint8_t alpha = Random8b();
+    for (int c = 0; c < 3; ++c) {
+      rgba[4 * i + c] = rgb[3 * i + c];
+      bgra[4 * i + 2 - c] = rgb[3 * i + c];
+    }
+    rgba[4 * i + 3] = alpha;
+    bgra[4 * i + 3] = alpha;
+  }
+  for (bool slow : {false, true}) {
+    sjpeg::ForceSlowCImplementation = slow;
+    for (SjpegYUVMode mode : {SJPEG_YUV_420, SJPEG_YUV_444, SJPEG_YUV_400}) {
+      sjpeg::EncoderParam param(81.f);
+      param.yuv_mode = mode;
+      std::string ref, a, b;
+      SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &ref));
+      SJPEG_CHECK(sjpeg::EncodeRGBA(rgba.data(), W, H, 4 * W, param, &a));
+      SJPEG_CHECK(sjpeg::EncodeBGRA(bgra.data(), W, H, 4 * W, param, &b));
+      SJPEG_CHECK(!ref.empty() && a == ref && b == ref);
+    }
+  }
+  sjpeg::ForceSlowCImplementation = false;
 }
 
 // Records every block it hands out, and refuses to release a pointer that
@@ -924,23 +981,24 @@ class FailingSink : public sjpeg::ByteSink {
 };
 
 // A sink that stops accepting data must be reported, not crash. This is what
-// a file sink running out of space looks like.
+// a file sink running out of space looks like. The picture is large enough
+// for the failure to also happen in the middle of the entropy-coded data.
 SJPEG_TEST(SinkFailure) {
-  const int kWidth = 32, kHeight = 32;
+  const int kWidth = 256, kHeight = 192;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
-  bool seen_failure = false, seen_success = false;
-  for (int num_ok = 0; num_ok < 64; ++num_ok) {
-    FailingSink sink(num_ok);
+  for (int config = 0; config < 4; ++config) {
     sjpeg::EncoderParam param(90.f);
     param.yuv_mode = SJPEG_YUV_420;
-    if (EncodeRGB(rgb, kWidth, kHeight, param, &sink)) {
-      seen_success = true;
-    } else {
-      seen_failure = true;
+    param.Huffman_compress = (config != 1);
+    if (config == 2) param.restart_interval_rows = 2;
+    if (config == 3) param.progressive_luma_split = 2;
+    int num_ok = 0;
+    for (bool ok = false; !ok && num_ok < 1000; ++num_ok) {
+      FailingSink sink(num_ok);
+      ok = EncodeRGB(rgb, kWidth, kHeight, param, &sink);
     }
+    SJPEG_CHECK(num_ok > 4 && num_ok < 1000);  // failed past the headers
   }
-  SJPEG_CHECK(seen_failure);  // the test is only meaningful if both happened
-  SJPEG_CHECK(seen_success);
 }
 
 SJPEG_TEST(CompressionMethod) {
@@ -985,6 +1043,70 @@ SJPEG_TEST(QuantMatrix) {
   SJPEG_CHECK(SjpegFindQuantizer(out, quant) == 2);
   SJPEG_CHECK(memcmp(quant[0], param.GetQuantMatrix(0), 64) == 0);
   SJPEG_CHECK(memcmp(quant[1], param.GetQuantMatrix(1), 64) == 0);
+}
+
+// Builds SOI + junk + one DQT segment + SOS + padding.
+std::vector<uint8_t> MakeDQT(const std::vector<uint8_t>& payload) {
+  std::vector<uint8_t> jpg = {0xff, 0xd8, 0x12, 0x34};  // junk before DQT
+  const size_t len = payload.size() + 2;
+  jpg.push_back(0xff);
+  jpg.push_back(0xdb);
+  jpg.push_back((uint8_t)(len >> 8));
+  jpg.push_back((uint8_t)(len & 0xff));
+  jpg.insert(jpg.end(), payload.begin(), payload.end());
+  const uint8_t kSOS[] = {0xff, 0xda, 0x00, 0x02};
+  jpg.insert(jpg.end(), kSOS, kSOS + sizeof(kSOS));
+  jpg.insert(jpg.end(), 16, 0x00);
+  return jpg;
+}
+
+SJPEG_TEST(FindQuantizer) {
+  uint8_t quant[2][64];
+  // 8-bit table #0, 16-bit table #1, 8-bit tables #2 and #3
+  std::vector<uint8_t> dqt;
+  dqt.push_back(0x00);
+  for (int i = 0; i < 64; ++i) dqt.push_back((uint8_t)i);  // 0 -> 1
+  dqt.push_back(0x11);
+  for (int i = 0; i < 64; ++i) {
+    const int v = (i == 0) ? 300 : 7;  // 300 -> 255
+    dqt.push_back((uint8_t)(v >> 8));
+    dqt.push_back((uint8_t)(v & 0xff));
+  }
+  for (int t = 2; t <= 3; ++t) {
+    dqt.push_back((uint8_t)t);
+    dqt.insert(dqt.end(), 64, 9);
+  }
+  std::vector<uint8_t> jpg = MakeDQT(dqt);
+  SJPEG_CHECK(SjpegFindQuantizer(jpg.data(), jpg.size(), quant) == 4);
+  SJPEG_CHECK(quant[0][0] == 1);
+  SJPEG_CHECK(quant[0][sjpeg::kZigzag[5]] == 5);
+  SJPEG_CHECK(quant[1][0] == 255);
+  SJPEG_CHECK(quant[1][sjpeg::kZigzag[5]] == 7);
+
+  // invalid precision or table index
+  for (uint8_t pq_tq : {0x20, 0x04}) {
+    std::vector<uint8_t> bad = {pq_tq};
+    bad.insert(bad.end(), 128, 9);
+    jpg = MakeDQT(bad);
+    SJPEG_CHECK(SjpegFindQuantizer(jpg.data(), jpg.size(), quant) == 0);
+  }
+  // 16-bit table cut short
+  std::vector<uint8_t> cut = {0x10};
+  cut.insert(cut.end(), 100, 9);
+  jpg = MakeDQT(cut);
+  SJPEG_CHECK(SjpegFindQuantizer(jpg.data(), jpg.size(), quant) == 0);
+  std::vector<uint8_t> table = {0x00};
+  table.insert(table.end(), 64, 9);
+  // segment length past the end of the data
+  jpg = MakeDQT(table);
+  jpg[6] = 0x7f;
+  SJPEG_CHECK(SjpegFindQuantizer(jpg.data(), jpg.size(), quant) == 0);
+  // no SOI, or too short
+  jpg = MakeDQT(table);
+  SJPEG_CHECK(SjpegFindQuantizer(jpg.data(), jpg.size(), quant) == 1);
+  SJPEG_CHECK(SjpegFindQuantizer(jpg.data(), 68, quant) == 0);
+  jpg[1] = 0xd9;
+  SJPEG_CHECK(SjpegFindQuantizer(jpg.data(), jpg.size(), quant) == 0);
 }
 
 #if !defined(SJPEG_NO_PROGRESSIVE)
@@ -1115,6 +1237,19 @@ SJPEG_TEST(Progressive) {
     int sof = 0, num_sos = 0;
     SJPEG_CHECK(CheckMarkerStructure(out, &sof, &num_sos));
     SJPEG_CHECK(sof == 0xc2);
+  }
+  // Without adaptive quantization, the coefficients aren't stored and each
+  // MCU is transformed again when needed.
+  {
+    sjpeg::EncoderParam param(75.f);
+    param.adaptive_quantization = false;
+    param.progressive_luma_split = 2;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    int sof = 0, num_sos = 0;
+    SJPEG_CHECK(CheckMarkerStructure(out, &sof, &num_sos));
+    SJPEG_CHECK(sof == 0xc2);
+    SJPEG_CHECK(num_sos == 7);
   }
 }
 #endif  // !SJPEG_NO_PROGRESSIVE
@@ -2171,6 +2306,73 @@ SJPEG_TEST(Metadata) {
   SJPEG_CHECK(out2.find("iccp-payload") == std::string::npos);
   SJPEG_CHECK(out2.find("app-marker-payload") == std::string::npos);
   SJPEG_CHECK(out2.find("xmp-payload") == std::string::npos);
+}
+
+// Returns the payloads of the APP1 segments starting with 'tag' (incl. \0).
+std::vector<std::string> FindAPP1(const std::string& jpg, const char* tag) {
+  std::vector<std::string> found;
+  const std::string prefix(tag, strlen(tag) + 1);
+  size_t i = 2;
+  while (i + 4 <= jpg.size() && (uint8_t)jpg[i] == 0xff &&
+         (uint8_t)jpg[i + 1] != 0xda) {
+    const size_t len = ((uint8_t)jpg[i + 2] << 8) | (uint8_t)jpg[i + 3];
+    const std::string payload = jpg.substr(i + 4, len - 2);
+    if ((uint8_t)jpg[i + 1] == 0xe1 &&
+        payload.compare(0, prefix.size(), prefix) == 0) {
+      found.push_back(payload.substr(prefix.size()));
+    }
+    i += 2 + len;
+  }
+  return found;
+}
+
+// XMP too large for one APP1 segment: main part + extended chunks, the main
+// part pointing to the extension by its MD5.
+SJPEG_TEST(ExtendedXMP) {
+  const int kWidth = 16, kHeight = 16;
+  const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
+  const std::string note = "xmpNote:HasExtendedXMP=\"";
+  std::string xmp = "<x:xmpmeta " + note + std::string(32, '0') + "\"/>";
+  const size_t guid_pos = xmp.find(note) + note.size();
+  for (size_t i = xmp.size(); i < 200000; ++i) xmp += (char)('a' + i % 26);
+
+  for (uint16_t split : {0, 1000}) {
+    sjpeg::EncoderParam param(80.f);
+    param.xmp = xmp;
+    param.xmp_split_point = split;
+    std::string out;
+    SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param, &out));
+    const size_t main_size = (split == 0) ? 65503 : split;
+    const std::vector<std::string> main =
+        FindAPP1(out, "http://ns.adobe.com/xap/1.0/");
+    const std::vector<std::string> ext =
+        FindAPP1(out, "http://ns.adobe.com/xmp/extension/");
+    SJPEG_CHECK(main.size() == 1);
+    SJPEG_CHECK(ext.size() == (xmp.size() - main_size) / 65458 + 1);
+    if (main.size() != 1 || ext.empty()) continue;
+    SJPEG_CHECK(main[0].size() == main_size);
+    const std::string guid = main[0].substr(guid_pos, 32);
+    SJPEG_CHECK(guid != std::string(32, '0'));
+    // each chunk: GUID, total size, offset, data
+    std::string ext_data;
+    for (const std::string& chunk : ext) {
+      const auto Get32b = [&chunk](size_t pos) {
+        const uint8_t* const p = reinterpret_cast<const uint8_t*>(&chunk[pos]);
+        return (uint32_t)((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]);
+      };
+      SJPEG_CHECK(chunk.compare(0, 32, guid) == 0);
+      SJPEG_CHECK(Get32b(32) == xmp.size() - main_size);
+      SJPEG_CHECK(Get32b(36) == ext_data.size());
+      ext_data += chunk.substr(40);
+    }
+    SJPEG_CHECK(ext_data == xmp.substr(main_size));
+  }
+
+  // without the extension note, a large XMP can't be written
+  sjpeg::EncoderParam param(80.f);
+  param.xmp = std::string(70000, 'x');
+  std::string out;
+  SJPEG_CHECK(!EncodeRGB(rgb, kWidth, kHeight, param, &out));
 }
 
 // SetMinQuantization()/SetLimitQuantization() install a floor under quant_[];
