@@ -244,7 +244,7 @@ void Encoder::ConcatenateChunks(ThreadChunk* chunks, int num_chunks) {
 
 void Encoder::CollectHistogramsMultiThreaded(int num_threads) {
   assert(num_threads > 1);
-  struct alignas(64) HistoWorker {
+  struct HistoWorker {
     Histo histos[2];
   };
   std::unique_ptr<HistoWorker[]> workers(new (std::nothrow)
@@ -265,7 +265,7 @@ void Encoder::CollectHistogramsMultiThreaded(int num_threads) {
     } else {
       memset(dst_histos, 0, sizeof(Histo) * num_histos);
     }
-    alignas(32) int16_t mcu_scratch[6 * 64];
+    alignas(16) int16_t mcu_scratch[6 * 64];
     uint8_t rep_buf[4 * 16 * 16];
     CollectHistogramsSlice(y_start, y_end, dst_histos, mcu_scratch, rep_buf);
   });
@@ -330,7 +330,7 @@ void Encoder::SinglePassScanMultiThreaded(int num_threads,
         ThreadChunk& chunk = chunks[t];
         BitWriter bw(&chunk.data);
         const size_t slab = SliceSlabSize(first_interval, end_interval);
-        int16_t scratch[64 * 6];
+        alignas(16) int16_t scratch[64 * 6];
         uint8_t rep_buf[4 * 16 * 16];
         if (!CodeScanSlice(first_interval, end_interval, total_intervals, &bw,
                            slab, scratch, rep_buf)) {

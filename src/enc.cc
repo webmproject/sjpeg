@@ -559,7 +559,7 @@ void Encoder::QuantizeSlices(int num_slices, int total_intervals,
           }
           chunk.store.nb_blocks = nb_blocks;
         }
-        int16_t scratch[64 * 6];
+        alignas(16) int16_t scratch[64 * 6];
         uint8_t rep_buf[4 * 16 * 16];
         chunk.ok = QuantizeScanSlice(
             first_interval, end_interval, store,
