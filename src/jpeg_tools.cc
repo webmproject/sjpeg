@@ -25,7 +25,6 @@
 #include <algorithm>  // for std::min, std::max
 #include <cstdlib>    // for std::abs
 #include <utility>    // for std::swap
-#include <vector>
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "common.h"
@@ -276,7 +275,7 @@ void RiskinessScoreRow_C(const uint16_t* row1, const uint16_t* row2, int size,
 #if defined(SJPEG_HAVE_AVX2)
 // defined in riskiness_avx2.cc, built separately with -mavx2 (see Makefile)
 // so this file itself doesn't need an AVX2 target.
-extern void RiskinessScoreInitRowTableAVX2();
+extern bool RiskinessScoreInitRowTableAVX2();
 extern void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2,
                                   int size, int noise_level, int64_t* score_sum,
                                   int64_t* score_num, int64_t* gray_num);
@@ -368,8 +367,7 @@ void RiskinessScoreRowNEON(const uint16_t* row1, const uint16_t* row2, int size,
 
 RiskinessScoreRowFunc GetRiskinessScoreRowFunc() {
 #if defined(SJPEG_HAVE_AVX2)
-  if (SupportsAVX2()) {
-    RiskinessScoreInitRowTableAVX2();
+  if (SupportsAVX2() && RiskinessScoreInitRowTableAVX2()) {
     return RiskinessScoreRowAVX2;
   }
 #elif defined(SJPEG_USE_NEON)
@@ -440,12 +438,18 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb, int width, int height,
   while ((1 << bits) < num_bands) ++bits;
   assert(bits <= 16);
 
-  std::vector<uint16_t> row1(width), row2(width);
+  sjpeg::Buffer<uint16_t> rows;
+  if (!rows.Reserve(2 * (size_t)width)) {
+    if (risk != nullptr) *risk = 0.f;
+    return SJPEG_YUV_444;  // can't tell: the safe choice
+  }
+  uint16_t* row1 = rows.data();
+  uint16_t* row2 = row1 + width;
 
   // scores one adjacent row-pair (row1 = above, row2 = below)
   const auto ScoreRow = [&]() {
-    score_row_func(&row1[0], &row2[0], width - 1, kNoiseLevel, &score_sum,
-                   &score_num, &gray_num);
+    score_row_func(row1, row2, width - 1, kNoiseLevel, &score_sum, &score_num,
+                   &gray_num);
   };
 
   int cursor = 0;  // walks bit-reversed indices in [0, 1<<bits), skipping
@@ -460,11 +464,11 @@ static SjpegYUVMode RiskinessImpl(const uint8_t* rgb, int width, int height,
     } while (band >= num_bands);
     int j = band * kBandHeight;  // current row
     const int last_row = std::min(j + 1 + kBandHeight, height);
-    cvrt_func(rgb + static_cast<ptrdiff_t>(j) * stride, width, &row1[0]);
+    cvrt_func(rgb + (ptrdiff_t)j * stride, width, row1);
     while (++j < last_row) {
       // note: cvrt_func() is called height/kBandHeight times too much,
       // but that's ok
-      cvrt_func(rgb + static_cast<ptrdiff_t>(j) * stride, width, &row2[0]);
+      cvrt_func(rgb + (ptrdiff_t)j * stride, width, row2);
       ScoreRow();
       std::swap(row1, row2);
       ++rows_scored;
