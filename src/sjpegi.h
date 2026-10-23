@@ -54,6 +54,7 @@ class Encoder {
   void SetQuality(float q);
   void SetCompressionMethod(int method);
   void SetRDO(bool use_rdo = true);
+  void SetTrellis(bool use_trellis = true);  // after SetCompressionMethod()
   // luma_split/chroma_split: see EncoderParam::progressive_luma_split in
   // sjpeg.h.
   void SetProgressive(int luma_split, int chroma_split);
