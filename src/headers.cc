@@ -205,8 +205,7 @@ size_t HeaderWriter::XMPSize(size_t size, uint16_t xmp_split) {
   if (size == 0) return 0;
   const size_t kMainHeader = 2 + 2 + 29;  // marker, length, namespace
   if (size <= 0xffff - 2 - 29) return kMainHeader + size;
-  const size_t split =
-      std::min<size_t>((xmp_split == 0) ? 65503 : xmp_split, size);
+  const size_t split = std::min((size_t)(xmp_split ? xmp_split : 65503), size);
   const size_t ext_size = size - split;
   const size_t num_chunks = ext_size / 65458 + 1;
   // per extended chunk: marker, length, namespace (35), GUID + size + position
