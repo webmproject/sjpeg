@@ -21,6 +21,9 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <memory>
+#include <new>
+
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
@@ -343,15 +346,35 @@ void Encoder::CollectHistogramsSlice(int y_start, int y_end, Histo histos[2],
 }
 
 void Encoder::CollectHistograms() {
-#if !defined(SJPEG_NO_MULTITHREADING)
-  const int num_slices = GetNumSlices(mb_h_);
+  int num_slices = GetNumSlices(mb_h_);
+  // Slice 0 counts into histos_, the others into their own histograms, summed
+  // afterward.
+  struct HistoWorker {
+    Histo histos[2];
+  };
+  std::unique_ptr<HistoWorker[]> workers;
   if (num_slices > 1) {
-    CollectHistogramsMultiThreaded(num_slices);
-    return;
+    workers.reset(new (std::nothrow) HistoWorker[num_slices - 1]);
+    if (workers == nullptr) num_slices = 1;  // same counts, serially
   }
-#endif
+  const int num_histos = (nb_comps_ > 1) ? 2 : 1;
   ResetHisto();
-  CollectHistogramsSlice(0, mb_h_, histos_, in_blocks_, replicated_buffer_);
+  RunParallel(num_slices, mb_h_, [&](int t, int y_start, int y_end) {
+    Histo* const dst_histos = (t == 0) ? histos_ : workers[t - 1].histos;
+    if (t > 0) memset(dst_histos, 0, sizeof(Histo) * num_histos);
+    alignas(16) int16_t mcu_scratch[6 * 64];
+    uint8_t rep_buf[4 * 16 * 16];
+    CollectHistogramsSlice(y_start, y_end, dst_histos, mcu_scratch, rep_buf);
+  });
+  for (int q = 0; q < num_histos; ++q) {
+    int* const dst = &histos_[q].counts_[0][0];
+    for (int w = 0; w < num_slices - 1; ++w) {
+      const int* const src = &workers[w].histos[q].counts_[0][0];
+      for (int i = 0; i < 64 * (MAX_HISTO_DCT_COEFF + 1); ++i) {
+        dst[i] += src[i];
+      }
+    }
+  }
   have_coeffs_ = use_extra_memory_;
 }
 

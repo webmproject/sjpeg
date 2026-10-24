@@ -636,16 +636,11 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
   const size_t num_pairs = (height + 1) / 2;
   uint64_t prev_diff_y_sum = ~0ULL;
 
-#if !defined(SJPEG_NO_MULTITHREADING)
   const int max_threads = (int)num_pairs;
   const int num_threads =
       (encoder != nullptr)
           ? std::max(1, std::min(encoder->num_threads(), max_threads))
           : 1;
-#else
-  (void)encoder;
-  const int num_threads = 1;
-#endif
 
   InitGammaTablesF();
   InitFunctionPointers();
@@ -705,13 +700,11 @@ static bool PreprocessARGB(const uint8_t* const rgb, int width, int height,
   };
 
   auto run_parallel = [&](int total, FuncRef<int, int, int> fn) {
-#if !defined(SJPEG_NO_MULTITHREADING)
-    if (encoder != nullptr && num_threads > 1) {
+    if (encoder != nullptr) {
       encoder->RunParallel(num_threads, total, fn);
-      return;
+    } else {
+      fn(0, 0, total);
     }
-#endif
-    fn(0, 0, total);
   };
 
   // Import RGB samples to W/RGB representation.

@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-//  Multi-threaded scan engines. Restart intervals make the entropy-coded
-//  segments independent -- DC predictors reset and the bitstream realigns to a
-//  byte boundary -- so each worker can code a contiguous slice of intervals
-//  into its own buffer, and the slices are concatenated in order afterwards.
+//  Thread pool behind Encoder::RunParallel(). The passes slice their work
+//  with it: restart intervals make the entropy-coded segments independent --
+//  DC predictors reset and the bitstream realigns to a byte boundary -- so
+//  each slice can code a contiguous range of intervals into its own buffer,
+//  concatenated in order afterwards. The output is the same, byte for byte,
+//  for any number of slices.
 //
-//  These share the exact row/slice kernels (CodeScanSlice, QuantizeScanSlice,
-//  ReplayScanSlice) with single-threaded scans and produce byte-identical
-//  output to them for the same restart interval.
+//  Without multithreading support (SJPEG_NO_MULTITHREADING), RunParallel()
+//  just runs the passes as one slice, on the calling thread (sjpegi.h).
 //
 #include "sjpegi.h"  // IWYU pragma: keep
 
@@ -49,7 +50,8 @@
 
 namespace sjpeg {
 
-int Encoder::HardwareConcurrency() {
+int Encoder::NumThreads(int requested) {
+  if (requested >= 0) return std::max(1, requested);
   const unsigned int hw = std::thread::hardware_concurrency();
   return std::max(1, static_cast<int>(hw));
 }
@@ -223,125 +225,13 @@ void Encoder::RunParallel(int num_threads, int total,
   for (int t = available + 1; t < num_threads; ++t) run(t);
 }
 
-void Encoder::ConcatenateChunks(ThreadChunk* chunks, int num_chunks) {
-  for (int t = 0; t < num_chunks; ++t) {
-    if (!chunks[t].ok) {
-      SetError();
-      return;
-    }
-    if (chunks[t].data.size() == 0) continue;
-    if (!bw_.Reserve(chunks[t].data.size())) {
-      SetError();
-      return;
-    }
-    bw_.PutBytes(chunks[t].data.data(), chunks[t].data.size());
-    chunks[t].data.Reset();
-  }
-}
+}  // namespace sjpeg
 
-////////////////////////////////////////////////////////////////////////////////
-// Parallel histogram pass (CollectHistograms) and coefficient collection
+#else  // SJPEG_NO_MULTITHREADING: see the inlined stand-ins in sjpegi.h
 
-void Encoder::CollectHistogramsMultiThreaded(int num_threads) {
-  assert(num_threads > 1);
-  struct HistoWorker {
-    Histo histos[2];
-  };
-  std::unique_ptr<HistoWorker[]> workers(new (std::nothrow)
-                                             HistoWorker[num_threads - 1]);
-  if (workers == nullptr) {
-    ResetHisto();
-    CollectHistogramsSlice(0, mb_h_, histos_, in_blocks_, replicated_buffer_);
-    have_coeffs_ = use_extra_memory_;
-    return;
-  }
+namespace sjpeg {
 
-  const int num_histos = (nb_comps_ > 1) ? 2 : 1;
-
-  RunParallel(num_threads, mb_h_, [&](int t, int y_start, int y_end) {
-    Histo* const dst_histos = (t == 0) ? histos_ : workers[t - 1].histos;
-    if (t == 0) {
-      ResetHisto();
-    } else {
-      memset(dst_histos, 0, sizeof(Histo) * num_histos);
-    }
-    alignas(16) int16_t mcu_scratch[6 * 64];
-    uint8_t rep_buf[4 * 16 * 16];
-    CollectHistogramsSlice(y_start, y_end, dst_histos, mcu_scratch, rep_buf);
-  });
-  if (!ok_) return;
-
-  for (int q = 0; q < num_histos; ++q) {
-    int* const dst = &histos_[q].counts_[0][0];
-    for (int w = 0; w < num_threads - 1; ++w) {
-      const int* const src = &workers[w].histos[q].counts_[0][0];
-      for (int i = 0; i < 64 * (MAX_HISTO_DCT_COEFF + 1); ++i) {
-        dst[i] += src[i];
-      }
-    }
-  }
-  have_coeffs_ = use_extra_memory_;
-}
-
-void Encoder::CollectCoeffsMultiThreaded(int num_threads) {
-  assert(use_extra_memory_);
-  RunParallel(num_threads, mb_h_, [&](int /*t*/, int y_start, int y_end) {
-    uint8_t rep_buf[4 * 16 * 16];
-    CollectCoeffsSlice(y_start, y_end, rep_buf);
-  });
-  if (!ok_) return;
-  have_coeffs_ = true;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Parallel PSNR evaluation, for the multi-pass search
-
-float Encoder::ComputePSNRMultiThreaded(int num_threads) const {
-  Buffer<uint64_t> errors;
-  if (!errors.Reserve(num_threads)) {
-    SetError();
-    return 0.f;
-  }
-  for (int t = 0; t < num_threads; ++t) errors.data()[t] = 0;
-  RunParallel(num_threads, mb_h_, [&](int t, int y_start, int y_end) {
-    errors.data()[t] = ComputePSNRSlice(y_start, y_end);
-  });
-  uint64_t total_error = 0;
-  for (int t = 0; t < num_threads; ++t) {
-    total_error += errors.data()[t];
-  }
-  const size_t nb_mbs = (size_t)mb_w_ * mb_h_;
-  return GetPSNR(total_error, 64ull * nb_mbs * mcu_blocks_);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// 1-pass parallel scan: quantize and code straight into the slice's buffer.
-
-void Encoder::SinglePassScanMultiThreaded(int num_threads,
-                                          int total_intervals) {
-  ChunkSet chunks(nullptr);
-  if (!chunks.Reset(num_threads)) {
-    SetError();
-    return;
-  }
-  RunParallel(
-      num_threads, total_intervals,
-      [&](int t, int first_interval, int end_interval) {
-        ThreadChunk& chunk = chunks[t];
-        BitWriter bw(&chunk.data);
-        const size_t slab = SliceSlabSize(first_interval, end_interval);
-        alignas(16) int16_t scratch[64 * 6];
-        uint8_t rep_buf[4 * 16 * 16];
-        if (!CodeScanSlice(first_interval, end_interval, total_intervals, &bw,
-                           slab, scratch, rep_buf)) {
-          chunk.ok = false;
-          return;
-        }
-        bw.Flush();
-        chunk.ok = bw.Finalize();
-      });
-  ConcatenateChunks(chunks.data(), num_threads);
-}
+void Encoder::ThreadPoolDeleter::operator()(ThreadPool* /*p*/) const {}
 
 }  // namespace sjpeg
 

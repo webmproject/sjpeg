@@ -38,6 +38,7 @@ enc_srcs := \
         src/bit_writer.cc \
         src/colors_rgb.$(NEON) \
         src/enc.cc \
+        src/enc_parallel.cc \
         src/encoders.cc \
         src/entropy.cc \
         src/fdct.$(NEON) \
@@ -53,9 +54,6 @@ ifeq ($(SJPEG_HAVE_PROGRESSIVE),1)
 enc_srcs += src/prog.cc
 endif
 
-ifeq ($(SJPEG_HAVE_MULTITHREADING),1)
-enc_srcs += src/enc_parallel.cc
-endif
 
 # AVX2 kernel variants (x86 only, opt-in: 'ndk-build SJPEG_HAVE_AVX2=1').
 # A separate module, not part of enc_srcs above, because AVX2 needs its own

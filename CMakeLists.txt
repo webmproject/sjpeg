@@ -111,9 +111,10 @@ set(SJPEG_SRCS
 if(SJPEG_ENABLE_PROGRESSIVE)
   list(APPEND SJPEG_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/src/prog.cc)
 endif()
+# enc_parallel.cc: the thread pool, or its serial stand-in
+list(APPEND SJPEG_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/src/enc_parallel.cc)
 if(SJPEG_ENABLE_MULTITHREADING)
   find_package(Threads REQUIRED)
-  list(APPEND SJPEG_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/src/enc_parallel.cc)
 endif()
 add_library(sjpeg ${SJPEG_SRCS})
 if(NOT SJPEG_ENABLE_PROGRESSIVE)

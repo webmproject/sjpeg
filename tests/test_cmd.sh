@@ -105,6 +105,24 @@ else
   echo "'md5' / 'md5sum' command is not available. Skipping MD5 test."
 fi
 
+# multi-threaded encoding gives the same output as single-threaded (baseline:
+# at the restart interval multi-threading picks; progressive ignores it, but a
+# build without progressive support falls back to baseline). SRC_FILE1 and
+# SRC_FILE3 are large enough for several slices.
+for file in ${SRC_FILE1} ${SRC_FILE3}; do
+  for opts in "-restart 1" "-restart 1 -sharp" "-restart 1 -no_optim -no_adapt" \
+              "-restart 1 -trellis" "-restart 1 -psnr 38 -pass 4" \
+              "-restart 1 -progressive" "-restart 1 -progressive -rdo" \
+              "-restart 1 -prog 20,64 -444"; do
+    st=$(${SJPEG} ${file} ${opts} -md5)
+    mt=$(${SJPEG} ${file} ${opts} -threads 4 -md5)
+    if [ "x${st}" != "x${mt}" ]; then
+      echo "Multi-threaded output mismatch: ${file} ${opts}"
+      exit 1
+    fi
+  done
+done
+
 # test -xmp / -exif / -icc
 echo "This is a test. We need a looooooooooooong line" > ${TMP_FILE1}
 ${SJPEG} ${SRC_FILE1} -xmp ${TMP_FILE1} -exif ${TMP_FILE1} -icc ${TMP_FILE1}

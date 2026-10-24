@@ -21,9 +21,7 @@
 #include <string.h>  // for memset
 
 #include <algorithm>
-#if !defined(SJPEG_NO_MULTITHREADING)
 #include <atomic>
-#endif
 
 #include "sjpegi.h"
 
@@ -267,7 +265,7 @@ bool Encoder::EncodeProgScans() {
   // trellis/rdo need the AC codes seeded, like the baseline path does
   InitCostCodes();
   const int nb_slices = prog_planes_->nb_slices;
-  ForEachSlice(nb_slices, mb_h_, [&](int t, int y_start, int y_end) {
+  RunParallel(nb_slices, mb_h_, [&](int t, int y_start, int y_end) {
     alignas(16) int16_t scratch[64 * 6];
     uint8_t rep_buf[4 * 16 * 16];
     prog_planes_->slices[t].ok =
@@ -337,7 +335,6 @@ bool Encoder::EncodeProgScans() {
     }
   }
   const size_t slab_size = SliceSlabSize(0, TotalRestartIntervals());
-#if !defined(SJPEG_NO_MULTITHREADING)
   const int nb_threads = GetNumSlices(nb_scans);
   if (nb_threads > 1) {
     // Each scan goes into its own chunk, handed out in order (luma first, the
@@ -358,7 +355,6 @@ bool Encoder::EncodeProgScans() {
     ConcatenateChunks(chunks.data(), nb_scans);
     return ok_;
   }
-#endif
   // Serial: straight into bw_, freeing each component right after its scans.
   ProgACCoder ac;
   for (int n = 0; n < nb_scans; ++n) {

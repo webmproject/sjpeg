@@ -22,10 +22,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if !defined(SJPEG_NO_MULTITHREADING)
-#include <vector>
-#endif
-
 #include "sjpegi.h"
 
 using namespace sjpeg;
@@ -173,7 +169,7 @@ void Encoder::LoopScan() {
   WriteDRI();
   WriteDHT();
   WriteSOS();
-  ReplaySlices(num_slices, total_intervals, &chunks);
+  ReplaySlices(total_intervals, &chunks);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -286,11 +282,19 @@ uint64_t Encoder::ComputePSNRSlice(int y_start, int y_end) const {
 }
 
 float Encoder::ComputePSNR() const {
-#if !defined(SJPEG_NO_MULTITHREADING)
   const int num_slices = GetNumSlices(mb_h_);
-  if (num_slices > 1) return ComputePSNRMultiThreaded(num_slices);
-#endif
-  const uint64_t error = ComputePSNRSlice(0, mb_h_);
   const size_t nb_mbs = static_cast<size_t>(mb_w_) * mb_h_;
-  return GetPSNR(error, 64ull * nb_mbs * mcu_blocks_);
+  const uint64_t nb_samples = 64ull * nb_mbs * mcu_blocks_;
+  if (num_slices == 1) return GetPSNR(ComputePSNRSlice(0, mb_h_), nb_samples);
+  Buffer<uint64_t> errors(memory_hook_);  // allocated on the calling thread
+  if (!errors.Reserve(num_slices)) {
+    SetError();
+    return 0.f;
+  }
+  RunParallel(num_slices, mb_h_, [&](int t, int y_start, int y_end) {
+    errors.data()[t] = ComputePSNRSlice(y_start, y_end);
+  });
+  uint64_t total_error = 0;
+  for (int t = 0; t < num_slices; ++t) total_error += errors.data()[t];
+  return GetPSNR(total_error, nb_samples);
 }
