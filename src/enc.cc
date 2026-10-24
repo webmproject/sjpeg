@@ -315,16 +315,6 @@ void Encoder::TransformMCU(int mb_x, int mb_y, int16_t* const out,
   fDCT_(out, mcu_blocks_);
 }
 
-void Encoder::TransformMCU(int mb_x, int mb_y, int16_t* const out) {
-  TransformMCU(mb_x, mb_y, out, replicated_buffer_);
-}
-
-void Encoder::MaybeTransformMCU(int mb_x, int mb_y, int16_t** const in) {
-  if (have_coeffs_) return;
-  *in = in_blocks_;
-  TransformMCU(mb_x, mb_y, *in);
-}
-
 const int16_t* Encoder::GetMCUCoeffs(int mb_x, int mb_y, int16_t* scratch,
                                      uint8_t* rep_buf) {
   if (have_coeffs_) {
