@@ -244,7 +244,7 @@ bool Encoder::QuantizeProgSlice(int t, int y_start, int y_end,
           if (rl_pos + 64 > s->rl_capacity[c] && !GrowProgRunLevels(s, c)) {
             return false;
           }
-          const int dc = quantize_block(in, c, &quants_[quant_idx_[c]], coeffs,
+          const int dc = quantize_block(in, c, quants_[quant_idx_[c]], coeffs,
                                         s->run_levels[c] + rl_pos);
           prog_planes_->rl_offset[c][idx] = (uint32_t)rl_pos;
           s->rl_used[c] = rl_pos + coeffs->nb_coeffs_;

@@ -212,24 +212,24 @@ class Encoder {
                               int16_t* scratch, uint8_t* rep_buf);
 
   typedef int (*QuantizeBlockFunc)(const int16_t in[64], int idx,
-                                   const Quantizer* const Q,
-                                   DCTCoeffs* const out, RunLevel* const rl);
+                                   const Quantizer& Q, DCTCoeffs* const out,
+                                   RunLevel* const rl);
   static QuantizeBlockFunc quantize_block_;
   static QuantizeBlockFunc GetQuantizeBlockFunc();
 
   static int TrellisQuantizeBlock(const int16_t in[64], int idx,
-                                  const Quantizer* Q, DCTCoeffs* out,
+                                  const Quantizer& Q, DCTCoeffs* out,
                                   RunLevel* rl);
 
   static int AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
-                                       const Quantizer* Q, DCTCoeffs* out,
+                                       const Quantizer& Q, DCTCoeffs* out,
                                        RunLevel* rl);
 
-  static int RDOQuantizeBlock(const int16_t in[64], int idx, const Quantizer* Q,
+  static int RDOQuantizeBlock(const int16_t in[64], int idx, const Quantizer& Q,
                               DCTCoeffs* out, RunLevel* rl);
 
   static int RDOAdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
-                                          const Quantizer* Q, DCTCoeffs* out,
+                                          const Quantizer& Q, DCTCoeffs* out,
                                           RunLevel* rl);
 
   // Picks quantize_block_ / TrellisQuantizeBlock / RDOQuantizeBlock /
@@ -237,7 +237,7 @@ class Encoder {
   QuantizeBlockFunc GetActiveQuantizeBlockFunc() const;
 
   typedef uint32_t (*QuantizeErrorFunc)(const int16_t in[64],
-                                        const Quantizer* const Q);
+                                        const Quantizer& Q);
   static QuantizeErrorFunc quantize_error_;
   static QuantizeErrorFunc GetQuantizeErrorFunc();
   friend QuantizeErrorTestFunc GetQuantizeErrorFuncForTest();
