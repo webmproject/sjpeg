@@ -113,7 +113,9 @@ for file in ${SRC_FILE1} ${SRC_FILE3}; do
   for opts in "-restart 1" "-restart 1 -sharp" "-restart 1 -no_optim -no_adapt" \
               "-restart 1 -trellis" "-restart 1 -psnr 38 -pass 4" \
               "-restart 1 -progressive" "-restart 1 -progressive -rdo" \
-              "-restart 1 -prog 20,64 -444"; do
+              "-restart 1 -prog 20,64 -444" "-restart 1 -fast -444 -trellis" \
+              "-restart 1 -fast -size 30000" "-restart 1 -fast -psnr 38 -pass 4" \
+              "-restart 1 -fast -progressive -rdo"; do
     st=$(${SJPEG} ${file} ${opts} -md5)
     mt=$(${SJPEG} ${file} ${opts} -threads 4 -md5)
     if [ "x${st}" != "x${mt}" ]; then
