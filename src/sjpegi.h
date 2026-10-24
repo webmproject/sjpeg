@@ -117,18 +117,12 @@ class Encoder {
   void WriteDRI();
   void WriteSOS();
 
-  void ResetDCs();
   bool EmitRestartMarker(sjpeg::BitWriter* bw, int interval_idx,
                          int total_intervals, size_t slab_size);
 
   // GetSamples() + fDCT_() for one MCU, into 'out'. Shared by the baseline
   // and progressive quantize loops.
   void TransformMCU(int mb_x, int mb_y, int16_t* out, uint8_t* rep_buf);
-  void TransformMCU(int mb_x, int mb_y, int16_t* out);
-
-  // TransformMCU() unless coefficients are already cached. Shared guard for
-  // EncodeProgressive().
-  void MaybeTransformMCU(int mb_x, int mb_y, int16_t** in);
 
   // The MCU's unquantized coefficients: the ones CollectCoeffs() cached if it
   // ran, otherwise computed into 'scratch'.
@@ -371,7 +365,6 @@ class Encoder {
 
   int q_bias_ = 0;       // [0..255]: rounding bias for quant. of AC coeffs.
   Quantizer quants_[2];  // quant matrices
-  int DCs_[3];           // DC predictors
 
   // DCT coefficients storage, aligned to 32 bytes
   static constexpr size_t ALIGN_CST = 31;
@@ -423,30 +416,54 @@ class Encoder {
   bool EncodeProgScans();    // ... once the planes are allocated
   struct ProgPlanes {
     // Non-MCU-interleaved storage (non-interleaved AC scans need true raster
-    // order). The run/levels are packed back to back in quantization (MCU)
-    // order, and grown on demand: rl_offset[] locates each block's ones.
+    // order).
     DCTCoeffs* coeffs[MAX_COMP];
-    RunLevel* run_levels[MAX_COMP];
-    // One per block, index in run_levels[]. 32 bits are enough: there are at
-    // most 8192 x 8192 blocks of 63 run/levels. Stored right after coeffs[],
-    // in the same allocation.
+    // One per block, index in its slice's run_levels[]. 32 bits are enough:
+    // there are at most 8192 x 8192 blocks of 63 run/levels. Stored right
+    // after coeffs[], in the same allocation.
     uint32_t* rl_offset[MAX_COMP];
-    size_t rl_used[MAX_COMP], rl_capacity[MAX_COMP];
+    // The quantization runs over slices of MCU rows (just one if serial),
+    // each packing its run/levels back to back in quantization (MCU) order,
+    // grown on demand. Slice t spans rows [t * mb_h_ / nb_slices, ...).
+    struct Slice {
+      RunLevel* run_levels[MAX_COMP];
+      size_t rl_used[MAX_COMP], rl_capacity[MAX_COMP], rl_max[MAX_COMP];
+      EntropyStats stats;  // DC stats of the slice
+      // DC of the slice's first and last block, to chain the DC predictions
+      // across slices.
+      int first_dc[MAX_COMP], last_dc[MAX_COMP];
+      bool ok;
+      // Written for every block: keeps neighbouring slices from sharing a
+      // cache line.
+      uint8_t padding[64];
+    };
+    Slice* slices;
+    int nb_slices;
+    MemoryManager* rl_memory;                  // for the slices' run_levels[]
     int plane_w[MAX_COMP], plane_h[MAX_COMP];  // MCU-padded stride
     // True (non-MCU-padded) per-component block dims per spec A.2.4; what
     // non-interleaved AC scans must actually visit.
     int true_w[MAX_COMP], true_h[MAX_COMP];
-    // Scratch AC Huffman state, rebuilt per progressive scan (unlike
-    // entropy_, which holds 2 permanent baseline tables).
-    ProgACCoder ac;
+    // plane offset of each MCU's sub-block, relative to its first one
+    int sub_offset[MAX_COMP][4];
   };
-  bool AllocateProgPlanes();
+  bool AllocateProgPlanes(int nb_slices);
   void DeallocateProgPlanes();
-  bool GrowProgRunLevels(int c);  // returns false in case of error
+  // Run/levels storage of the slices, from rl_memory. Unlike Alloc(), doesn't
+  // call SetError(): safe from the worker threads.
+  RunLevel* AllocProgRunLevels(size_t num);
+  void FreeProgRunLevels(int c);  // frees all the slices' ones for component c
+  // returns false in case of error
+  bool GrowProgRunLevels(ProgPlanes::Slice* s, int c);
+  // Quantizes MCU rows [y_start, y_end) into slice t.
+  bool QuantizeProgSlice(int t, int y_start, int y_end, int16_t* scratch,
+                         uint8_t* rep_buf);
+  // Codes the AC scan of component c, band [Ss, Se], including its DHT and SOS.
+  bool CodeProgACScan(int c, int Ss, int Se, ProgACCoder* ac, BitWriter* bw,
+                      size_t slab_size) const;
   // index of sub-block 'i' of MCU (mb_x,mb_y) in component c's plane
   int ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const;
   bool CheckProgBuffers() { return ReserveSlab(); }
-  void EncodeProgAC(int c, int split);  // all AC scans for one component
   template <class BlockFn, class EOBFn, class StartFn>
   bool WalkACBand(int c, int Ss, int Se, BlockFn on_block, EOBFn on_eob,
                   StartFn on_start) const;

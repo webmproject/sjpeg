@@ -158,7 +158,7 @@ int main(int argc, char* argv[]) {
       "multi-threaded)\n"
       "  -threads <int> ..... number of threads to use (default: 1; -1 for "
       "all\n"
-      "                       available cores; baseline encoding only)\n"
+      "                       available cores)\n"
       "\n"
       "  -gray .............. shortcut for '-yuv_mode 4'\n"
       "  -444 ............... shortcut for '-yuv_mode 3'\n"

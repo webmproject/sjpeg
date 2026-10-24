@@ -685,8 +685,7 @@ SJPEG_TEST(StdAllocationFailure) {
       }
       SJPEG_CHECK(budget > 1 && budget < 10000);
 #if !defined(SJPEG_NO_MULTITHREADING)
-      // progressive mode is single-threaded
-      if (single && config != 2) SJPEG_CHECK(num_recovered > 0);
+      if (single) SJPEG_CHECK(num_recovered > 0);
 #else
       (void)num_recovered;
 #endif
@@ -1852,6 +1851,25 @@ SJPEG_TEST(MultiThreaded) {
         }
       }
     }
+  }
+  // progressive: two bands per component, or chroma in one band
+  for (int config = 0; config < 6; ++config) {
+    sjpeg::EncoderParam param(80.0f);
+    param.yuv_mode = (config == 1)   ? SJPEG_YUV_444
+                     : (config == 2) ? SJPEG_YUV_400
+                     : (config == 3) ? SJPEG_YUV_SHARP
+                                     : SJPEG_YUV_420;
+    param.progressive_luma_split = (config == 1) ? 20 : 2;
+    param.progressive_chroma_split = (config == 1) ? 64 : 8;
+    param.use_rdo = param.adaptive_bias = (config == 4);
+    param.use_trellis = (config == 5);
+    param.restart_interval_rows = 1;  // if progressive isn't compiled in
+    param.num_threads = 1;
+    std::string expected, out;
+    SJPEG_CHECK(EncodeRGB(large_rgb, kLargeW, kLargeH, param, &expected));
+    param.num_threads = 4;
+    SJPEG_CHECK(EncodeRGB(large_rgb, kLargeW, kLargeH, param, &out));
+    SJPEG_CHECK(out == expected);
   }
 }
 
