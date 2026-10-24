@@ -279,7 +279,7 @@ bool Encoder::EncodeProgScans() {
     if (t > 0) {  // re-code the slice's first DCs against the previous slice
       const int mb_y = t * mb_h_ / nb_slices;
       for (int c = 0; c < nb_comps_; ++c) {
-        uint32_t* const dc_stats = s->stats.dc[quant_idx_[c]];
+        SymbolCount* const dc_stats = s->stats.dc[quant_idx_[c]];
         DCTCoeffs* const coeffs =
             &prog_planes_->coeffs[c][ProgPlaneIndex(c, 0, mb_y, 0)];
         int predictor = prog_planes_->slices[t - 1].last_dc[c];
