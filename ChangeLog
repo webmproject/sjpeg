@@ -1,3 +1,5 @@
+- 10/26: 0.1.5: add EncoderParam::fast_mode (-fast): sampled statistics and
+    search passes, cheaper trellis
 - 10/26: 0.1.4 release
   * add progressive JPEG encoding, restart markers, multithreaded encoding
   * add fast RDO and adaptive-bias quantization

@@ -178,6 +178,14 @@ zero-run merging). Disabled by default. Overridden if \fB\-trellis\fP is active.
 Enable trellis-based quantization (slower processing, but finds the optimal
 rate-distortion path across the entire block). Overrides \fB\-rdo\fP and \fB\-adapt_bias\fP.
 .TP
+.B \-fast
+Fast mode, cutting corners for speed at a negligible compression cost: on
+large pictures, the adaptive quantization statistics are sampled (1 block out
+of 2 or 4); the \fB\-size\fP and \fB\-psnr\fP searches measure half of the
+picture; the trellis quantization skips the blocks with at most one non-zero
+AC coefficient.
+Disabled by default.
+.TP
 .B \-no_optim
 Disable Huffman code optimization (faster processing, larger file).
 .TP

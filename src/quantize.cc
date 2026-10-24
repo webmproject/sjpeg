@@ -523,7 +523,9 @@ int Encoder::AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
 }
 
 Encoder::QuantizeBlockFunc Encoder::GetActiveQuantizeBlockFunc() const {
-  if (use_trellis_) return TrellisQuantizeBlock;
+  if (use_trellis_) {
+    return fast_mode_ ? FastTrellisQuantizeBlock : TrellisQuantizeBlock;
+  }
   if (use_rdo_) {
     return adaptive_bias_ ? RDOAdaptiveBiasQuantizeBlock : RDOQuantizeBlock;
   }
@@ -685,6 +687,27 @@ int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
     nz = nz->best_prev;
   }
   return dc;
+}
+
+int Encoder::QuantizeDC(const int16_t in[64], const Quantizer* const Q) {
+  const int v = in[0];
+  return (v < 0) ? -QUANTIZE(-v, Q->iquant_[0], Q->bias_[0])
+                 : QUANTIZE(v, Q->iquant_[0], Q->bias_[0]);
+}
+
+// The trellis has little to choose from with a single non-zero AC coefficient.
+int Encoder::FastTrellisQuantizeBlock(const int16_t in[64], int idx,
+                                      const Quantizer* const Q,
+                                      DCTCoeffs* const out,
+                                      RunLevel* const rl) {
+  const uint32_t* const qthresh2 = Q->qthresh2_;
+  int nb_nz = 0;
+  for (int j = 1; j < 64; ++j) {
+    const int V = in[j];
+    nb_nz += ((uint32_t)(V * V) >= qthresh2[j]);
+  }
+  return (nb_nz <= 1) ? quantize_block_(in, idx, Q, out, rl)
+                      : TrellisQuantizeBlock(in, idx, Q, out, rl);
 }
 
 #if defined(SJPEG_HAVE_AVX2)
