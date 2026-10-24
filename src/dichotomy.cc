@@ -275,7 +275,7 @@ uint64_t Encoder::ComputePSNRSlice(int y_start, int y_end) const {
   const size_t slice_mbs = static_cast<size_t>(y_end - y_start) * mb_w_;
   for (size_t n = 0; n < slice_mbs; ++n) {
     for (int c = 0; c < nb_comps_; ++c) {
-      const Quantizer* const Q = &quants_[quant_idx_[c]];
+      const Quantizer& Q = quants_[quant_idx_[c]];
       for (int i = 0; i < nb_blocks_[c]; ++i) {
         error += quantize_error_(in, Q);
         in += 64;

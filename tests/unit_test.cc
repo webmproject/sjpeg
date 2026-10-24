@@ -1318,7 +1318,7 @@ SJPEG_TEST(QuantizeErrorNEONOverflow) {
 
   const sjpeg::QuantizeErrorTestFunc quantize_error =
       sjpeg::GetQuantizeErrorFuncForTest();
-  SJPEG_CHECK(quantize_error(in, &Q) == expected);
+  SJPEG_CHECK(quantize_error(in, Q) == expected);
 }
 #endif  // SJPEG_USE_NEON
 

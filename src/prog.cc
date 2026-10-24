@@ -205,7 +205,7 @@ bool Encoder::EncodeProgScans() {
               !GrowProgRunLevels(c)) {
             return false;
           }
-          const int dc = quantize_block(in, c, &quants_[quant_idx_[c]], coeffs,
+          const int dc = quantize_block(in, c, quants_[quant_idx_[c]], coeffs,
                                         prog_planes_->run_levels[c] + rl_pos);
           prog_planes_->rl_offset[c][idx] = (uint32_t)rl_pos;
           prog_planes_->rl_used[c] = rl_pos + coeffs->nb_coeffs_;

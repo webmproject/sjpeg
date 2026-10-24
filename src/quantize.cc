@@ -233,11 +233,10 @@ static inline int EmitRunLevels(const int16_t in0, const T tmp[64],
 
 #if defined(SJPEG_USE_SSE2)
 
-static int QuantizeBlockSSE2(const int16_t in[64], int idx,
-                             const Quantizer* const Q, DCTCoeffs* const out,
-                             RunLevel* const rl) {
-  const uint16_t* const bias = Q->bias_;
-  const uint16_t* const iquant = Q->iquant_;
+static int QuantizeBlockSSE2(const int16_t in[64], int idx, const Quantizer& Q,
+                             DCTCoeffs* const out, RunLevel* const rl) {
+  const uint16_t* const bias = Q.bias_;
+  const uint16_t* const iquant = Q.iquant_;
   int16_t tmp[64], masked[64];
   const __m128i zero = _mm_setzero_si128();
   uint64_t nzn = 0;  // natural-order non-zero mask: bit j set iff tmp[j] != 0.
@@ -264,11 +263,10 @@ static int QuantizeBlockSSE2(const int16_t in[64], int idx,
 }
 
 #elif defined(SJPEG_USE_NEON)
-static int QuantizeBlockNEON(const int16_t in[64], int idx,
-                             const Quantizer* const Q, DCTCoeffs* const out,
-                             RunLevel* const rl) {
-  const uint16_t* const bias = Q->bias_;
-  const uint16_t* const iquant = Q->iquant_;
+static int QuantizeBlockNEON(const int16_t in[64], int idx, const Quantizer& Q,
+                             DCTCoeffs* const out, RunLevel* const rl) {
+  const uint16_t* const bias = Q.bias_;
+  const uint16_t* const iquant = Q.iquant_;
   uint16_t tmp[64], masked[64];
   uint64_t nzn = 0;  // natural-order non-zero mask: bit j set iff tmp[j] != 0.
   // Per-lane bit weights, used to turn NEON compare results into a 16-bit mask
@@ -309,16 +307,15 @@ static int QuantizeBlockNEON(const int16_t in[64], int idx,
 }
 #endif  // SJPEG_USE_NEON
 
-static int QuantizeBlock(const int16_t in[64], int idx,
-                         const Quantizer* const Q, DCTCoeffs* const out,
-                         RunLevel* const rl) {
-  const uint16_t* const bias = Q->bias_;
-  const uint16_t* const iquant = Q->iquant_;
+static int QuantizeBlock(const int16_t in[64], int idx, const Quantizer& Q,
+                         DCTCoeffs* const out, RunLevel* const rl) {
+  const uint16_t* const bias = Q.bias_;
+  const uint16_t* const iquant = Q.iquant_;
   int prev = 1;
   int nb = 0;
   // This function is speed-critical, so we're using some bit mask
   // to extract absolute values, instead of sign tests.
-  const uint16_t* const qthresh = Q->qthresh_;
+  const uint16_t* const qthresh = Q.qthresh_;
   for (int i = 1; i < 64; ++i) {
     const int j = kZigzag[i];
     int v = in[j];
@@ -364,10 +361,10 @@ struct RunCost {
 
 // Drops trailing level-1 coefficients saving the (run, 1) symbol.
 // Delta_D < lambda * bits <=> 4 * V < quant * (bits + AC_BITS_ROUNDING).
-static void TrimTrailingEOB(const int16_t in[64], const Quantizer* const Q,
+static void TrimTrailingEOB(const int16_t in[64], const Quantizer& Q,
                             DCTCoeffs* const out, RunLevel* const rl) {
   int nb = out->nb_coeffs_;
-  const uint32_t* const codes = Q->codes_;
+  const uint32_t* const codes = Q.codes_;
   if (nb == 0 || codes == nullptr) return;
 
   int last_pos = out->last_;
@@ -377,7 +374,7 @@ static void TrimTrailingEOB(const int16_t in[64], const Quantizer* const Q,
     if ((r.level_ & 0x0f) != 1) break;
 
     const int j = kZigzag[last_pos];
-    const int quant = Q->quant_[j];
+    const int quant = Q.quant_[j];
     const int V = std::abs(in[j]);
     if (V <= 8 * quant || V >= 16 * quant) break;
 
@@ -394,10 +391,10 @@ static void TrimTrailingEOB(const int16_t in[64], const Quantizer* const Q,
 }
 
 // Drops interior level-1 coefficients and merges adjacent zero runs.
-static void MergeRuns(const int16_t in[64], const Quantizer* const Q,
+static void MergeRuns(const int16_t in[64], const Quantizer& Q,
                       DCTCoeffs* const out, RunLevel* const rl) {
   int nb = out->nb_coeffs_;
-  const uint32_t* const codes = Q->codes_;
+  const uint32_t* const codes = Q.codes_;
   if (nb <= 1 || codes == nullptr) return;
 
   const uint32_t zrl_len = codes[0xf0] & 0xff;
@@ -411,7 +408,7 @@ static void MergeRuns(const int16_t in[64], const Quantizer* const Q,
     }
 
     const int j = kZigzag[before.pos];
-    const int quant = Q->quant_[j];
+    const int quant = Q.quant_[j];
     const int V = std::abs(in[j]);
     if (V <= 8 * quant || V >= 16 * quant) {
       after = before;
@@ -455,22 +452,21 @@ static void MergeRuns(const int16_t in[64], const Quantizer* const Q,
   out->nb_coeffs_ = nb;
 }
 
-static inline void ApplyRDO(const int16_t in[64], const Quantizer* const Q,
+static inline void ApplyRDO(const int16_t in[64], const Quantizer& Q,
                             DCTCoeffs* const out, RunLevel* const rl) {
   TrimTrailingEOB(in, Q, out, rl);
   MergeRuns(in, Q, out, rl);
 }
 
-int Encoder::RDOQuantizeBlock(const int16_t in[64], int idx,
-                              const Quantizer* const Q, DCTCoeffs* const out,
-                              RunLevel* const rl) {
+int Encoder::RDOQuantizeBlock(const int16_t in[64], int idx, const Quantizer& Q,
+                              DCTCoeffs* const out, RunLevel* const rl) {
   const int dc = quantize_block_(in, idx, Q, out, rl);
   ApplyRDO(in, Q, out, rl);
   return dc;
 }
 
 int Encoder::RDOAdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
-                                          const Quantizer* const Q,
+                                          const Quantizer& Q,
                                           DCTCoeffs* const out,
                                           RunLevel* const rl) {
   const int dc = AdaptiveBiasQuantizeBlock(in, idx, Q, out, rl);
@@ -482,8 +478,7 @@ int Encoder::RDOAdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
 // Adaptive-bias quantization ("poor man's trellis")
 
 int Encoder::AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
-                                       const Quantizer* const Q,
-                                       DCTCoeffs* const out,
+                                       const Quantizer& Q, DCTCoeffs* const out,
                                        RunLevel* const rl) {
   // Only luma is perceptually masked.
   const BlockActivityTier tier =
@@ -492,11 +487,11 @@ int Encoder::AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
     return quantize_block_(in, idx, Q, out, rl);
   }
   const uint16_t* const survive_thresh = (tier == BlockActivityTier::kFlatBlock)
-                                             ? Q->qthresh_flat_
-                                             : Q->qthresh_busy_;
-  const uint16_t* const bias = Q->bias_;
-  const uint16_t* const qthresh = Q->qthresh_;
-  const uint16_t* const iquant = Q->iquant_;
+                                             ? Q.qthresh_flat_
+                                             : Q.qthresh_busy_;
+  const uint16_t* const bias = Q.bias_;
+  const uint16_t* const qthresh = Q.qthresh_;
+  const uint16_t* const iquant = Q.iquant_;
   int prev = 1;
   int nb = 0;
   for (int i = 1; i < 64; ++i) {
@@ -599,15 +594,15 @@ static bool SearchBestPrev(const TrellisNode* const nodes0, TrellisNode* node,
 #define NUM_TRELLIS_NODES 2
 
 int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
-                                  const Quantizer* const Q,
-                                  DCTCoeffs* const out, RunLevel* const rl) {
-  const uint16_t* const bias = Q->bias_;
-  const uint16_t* const iquant = Q->iquant_;
+                                  const Quantizer& Q, DCTCoeffs* const out,
+                                  RunLevel* const rl) {
+  const uint16_t* const bias = Q.bias_;
+  const uint16_t* const iquant = Q.iquant_;
   const int dc = (in[0] < 0) ? -QUANTIZE(-in[0], iquant[0], bias[0])
                              : QUANTIZE(in[0], iquant[0], bias[0]);
   // Find the last zigzag nz_idx position that is non-zero quantized. It helps
   // bound the main loop below (which has a heavier body) using a cheaper scan.
-  const uint32_t* const qthresh2 = Q->qthresh2_;
+  const uint32_t* const qthresh2 = Q.qthresh2_;
   int nz_idx = 0;
   for (int i = 63; i >= 1; --i) {
     const int j = kZigzag[i];
@@ -625,13 +620,13 @@ int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
   }
   TrellisNode nodes[1 + NUM_TRELLIS_NODES * 63];  // 1 sink + n channels
   nodes[0].InitSink();
-  const uint32_t* const codes = Q->codes_;
+  const uint32_t* const codes = Q.codes_;
   TrellisNode* cur_node = &nodes[1];
   uint32_t disto0[64];  // disto0[i] = sum of distortions up to i (inclusive)
   disto0[0] = 0;
   for (int i = 1; i <= nz_idx; ++i) {
     const int j = kZigzag[i];
-    const uint32_t q = Q->quant_[j] << AC_BITS;
+    const uint32_t q = Q.quant_[j] << AC_BITS;
     const uint32_t lambda = q * q / 32u;
     int V = in[j];
     const int32_t mask = V >> 31;
@@ -690,7 +685,7 @@ int Encoder::TrellisQuantizeBlock(const int16_t in[64], int idx,
 #if defined(SJPEG_HAVE_AVX2)
 // defined in quantize_avx2.cc, built separately with -mavx2 (see Makefile)
 // so this file itself doesn't need an AVX2 target.
-extern int QuantizeBlockAVX2(const int16_t in[64], int idx, const Quantizer* Q,
+extern int QuantizeBlockAVX2(const int16_t in[64], int idx, const Quantizer& Q,
                              DCTCoeffs* out, RunLevel* rl);
 #endif
 
@@ -710,11 +705,10 @@ Encoder::QuantizeBlockFunc Encoder::GetQuantizeBlockFunc() {
 
 #if defined(SJPEG_USE_SSE2)
 
-static uint32_t QuantizeErrorSSE2(const int16_t in[64],
-                                  const Quantizer* const Q) {
-  const uint16_t* const bias = Q->bias_;
-  const uint16_t* const iquant = Q->iquant_;
-  const uint8_t* const quant = Q->quant_;
+static uint32_t QuantizeErrorSSE2(const int16_t in[64], const Quantizer& Q) {
+  const uint16_t* const bias = Q.bias_;
+  const uint16_t* const iquant = Q.iquant_;
+  const uint8_t* const quant = Q.quant_;
   __m128i sum = _mm_setzero_si128();
   for (int i = 0; i < 64; i += 8) {
     const __m128i m_bias = LOAD_16(bias + i);
@@ -736,11 +730,10 @@ static uint32_t QuantizeErrorSSE2(const int16_t in[64],
 
 #elif defined(SJPEG_USE_NEON)
 
-static uint32_t QuantizeErrorNEON(const int16_t in[64],
-                                  const Quantizer* const Q) {
-  const uint16_t* const bias = Q->bias_;
-  const uint16_t* const iquant = Q->iquant_;
-  const uint8_t* const quant = Q->quant_;
+static uint32_t QuantizeErrorNEON(const int16_t in[64], const Quantizer& Q) {
+  const uint16_t* const bias = Q.bias_;
+  const uint16_t* const iquant = Q.iquant_;
+  const uint8_t* const quant = Q.quant_;
   uint32x4_t sum1 = vdupq_n_u32(0);
   uint32x4_t sum2 = vdupq_n_u32(0);
   for (int i = 0; i < 64; i += 8) {
@@ -767,10 +760,10 @@ static uint32_t QuantizeErrorNEON(const int16_t in[64],
 
 #endif  // SJPEG_USE_NEON
 
-static uint32_t QuantizeError(const int16_t in[64], const Quantizer* const Q) {
-  const uint16_t* const bias = Q->bias_;
-  const uint16_t* const iquant = Q->iquant_;
-  const uint8_t* const quant = Q->quant_;
+static uint32_t QuantizeError(const int16_t in[64], const Quantizer& Q) {
+  const uint16_t* const bias = Q.bias_;
+  const uint16_t* const iquant = Q.iquant_;
+  const uint8_t* const quant = Q.quant_;
   uint32_t err = 0;
   for (int j = 0; j < 64; ++j) {
     int32_t v0 = (in[j] < 0) ? -in[j] : in[j];

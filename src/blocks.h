@@ -43,7 +43,7 @@ struct Quantizer {
 
 // Testing hook: exposes Encoder::GetQuantizeErrorFunc(), which is private.
 typedef uint32_t (*QuantizeErrorTestFunc)(const int16_t in[64],
-                                          const Quantizer* const Q);
+                                          const Quantizer& Q);
 QuantizeErrorTestFunc GetQuantizeErrorFuncForTest();
 
 // compact Run/Level storage, separate from DCTCoeffs infos

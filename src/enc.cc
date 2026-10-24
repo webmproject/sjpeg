@@ -393,7 +393,7 @@ bool Encoder::CodeScanSlice(int first_interval, int end_interval,
         for (int c = 0; c < nb_comps_; ++c) {
           DCTCoeffs coeffs;
           for (int i = 0; i < nb_blocks_[c]; ++i) {
-            const int dc = quantize_block(in, c, &quants_[quant_idx_[c]],
+            const int dc = quantize_block(in, c, quants_[quant_idx_[c]],
                                           &coeffs, run_levels);
             coeffs.dc_code_ = GenerateDCDiffCode(dc, &DCs[c]);
             CodeBlock(&coeffs, run_levels, bw);
@@ -438,7 +438,7 @@ bool Encoder::QuantizeScanSlice(int first_interval, int end_interval,
             RunLevel* const rl =
                 keep_run_levels ? store->run_levels.data() + nb_rl : fixed_rl;
             const int dc =
-                quantize_block(in, c, &quants_[q_idx], cur_coeffs, rl);
+                quantize_block(in, c, quants_[q_idx], cur_coeffs, rl);
             cur_coeffs->dc_code_ = GenerateDCDiffCode(dc, &DCs[c]);
             if (stats != nullptr) stats->AddBlock(q_idx, cur_coeffs, rl);
             if (keep_run_levels) {
