@@ -51,6 +51,9 @@ class Encoder {
   void SetCompressionMethod(int method);
   void SetRDO(bool use_rdo = true);
   void SetTrellis(bool use_trellis = true);  // after SetCompressionMethod()
+  // Fast mode: sub-sampled statistics and search passes, cheaper trellis.
+  // See EncoderParam::fast_mode.
+  void SetFastMode(bool fast_mode = true);
   // luma_split/chroma_split: see EncoderParam::progressive_luma_split in
   // sjpeg.h.
   void SetProgressive(int luma_split, int chroma_split);
@@ -143,10 +146,12 @@ class Encoder {
                      sjpeg::BitWriter* bw, size_t slab_size, int16_t* scratch,
                      uint8_t* rep_buf);
   // 'store' (null if the run/levels aren't kept) and 'stats' (null if not
-  // collected) receive the quantized blocks.
+  // collected) receive the quantized blocks. If 'sampled', only the MCUs of
+  // a checkerboard are visited (for estimating, not coding).
   bool QuantizeScanSlice(int first_interval, int end_interval,
                          SliceStore* store, EntropyStats* stats,
-                         int16_t* scratch, uint8_t* rep_buf);
+                         int16_t* scratch, uint8_t* rep_buf,
+                         bool sampled = false);
   bool ReplayScanSlice(int first_interval, int end_interval,
                        int total_intervals, size_t nb_blocks,
                        const DCTCoeffs* coeffs, const RunLevel* rl,
@@ -196,11 +201,16 @@ class Encoder {
   // bitstream, byte for byte.
   // Quantizes the slices into (*chunks)[], gathering the entropy statistics
   // into stats_ if optimizing the Huffman tables.
-  void QuantizeSlices(int num_slices, int total_intervals, ChunkSet* chunks);
+  // 'sampled': stats only, from half the MCUs (see QuantizeScanSlice()).
+  void QuantizeSlices(int num_slices, int total_intervals, ChunkSet* chunks,
+                      bool sampled = false);
   // Codes the stored run/levels of the slices, in order, into bw_.
   void ReplaySlices(int total_intervals, ChunkSet* chunks);
-  // Size, in bytes, of the stream coded from the quantized slices.
-  float EvaluateSize(int num_slices, int total_intervals, ChunkSet* chunks);
+  // Size, in bytes, of the stream coded from the quantized slices. If
+  // 'sampled', it is extrapolated from half the MCUs' statistics (needs
+  // optimize_size_), and nothing is left in *chunks to replay.
+  float EvaluateSize(int num_slices, int total_intervals, ChunkSet* chunks,
+                     bool sampled = false);
   // Sums each slice's symbol frequencies into stats_.
   void MergeChunkStats(const ThreadChunk* chunks, int num_chunks);
   // dichotomy loop
@@ -208,8 +218,10 @@ class Encoder {
 
   // Histogram pass
   void CollectHistograms();
-  void CollectHistogramsSlice(int y_start, int y_end, Histo histos[2],
-                              int16_t* scratch, uint8_t* rep_buf);
+  // Visits one MCU out of 'step' (1, 2 or 4) and returns how many it did.
+  size_t CollectHistogramsSlice(int y_start, int y_end, int step,
+                                Histo histos[2], int16_t* scratch,
+                                uint8_t* rep_buf);
 
   typedef int (*QuantizeBlockFunc)(const int16_t in[64], int idx,
                                    const Quantizer& Q, DCTCoeffs* const out,
@@ -220,6 +232,12 @@ class Encoder {
   static int TrellisQuantizeBlock(const int16_t in[64], int idx,
                                   const Quantizer& Q, DCTCoeffs* out,
                                   RunLevel* rl);
+  // Quantized DC coefficient, as all the QuantizeBlockFunc return it.
+  static int QuantizeDC(const int16_t in[64], const Quantizer& Q);
+  // fast_mode_: plain quantization for blocks with at most one non-zero AC.
+  static int FastTrellisQuantizeBlock(const int16_t in[64], int idx,
+                                      const Quantizer& Q, DCTCoeffs* out,
+                                      RunLevel* rl);
 
   static int AdaptiveBiasQuantizeBlock(const int16_t in[64], int idx,
                                        const Quantizer& Q, DCTCoeffs* out,
@@ -232,7 +250,7 @@ class Encoder {
                                           const Quantizer& Q, DCTCoeffs* out,
                                           RunLevel* rl);
 
-  // Picks quantize_block_ / TrellisQuantizeBlock / RDOQuantizeBlock /
+  // Picks quantize_block_ / (Fast)TrellisQuantizeBlock / RDOQuantizeBlock /
   // RDOAdaptiveBiasQuantizeBlock / AdaptiveBiasQuantizeBlock.
   QuantizeBlockFunc GetActiveQuantizeBlockFunc() const;
 
@@ -258,6 +276,22 @@ class Encoder {
                   sjpeg::BitCounter* bc) const;
   float ComputeSize(size_t entropy_bits) const;
   uint64_t ComputePSNRSlice(int y_start, int y_end) const;
+  // fast_mode_ sampling: 1 MCU out of 'step' (1, 2 or 4), staggered from row
+  // to row (checkerboard for 2, what the search passes measure).
+  static bool IsSampledMCU(int mb_x, int mb_y, int step) {
+    return ((mb_x + mb_y * (step >> 1)) & (step - 1)) == 0;
+  }
+  // The step: from 32k (resp. 64k) luma blocks, 2 (resp. 4) for the
+  // histograms, the search passes using 2 for both. Smaller pictures don't
+  // have enough samples to spare.
+  int SamplingStep() const {
+    const size_t nb_luma_blocks = (size_t)mb_w_ * mb_h_ * nb_blocks_[0];
+    return !fast_mode_                 ? 1
+           : (nb_luma_blocks >= 65536) ? 4
+           : (nb_luma_blocks >= 32768) ? 2
+                                       : 1;
+  }
+  size_t NumSampledMCUs() const;  // IsSampledMCU(.., 2) ones
   float ComputePSNR() const;
   static float GetPSNR(uint64_t err, uint64_t size);
 
@@ -349,6 +383,7 @@ class Encoder {
   bool reuse_run_levels_ = false;    // save quantized run/levels   (1, 4, 5)
   bool use_trellis_ = false;         // use trellis-quantization    (7, 8)
   bool use_rdo_ = false;             // use fast rate-distortion optimization
+  bool fast_mode_ = false;           // fast mode
   int restart_interval_rows_ = 0;    // MCU rows per restart interval (0 = off)
   int num_threads_ = 1;              // total threads for parallel scan
                                      // (1 = single-threaded)

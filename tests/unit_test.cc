@@ -2003,6 +2003,41 @@ SJPEG_TEST(MultiThreadedMultiPass) {
   }
 }
 
+SJPEG_TEST(FastMode) {
+  // 1509x1403 (33440 luma blocks): histograms on 1 MCU out of 2; 2100x2100:
+  // 1 out of 4
+  for (int W : {1509, 2100}) {
+    const int H = (W == 1509) ? 1403 : 2100;
+    const std::vector<uint8_t> rgb = MakeRGB(W, H);
+    for (int config = 0; config < 5; ++config) {
+      sjpeg::EncoderParam param(80.0f);
+      param.restart_interval_rows = 1;
+      if (config == 1) {
+        param.yuv_mode = SJPEG_YUV_444;
+        param.use_trellis = true;
+      } else if (config == 2) {
+        param.progressive_luma_split = 2;
+        param.use_rdo = true;
+      } else if (config >= 3) {  // sampled search passes
+        param.passes = 6;
+        param.target_mode = (config == 3) ? sjpeg::EncoderParam::TARGET_SIZE
+                                          : sjpeg::EncoderParam::TARGET_PSNR;
+        param.target_value = (config == 3) ? 300000.f : 38.f;
+      }
+      std::string slow, fast, mt;
+      SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &slow));
+      param.fast_mode = true;
+      SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &fast));
+      // not much compression lost
+      SJPEG_CHECK(fast.size() < slow.size() * 1.05);
+      SJPEG_CHECK(fast.size() > slow.size() * 0.95);
+      param.num_threads = 4;  // sampling must ignore the slicing
+      SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &mt));
+      SJPEG_CHECK(mt == fast);
+    }
+  }
+}
+
 SJPEG_TEST(MultiThreadedIntervalDefaults) {
   const int kWidth = 64, kHeight = 48;  // 4x3 MCUs in 4:2:0
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);

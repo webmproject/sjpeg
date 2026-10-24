@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-#define SJPEG_VERSION 0x000104  // 0.1.4
+#define SJPEG_VERSION 0x000105  // 0.1.5
 
 #if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
@@ -216,6 +216,7 @@ struct EncoderParam {
   bool adaptive_bias;          // if true, use perceptual bias adaptation (luma)
   bool use_trellis;            // if true, use trellis-based optimization
   bool use_rdo;                // if true, use fast rate-distortion optimization
+  bool fast_mode;              // if true, fast mode (see -fast in man sjpeg)
 
   // Emit restart markers (RST0-RST7) every 'restart_interval_rows' MCU rows.
   // The default is 0. Values <= 0 disable them when single-threaded, or use an
