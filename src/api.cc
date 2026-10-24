@@ -156,10 +156,10 @@ int GetNumThreads(const EncoderParam& param) {
   (void)param;
   return 1;
 #else
-  if (param.num_threads < 0) {
-    return Encoder::HardwareConcurrency();
-  }
-  return std::max(1, param.num_threads);
+  const int num_threads = (param.num_threads < 0)
+                              ? Encoder::HardwareConcurrency()
+                              : param.num_threads;
+  return std::max(1, std::min(num_threads, (int)Encoder::kMaxThreads));
 #endif
 }
 

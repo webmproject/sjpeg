@@ -179,8 +179,8 @@ void Encoder::LoopScan() {
 ////////////////////////////////////////////////////////////////////////////////
 // Size & PSNR computation, mostly for dichotomy
 
-size_t Encoder::HeaderSize() const {
-  size_t size = 0;
+uint64_t Encoder::HeaderSize() const {
+  uint64_t size = 0;
   size += 20;  // APP0
   size += app_markers_->size();
   if (!exif_->empty()) {
@@ -245,8 +245,8 @@ void Encoder::BlocksSize(int nb_mbs, const DCTCoeffs* coeffs,
   }
 }
 
-float Encoder::ComputeSize(size_t entropy_bits) const {
-  size_t size = HeaderSize() + entropy_bits;
+float Encoder::ComputeSize(uint64_t entropy_bits) const {
+  uint64_t size = HeaderSize() + entropy_bits;
   if (restart_interval_rows_ > 0) {
     // Each restart costs a 2-byte RSTn marker, plus the '1'-bits padding the
     // preceding entropy data to a byte boundary (0..7 bits, ~4 on average).

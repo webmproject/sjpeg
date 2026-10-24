@@ -1959,6 +1959,23 @@ SJPEG_TEST(MultiThreadedMultiPass) {
   }
 }
 
+SJPEG_TEST(MultiThreadedHugeCount) {
+  // an absurd request is capped (Encoder::kMaxThreads), not honored
+  const int W = 1509, H = 1403;
+  const std::vector<uint8_t> rgb = MakeRGB(W, H);
+  for (SjpegYUVMode yuv : {SJPEG_YUV_420, SJPEG_YUV_SHARP}) {
+    sjpeg::EncoderParam param(80.0f);
+    param.yuv_mode = yuv;
+    param.restart_interval_rows = 1;
+    param.num_threads = 4;
+    std::string expected, out;
+    SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &expected));
+    param.num_threads = 1000000;
+    SJPEG_CHECK(EncodeRGB(rgb, W, H, param, &out));
+    SJPEG_CHECK(out == expected);
+  }
+}
+
 SJPEG_TEST(MultiThreadedIntervalDefaults) {
   const int kWidth = 64, kHeight = 48;  // 4x3 MCUs in 4:2:0
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
