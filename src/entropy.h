@@ -39,15 +39,18 @@ struct HuffmanTable {
 
 // Symbol frequencies of the (up to) 2 quantization tables' worth of blocks:
 // index 0 is luma, 1 is chroma.
+// Symbol counts are 64-bit: in 4:4:4, a 65535x65535 picture's chroma table
+// can see 2 x 67M blocks x 63 = 8.5G uses of a single symbol.
+typedef uint64_t SymbolCount;
+
 struct EntropyStats {
-  uint32_t ac[2][256 + 1];  // AC symbols
-  uint32_t dc[2][12 + 1];   // DC categories
+  SymbolCount ac[2][256 + 1];  // AC symbols
+  SymbolCount dc[2][12 + 1];   // DC categories
 
   void Reset();
   // Sums 'other' into *this, for the first nb_tables tables.
   void Add(const EntropyStats& other, int nb_tables);
-  // Tallies one block. Counts cannot overflow 32 bits, since the maximum
-  // resolution allowed is 65535 * 65535.
+  // Tallies one block.
   void AddBlock(int q_idx, const DCTCoeffs* coeffs, const RunLevel* run_levels);
   void AddDC(int q_idx, const DCTCoeffs* coeffs);  // DC only
 };
@@ -106,7 +109,7 @@ class EntropyCoder {
 // Progressive mode: AC needs its own per-scan table, since each spectral
 // window has a different symbol alphabet.
 struct ProgACCoder {
-  uint32_t freq[256 + 1];
+  SymbolCount freq[256 + 1];
   uint32_t codes[256];
   uint8_t opt_syms[256];
   HuffmanTable table;

@@ -217,7 +217,7 @@ void EntropyStats::Add(const EntropyStats& other, int nb_tables) {
 // Tallies one block's AC run-level list into freq[]. Shared by
 // EntropyStats::AddBlock()/ProgACCoder::AddWindowed().
 static inline void AddACRunLevelStats(const RunLevel* const rl, int n,
-                                      uint32_t* const freq) {
+                                      SymbolCount* const freq) {
   for (int i = 0; i < n; ++i) {
     const int run = rl[i].run_;
     const int tmp = (run >> 4);
@@ -245,14 +245,14 @@ uint64_t EntropyCoder::Size(const EntropyStats& stats) const {
   uint64_t size = 0;  // a count times a code length can exceed 32 bits
   for (int q = 0; q < nb_tables_; ++q) {
     for (int len = 0; len < 12; ++len) {
-      const uint32_t freq = stats.dc[q][len];
-      if (freq > 0) size += (uint64_t)freq * ((dc_codes_[q][len] & 0xff) + len);
+      const SymbolCount freq = stats.dc[q][len];
+      if (freq > 0) size += freq * ((dc_codes_[q][len] & 0xff) + len);
     }
     const uint32_t* const codes = ac_codes_[q];
     for (int sym = 0; sym < 256; ++sym) {
-      const uint32_t freq = stats.ac[q][sym];
+      const SymbolCount freq = stats.ac[q][sym];
       if (freq > 0) {
-        size += (uint64_t)freq * ((codes[sym] & 0xff) + (sym & 0x0f));
+        size += freq * ((codes[sym] & 0xff) + (sym & 0x0f));
       }
     }
   }
@@ -266,8 +266,8 @@ static int cmp(const void* pa, const void* pb) {
   return (a < b) ? 1 : -1;
 }
 
-static void BuildOptimalTable(HuffmanTable* const t, const uint32_t* const freq,
-                              int size) {
+static void BuildOptimalTable(HuffmanTable* const t,
+                              const SymbolCount* const freq, int size) {
   enum { MAX_BITS = 32, MAX_CODE_SIZE = 16 };
   assert(size <= 256);
   assert(t != nullptr);
@@ -298,7 +298,7 @@ static void BuildOptimalTable(HuffmanTable* const t, const uint32_t* const freq,
   for (int i = 0; i < size; ++i) {
     const uint64_t v = freq[i];
     if (v > 0) {
-      // we pack the sorted key (32bits) and index (9bits) into a single
+      // we pack the sorted key (< 35 bits) and index (9bits) into a single
       // uint64_t, so we don't have to resort to structs (and we avoid
       // tie-breaks, too)
       sorted_freq[nb_syms++] = (v << 9) | i;
@@ -344,8 +344,8 @@ static void BuildOptimalTable(HuffmanTable* const t, const uint32_t* const freq,
     } while (i >= 0);
 
     // Create new symbol, with merged frequencies. Will take s1's spot.
-    // We must use 64bit here to prevent overflow in the sum. Both s1 and
-    // s2 are originally 32 + 9 bits wide.
+    // No overflow in the sum: all the counts add up to less than 2^35, plus
+    // the 9 bits of the index.
     const uint64_t new_symbol = s1 + (s2 & ~0x1ff);
     // Perform insertion sort to find the new spot of the merged symbol.
     int k = nb - 1;
@@ -474,7 +474,7 @@ void EntropyCoder::CodeBlockDC(const DCTCoeffs* const coeffs, int q_idx,
 // Builds an optimal table from freq[] and its codes[], in one go. Shared by
 // EntropyCoder::CompileDC()/ProgACCoder::Compile().
 static inline void CompileTable(HuffmanTable* const t, const uint8_t* syms,
-                                int size, const uint32_t* const freq,
+                                int size, const SymbolCount* const freq,
                                 uint32_t* const codes) {
   t->syms_ = syms;
   BuildOptimalTable(t, freq, size);
