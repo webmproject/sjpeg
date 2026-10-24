@@ -48,8 +48,17 @@ const uint8_t* GetSOFData(const uint8_t* src, size_t size) {
     ++pos;
   }  // search first 0xff marker
   while (pos < end) {
+    if (src[pos + 1] == 0xff) {  // fill byte before a marker (B.1.1.2)
+      ++pos;
+      continue;
+    }
     const uint32_t marker = (uint32_t)((src[pos] << 8) | src[pos + 1]);
-    if (marker == M_SOF0 || marker == M_SOF1) return src + pos;
+    // any SOFn (baseline, extended, progressive...): same frame header.
+    // 0xffc4 (DHT), 0xffc8 (JPG) and 0xffcc (DAC) aren't SOFs.
+    if ((marker & 0xfff0) == M_SOF0 && marker != M_DHT && marker != 0xffc8 &&
+        marker != 0xffcc) {
+      return src + pos;
+    }
     pos += 2 + ((src[pos + 2] << 8) | src[pos + 3]);
   }
   return nullptr;  // No SOF marker found
@@ -92,11 +101,13 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size, uint8_t quant[2][64]) {
   }
   int nb_comp = 0;
   while (src < end) {
+    if (src[1] == 0xff) {  // fill byte before a marker (B.1.1.2)
+      ++src;
+      continue;
+    }
     const uint32_t marker = (uint32_t)((src[0] << 8) | src[1]);
     const int chunk_size = 2 + ((src[2] << 8) | src[3]);
-    if (src + chunk_size > end) {
-      break;
-    }
+    if (chunk_size > end - src) break;  // no pointer past the end, even unread
     if (marker == M_SOS) {
       // we can stop searching at the first SOS marker encountered, to avoid
       // parsing the whole data
@@ -151,9 +162,10 @@ float SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
   // but also a lot of way to fabricate a twisted input to fool it.
   // So we're better off trying all the 100 possibilities since it's not
   // a lot after all.
-  int best_quality = 0;
+  // Quality 0 gives the same matrices as 1 (see GetQFactor()): start at 1.
+  int best_quality = 1;
   float best_score = 256 * 256 * 64 + 1;
-  for (int quality = 0; quality <= 100; ++quality) {
+  for (int quality = 1; quality <= 100; ++quality) {
     uint8_t m[64];
     SjpegQuantMatrix((float)quality, for_chroma, m);
     float score = 0;

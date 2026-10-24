@@ -779,6 +779,29 @@ SJPEG_TEST(Dimensions) {
   SJPEG_CHECK(SjpegDimensions(data, size, nullptr, nullptr, &is_yuv420));
   SJPEG_CHECK(SjpegDimensions(data, size, nullptr, nullptr, nullptr));
 
+  // any SOFn frame header (SOF0 + 3-component length: not a DQT value)
+  const size_t sof = jpg.find(std::string("\xff\xc0\x00\x11", 4));
+  SJPEG_CHECK(sof != std::string::npos);
+  for (int n : {1, 2, 3, 5, 9, 13, 15}) {
+    std::string sofn = jpg;
+    sofn[sof + 1] = (char)(0xc0 + n);
+    width = height = 0;
+    SJPEG_CHECK(SjpegDimensions(sofn, &width, &height, nullptr));
+    SJPEG_CHECK(width == kWidth && height == kHeight);
+  }
+
+  // 0xff fill bytes before markers (B.1.1.2) are skipped
+  std::string filled = jpg;
+  filled.insert(sof, "\xff\xff");
+  filled.insert(filled.find("\xff\xdb"), "\xff");
+  width = height = 0;
+  SJPEG_CHECK(SjpegDimensions(filled, &width, &height, nullptr));
+  SJPEG_CHECK(width == kWidth && height == kHeight);
+  uint8_t quant[2][64], filled_quant[2][64];
+  SJPEG_CHECK(SjpegFindQuantizer(jpg, quant) == 2);
+  SJPEG_CHECK(SjpegFindQuantizer(filled, filled_quant) == 2);
+  SJPEG_CHECK(!memcmp(quant, filled_quant, sizeof(quant)));
+
   // truncated or invalid input is rejected, and never read out of bounds
   SJPEG_CHECK(!SjpegDimensions(nullptr, size, &width, &height, nullptr));
   for (size_t n = 0; n <= size; ++n) {
@@ -1022,14 +1045,17 @@ SJPEG_TEST(CompressionMethod) {
 }
 
 SJPEG_TEST(QuantMatrix) {
-  for (int quality = 0; quality <= 100; quality += 5) {
+  // The estimate gives back the same matrix. Several qualities can share one
+  // (0 and 1, or all-255 chroma at 1..3): the lowest valid one, 1.
+  for (int quality = 0; quality <= 100; ++quality) {
     for (int chroma = 0; chroma <= 1; ++chroma) {
-      uint8_t matrix[64];
-      const float q = (float)quality;
-      SjpegQuantMatrix(q, chroma != 0, matrix);
+      uint8_t matrix[64], again[64];
+      SjpegQuantMatrix((float)quality, chroma != 0, matrix);
       for (size_t i = 0; i < 64; ++i) SJPEG_CHECK(matrix[i] >= 1);
       const float estimate = SjpegEstimateQuality(matrix, chroma != 0);
-      SJPEG_CHECK(estimate >= q - 1.f && estimate <= q + 1.f);
+      SJPEG_CHECK(estimate >= 1.f);
+      SjpegQuantMatrix(estimate, chroma != 0, again);
+      SJPEG_CHECK(!memcmp(matrix, again, sizeof(matrix)));
     }
   }
   // The matrices used for encoding must be recoverable from the bitstream.
