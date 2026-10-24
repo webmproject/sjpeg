@@ -120,9 +120,11 @@ void Encoder::SetDefaultMinQuantMatrices() {
 
 void Encoder::SetCompressionMethod(int method) {
   method = (method < 0) ? 0 : (method > 8) ? 8 : method;
-  use_adaptive_quant_ = (method >= 3);
   optimize_size_ = (method != 0) && (method != 3);
+#if !defined(SJPEG_NO_ADAPTIVE_QUANT)  // else: no histograms, no coeffs to keep
+  use_adaptive_quant_ = (method >= 3);
   use_extra_memory_ = (method == 3) || (method == 4) || (method == 7);
+#endif
   reuse_run_levels_ =
       (method == 1) || (method == 4) || (method == 5) || (method == 7);
   use_trellis_ = (method >= 7);
@@ -151,6 +153,9 @@ void Encoder::SetProgressive(int luma_split, int chroma_split) {
 }
 
 void Encoder::SetMetadata(const std::string* data, MetadataType type) {
+#if defined(SJPEG_NO_METADATA)
+  (void)data, (void)type;  // stays empty
+#else
   switch (type) {
     case ICC:
       iccp_ = data;
@@ -166,6 +171,7 @@ void Encoder::SetMetadata(const std::string* data, MetadataType type) {
       app_markers_ = data;
       break;
   }
+#endif
 }
 
 void Encoder::SetQuantizationBias(int bias, bool use_adaptive) {
@@ -187,6 +193,7 @@ void Encoder::SetQuantizationDeltas(int qdelta_luma, int qdelta_chroma) {
 extern bool ForceSlowCImplementation;
 bool ForceSlowCImplementation = false;  // undocumented! for tests.
 
+#if !defined(SJPEG_SIMD_BASELINE)  // else inline, in common.h
 bool SupportsSSE2() {
   if (ForceSlowCImplementation) return false;
 #if defined(SJPEG_USE_SSE2)
@@ -202,6 +209,7 @@ bool SupportsNEON() {
 #endif
   return false;
 }
+#endif  // SJPEG_SIMD_BASELINE
 
 // unlike SSE2/NEON above, AVX2 support is a real runtime question even on a
 // binary built with AVX2 code paths compiled in (SJPEG_HAVE_AVX2): plenty of
@@ -243,7 +251,6 @@ void Encoder::InitializeStaticPointers() {
     quantize_error_ = GetQuantizeErrorFunc();
     fDCT_ = GetFdct();
   });
-  assert(store_histo_ != nullptr);
   assert(quantize_block_ != nullptr);
   assert(quantize_error_ != nullptr);
   assert(fDCT_ != nullptr);
@@ -642,6 +649,7 @@ void Encoder::ConcatenateChunks(ThreadChunk* chunks, int num_chunks) {
   }
 }
 
+#if !defined(SJPEG_NO_SEARCH)
 float Encoder::EvaluateSize(int num_slices, int total_intervals,
                             ChunkSet* chunks, bool sampled) {
   assert(!sampled || optimize_size_);
@@ -670,6 +678,7 @@ float Encoder::EvaluateSize(int num_slices, int total_intervals,
   }
   return ComputeSize(bc.Size());
 }
+#endif  // SJPEG_NO_SEARCH
 
 ////////////////////////////////////////////////////////////////////////////////
 // Marker writers: gather the frame state for the HeaderWriter (headers.cc)
@@ -723,15 +732,19 @@ bool Encoder::Encode() {
   }
 
   hw_.WriteAPP0();
+#if !defined(SJPEG_NO_METADATA)
   if (!hw_.WriteAPPMarkers(*app_markers_) || !hw_.WriteEXIF(*exif_) ||
       !hw_.WriteICCP(*iccp_) || !hw_.WriteXMP(*xmp_, xmp_split_)) {
     return false;
   }
+#endif
 
   if (passes_ > 1) {
     // Note: progressive mode is not supported together with the multi-pass
     // target-size/PSNR search; -prog is silently ignored in that case.
+#if !defined(SJPEG_NO_SEARCH)  // else passes_ is 1
     LoopScan();
+#endif
   } else {
     SinglePassEncode();
   }

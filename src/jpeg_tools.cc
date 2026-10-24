@@ -176,6 +176,8 @@ float SjpegEstimateQuality(const uint8_t matrix[64], bool for_chroma) {
 ////////////////////////////////////////////////////////////////////////////////
 // Bluriness risk evaluation and YUV420 / sharp-YUV420 / YUV444 decision
 
+#if !defined(SJPEG_NO_RISKINESS)
+
 static const int kNoiseLevel = 4;
 static const double kThreshGray = 0.995;  // 1.00 = full gray (max)
 static const double kThreshYU420 = 40.0;
@@ -585,6 +587,18 @@ double BlockRiskinessScore(const uint8_t* rgb, int stride,
   get_block(rgb, stride, yuv444);
   return DCTRiskinessScore(yuv444, scores);
 }
+
+#else   // SJPEG_NO_RISKINESS: no analysis, the safe default
+
+SjpegYUVMode SjpegRiskiness(const uint8_t* rgb, int width, int height,
+                            int stride, float* risk) {
+  (void)rgb, (void)width, (void)height, (void)stride;
+  if (risk != nullptr) *risk = 0.f;
+  return SJPEG_YUV_420;
+}
+
+namespace sjpeg {
+#endif  // SJPEG_NO_RISKINESS
 
 BlockActivityTier ClassifyActivity(uint32_t activity) {
   return (activity < kActivityLo)   ? BlockActivityTier::kFlatBlock

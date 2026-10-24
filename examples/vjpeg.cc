@@ -349,8 +349,10 @@ static void ComputeRiskinessMap() {
     // of the 8x8 block returned by BlockRiskinessScore().
     for (size_t j = 0; j + 7 <= height; j += 7) {
       for (size_t i = 0; i + 7 <= width; i += 7) {
-        int16_t score_8x8[8 * 8];
+        int16_t score_8x8[8 * 8] = {0};  // blank map without riskiness
+#if !defined(SJPEG_NO_RISKINESS)
         sjpeg::BlockRiskinessScore(src + i * 3, stride, score_8x8);
+#endif
         for (size_t k = 0, J = 0; J < 7; ++J) {
           for (size_t I = 0; I < 7; ++I, ++k) {
             int score = score_8x8[I + J * 8];
