@@ -1,3 +1,5 @@
+- 10/26: version 0.1.5
+  * fast mode, -fast (EncoderParam::fast_mode): 15-30% faster
 - 10/26: version 0.1.4
   * progressive JPEG encoding (partial)
   * restart markers (DRI/RST0-7) and multi-threaded encoding using them:

@@ -5,7 +5,7 @@
                    \_____/___/__//_/\__/_/_____/_____/
                           (__)_/  _ \/  _ \/ .__\
                           _)  \   __/   __/  /  \
-                         /____/__/  \_____/_____/v0.1.4
+                         /____/__/  \_____/_____/v0.1.5
 ```
 
 *   **sjpeg**: 's' stands for 'simple'.
@@ -122,6 +122,8 @@ if (!sjpeg::Encode(rgb, width, height, stride, param, &output)) {
     *   `adaptive_quantization`: content-based spatial variance quantization.
     *   `adaptive_bias`: perceptual rounding-bias adaptation.
     *   `use_trellis`: rate-distortion Trellis quantization optimization.
+    *   `fast_mode`: fast mode (sampled statistics and search passes, cheaper
+        trellis).
 *   **Progressive JPEG**:
     *   `progressive_luma_split`: AC spectral split index (1..63, default 64 =
         disabled; `2` is a common choice).

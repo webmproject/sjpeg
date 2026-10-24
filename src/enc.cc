@@ -132,6 +132,8 @@ void Encoder::SetRDO(bool use_rdo) { use_rdo_ = use_rdo; }
 
 void Encoder::SetTrellis(bool use_trellis) { use_trellis_ = use_trellis; }
 
+void Encoder::SetFastMode(bool fast_mode) { fast_mode_ = fast_mode; }
+
 void Encoder::SetProgressive(int luma_split, int chroma_split) {
 #if !defined(SJPEG_NO_PROGRESSIVE)
   luma_split = (luma_split < 1) ? 1 : (luma_split > 64) ? 64 : luma_split;
@@ -391,7 +393,8 @@ bool Encoder::CodeScanSlice(int first_interval, int end_interval,
 
 bool Encoder::QuantizeScanSlice(int first_interval, int end_interval,
                                 SliceStore* store, EntropyStats* stats,
-                                int16_t* scratch, uint8_t* rep_buf) {
+                                int16_t* scratch, uint8_t* rep_buf,
+                                bool sampled) {
   const int rows_per_interval =
       (restart_interval_rows_ > 0) ? restart_interval_rows_ : mb_h_;
   const QuantizeBlockFunc quantize_block = GetActiveQuantizeBlockFunc();
@@ -412,6 +415,16 @@ bool Encoder::QuantizeScanSlice(int first_interval, int end_interval,
           return false;
         }
         const int16_t* in = GetMCUCoeffs(mb_x, mb_y, scratch, rep_buf);
+        if (sampled && !IsSampledMCU(mb_x, mb_y, 2)) {
+          // skipped, but the DC predictors stay on track: a gap would
+          // inflate the DC diffs of the sampled blocks.
+          for (int c = 0; c < nb_comps_; ++c) {
+            for (int i = 0; i < nb_blocks_[c]; ++i, in += 64) {
+              DCs[c] = QuantizeDC(in, quants_[quant_idx_[c]]);
+            }
+          }
+          continue;
+        }
         for (int c = 0; c < nb_comps_; ++c) {
           const int q_idx = quant_idx_[c];
           for (int i = 0; i < nb_blocks_[c]; ++i) {
@@ -529,10 +542,11 @@ void Encoder::SinglePassScanOptimized() {
 // histogram those tables were built from.
 
 void Encoder::QuantizeSlices(int num_slices, int total_intervals,
-                             ChunkSet* chunks) {
+                             ChunkSet* chunks, bool sampled) {
   const int rows_per_interval =
       (restart_interval_rows_ > 0) ? restart_interval_rows_ : mb_h_;
   const bool collect_stats = optimize_size_;
+  const bool keep_run_levels = reuse_run_levels_ && !sampled;
   if (!chunks->Reset(num_slices)) {
     SetError();
     return;
@@ -544,11 +558,11 @@ void Encoder::QuantizeSlices(int num_slices, int total_intervals,
       num_slices, total_intervals,
       [&](int t, int first_interval, int end_interval) {
         ThreadChunk& chunk = (*chunks)[t];
-        SliceStore* const store = reuse_run_levels_ ? &chunk.store : nullptr;
+        SliceStore* const store = keep_run_levels ? &chunk.store : nullptr;
         if (collect_stats) chunk.store.stats.Reset();
         chunk.store.nb_blocks = 0;
         chunk.store.nb_run_levels = 0;
-        if (reuse_run_levels_) {
+        if (keep_run_levels) {
           const int y_first = first_interval * rows_per_interval;
           const int y_end = std::min(mb_h_, end_interval * rows_per_interval);
           const size_t nb_blocks =
@@ -564,9 +578,10 @@ void Encoder::QuantizeSlices(int num_slices, int total_intervals,
         }
         alignas(16) int16_t scratch[64 * 6];
         uint8_t rep_buf[4 * 16 * 16];
-        chunk.ok = QuantizeScanSlice(
-            first_interval, end_interval, store,
-            collect_stats ? &chunk.store.stats : nullptr, scratch, rep_buf);
+        chunk.ok =
+            QuantizeScanSlice(first_interval, end_interval, store,
+                              collect_stats ? &chunk.store.stats : nullptr,
+                              scratch, rep_buf, sampled);
       });
 
   for (const ThreadChunk& chunk : *chunks) {
@@ -628,8 +643,9 @@ void Encoder::ConcatenateChunks(ThreadChunk* chunks, int num_chunks) {
 }
 
 float Encoder::EvaluateSize(int num_slices, int total_intervals,
-                            ChunkSet* chunks) {
-  QuantizeSlices(num_slices, total_intervals, chunks);
+                            ChunkSet* chunks, bool sampled) {
+  assert(!sampled || optimize_size_);
+  QuantizeSlices(num_slices, total_intervals, chunks, sampled);
   if (!ok_) return 0.f;
   if (optimize_size_) {
     entropy_.Compile(stats_);
@@ -642,7 +658,10 @@ float Encoder::EvaluateSize(int num_slices, int total_intervals,
     // it's a little approximation we can live with.
     // Under-estimated ~1/256 = 0.39%: uniform bytes, 0xff produces 2 bytes.
     // Not worth correcting: below the search's own convergence precision.
-    return ComputeSize(entropy_.Size(stats_));
+    const size_t bits = entropy_.Size(stats_);
+    if (!sampled) return ComputeSize(bits);
+    const uint64_t nb_mbs = (uint64_t)mb_w_ * mb_h_;
+    return ComputeSize((size_t)(bits * nb_mbs / NumSampledMCUs()));
   }
   BitCounter bc;
   for (const ThreadChunk& chunk : *chunks) {
