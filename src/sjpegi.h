@@ -74,7 +74,11 @@ class Encoder {
                           uint8_t* rep_buf) = 0;
 
   int num_threads() const { return num_threads_; }
-  void SetNumThreads(int num_threads) { num_threads_ = num_threads; }
+  // Beyond kMaxThreads, more threads only cost (slices are rows of MCUs).
+  enum { kMaxThreads = 256 };
+  void SetNumThreads(int num_threads) {
+    num_threads_ = std::max(1, std::min(num_threads, (int)kMaxThreads));
+  }
 
 #if !defined(SJPEG_NO_MULTITHREADING)
   static int HardwareConcurrency();
@@ -268,10 +272,10 @@ class Encoder {
                                   bool adaptive = false);
   void SetCostCodes(int idx);
 
-  size_t HeaderSize() const;
+  uint64_t HeaderSize() const;
   void BlocksSize(int nb_mbs, const DCTCoeffs* coeffs, const RunLevel* rl,
                   sjpeg::BitCounter* bc) const;
-  float ComputeSize(size_t entropy_bits) const;
+  float ComputeSize(uint64_t entropy_bits) const;
   uint64_t ComputePSNRSlice(int y_start, int y_end) const;
   float ComputePSNR() const;
   static float GetPSNR(uint64_t err, uint64_t size);

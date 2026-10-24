@@ -241,17 +241,19 @@ void EntropyStats::AddDC(int q_idx, const DCTCoeffs* coeffs) {
   ++dc[q_idx][coeffs->dc_code_ & 0x0f];
 }
 
-size_t EntropyCoder::Size(const EntropyStats& stats) const {
-  size_t size = 0;
+uint64_t EntropyCoder::Size(const EntropyStats& stats) const {
+  uint64_t size = 0;  // a count times a code length can exceed 32 bits
   for (int q = 0; q < nb_tables_; ++q) {
     for (int len = 0; len < 12; ++len) {
       const uint32_t freq = stats.dc[q][len];
-      if (freq > 0) size += freq * ((dc_codes_[q][len] & 0xff) + len);
+      if (freq > 0) size += (uint64_t)freq * ((dc_codes_[q][len] & 0xff) + len);
     }
     const uint32_t* const codes = ac_codes_[q];
     for (int sym = 0; sym < 256; ++sym) {
       const uint32_t freq = stats.ac[q][sym];
-      if (freq > 0) size += freq * ((codes[sym] & 0xff) + (sym & 0x0f));
+      if (freq > 0) {
+        size += (uint64_t)freq * ((codes[sym] & 0xff) + (sym & 0x0f));
+      }
     }
   }
   return size;

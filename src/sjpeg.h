@@ -222,7 +222,7 @@ struct EncoderParam {
   // automatic interval (1 row) when multi-threaded.
   // Ignored for progressive encoding.
   int restart_interval_rows;
-  // Number of threads to use (default: 1; baseline mode only).
+  // Number of threads to use (default: 1; baseline mode only), at most 256.
   // Values < 0 (e.g. -1) use all available hardware threads.
   // Ignored for progressive encoding (progressive_luma_split < 64).
   // Multi-threaded encoding requires restart markers to slice the scan into
