@@ -981,7 +981,9 @@ RGBToYUVBlockFunc GetBlockFunc(SjpegYUVMode yuv_mode, PixelFormat fmt) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// RGB -> riskiness color index, for SjpegRiskiness()
 
+#if !defined(SJPEG_NO_RISKINESS)
 void RowToIndexC(const uint8_t* rgb, int width, uint16_t* dst);
 
 namespace {
@@ -1139,6 +1141,7 @@ RGBToIndexRowFunc GetRowFunc() {
 #endif
   return RowToIndexC;
 }
+#endif  // SJPEG_NO_RISKINESS
 
 ////////////////////////////////////////////////////////////////////////////////
 // Sample replication functions

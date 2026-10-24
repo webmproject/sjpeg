@@ -29,7 +29,9 @@
 
 #include "blocks.h"
 #include "dsp.h"
+#if !defined(SJPEG_NO_METADATA)
 #include "md5sum.h"
+#endif
 
 namespace sjpeg {
 
@@ -71,6 +73,7 @@ void HeaderWriter::WriteAPP0() {
   bw_.PutBytes(kHeaderAPP0, sizeof(kHeaderAPP0));
 }
 
+#if !defined(SJPEG_NO_METADATA)
 bool HeaderWriter::WriteAPPMarkers(const std::string& data) {
   if (data.empty()) return true;
   const size_t data_size = data.size();
@@ -199,6 +202,8 @@ bool HeaderWriter::WriteXMP(const std::string& data, uint16_t xmp_split) {
   // need to split into main-chunk + extended sections
   return WriteXMPExtended(data, xmp_split);
 }
+
+#endif  // SJPEG_NO_METADATA
 
 // Size of what WriteXMP() emits: keep them in sync.
 size_t HeaderWriter::XMPSize(size_t size, uint16_t xmp_split) {

@@ -283,6 +283,7 @@ SJPEG_TEST(InvalidArguments) {
   SJPEG_CHECK(
       !sjpeg::EncodeGray(nullptr, kWidth, kHeight, kWidth, param, &out));
 
+#if !defined(SJPEG_NO_SHARP_YUV)
   uint8_t dummy_y = 0, dummy_u = 0, dummy_v = 0;
   SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(
       nullptr, kWidth, kHeight, 3 * kWidth, &dummy_y, &dummy_u, &dummy_v));
@@ -299,6 +300,7 @@ SJPEG_TEST(InvalidArguments) {
       rgb.data(), kWidth, kHeight, 3 * kWidth, nullptr, &dummy_u, &dummy_v));
   SJPEG_CHECK(!sjpeg::ApplySharpYUVConversion(
       rgb.data(), 70000, 70000, 3 * 70000, &dummy_y, &dummy_u, &dummy_v));
+#endif
 }
 
 std::vector<uint8_t> MakePlane(int width, int height, int base) {
@@ -684,7 +686,8 @@ SJPEG_TEST(StdAllocationFailure) {
         num_recovered += (ok && !done && budget > 0);
       }
       SJPEG_CHECK(budget > 1 && budget < 10000);
-#if !defined(SJPEG_NO_MULTITHREADING)
+// (the baseline configs' recoverable allocation is the histogram workers')
+#if !defined(SJPEG_NO_MULTITHREADING) && !defined(SJPEG_NO_ADAPTIVE_QUANT)
       if (single) SJPEG_CHECK(num_recovered > 0);
 #else
       (void)num_recovered;
@@ -819,6 +822,7 @@ std::vector<uint8_t> MakeFlatRGB(int width, int height, int r, int g, int b) {
   return rgb;
 }
 
+#if !defined(SJPEG_NO_RISKINESS)
 SJPEG_TEST(Riskiness) {
   // invalid input
   const std::vector<uint8_t> rgb = MakeFlatRGB(8, 8, 128, 128, 128);
@@ -951,6 +955,8 @@ SJPEG_TEST(RowToIndex) {
 // against the requested value. SJPEG_YUV_400 writes a single quantization
 // matrix where the other modes write two: charging it for both (67 bytes)
 // makes the search settle on the wrong quality. SJPEG_YUV_420 is the control.
+#endif  // SJPEG_NO_RISKINESS
+
 SJPEG_TEST(TargetSize) {
   const int W = 96, H = 64;
   const std::vector<uint8_t> rgb = MakeRGB(W, H);
@@ -1233,8 +1239,10 @@ SJPEG_TEST(Progressive) {
     SJPEG_CHECK(EncodeRGB(rgb, kWidth, kHeight, param2, &out2));
     int sof = 0, num_sos = 0;
     SJPEG_CHECK(CheckMarkerStructure(out2, &sof, &num_sos));
+#if !defined(SJPEG_NO_SEARCH)  // else: no search, still progressive
     SJPEG_CHECK(sof == 0xc0);
     SJPEG_CHECK(num_sos == 1);
+#endif
   }
   // A flat image forces the EOBn run past kMaxEOBRun (32767), needing a
   // mid-scan flush.
@@ -2095,6 +2103,7 @@ SJPEG_TEST(MultiThreadedIntervalDefaults) {
   SJPEG_CHECK(single_interval_mt == single_interval_serial);
 }
 
+#if !defined(SJPEG_NO_SHARP_YUV)
 SJPEG_TEST(MultiThreadedSharpYUV) {
   const struct {
     int w, h;
@@ -2150,6 +2159,7 @@ SJPEG_TEST(MultiThreadedSharpYUV) {
   }
 }
 #endif  // !SJPEG_NO_MULTITHREADING
+#endif  // SJPEG_NO_SHARP_YUV
 
 SJPEG_TEST(SafeArithmetic) {
   using namespace sjpeg;
@@ -2352,6 +2362,7 @@ SJPEG_TEST(CustomQuantization) {
 // SetMetadata() (exif/iccp/app_markers/xmp) had zero coverage: check the
 // payloads actually land in the bitstream, and that ResetMetadata() drops
 // them again.
+#if !defined(SJPEG_NO_METADATA)
 SJPEG_TEST(Metadata) {
   const int kWidth = 16, kHeight = 16;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
@@ -2456,6 +2467,8 @@ SJPEG_TEST(ExtendedXMP) {
 
 // SetMinQuantization()/SetLimitQuantization() install a floor under quant_[];
 // neither had any coverage.
+#endif  // SJPEG_NO_METADATA
+
 SJPEG_TEST(MinQuantization) {
   const int kWidth = 24, kHeight = 24;
   const std::vector<uint8_t> rgb = MakeRGB(kWidth, kHeight);
@@ -2497,6 +2510,7 @@ SJPEG_TEST(MinQuantization) {
 }
 
 // qmin/qmax bracket the multi-pass quality search; never varied elsewhere.
+#if !defined(SJPEG_NO_SEARCH)
 SJPEG_TEST(TargetSizeQualityBracket) {
   const int W = 64, H = 64;
   const std::vector<uint8_t> rgb = MakeRGB(W, H);
@@ -2539,6 +2553,9 @@ SJPEG_TEST(TargetSizeQualityBracket) {
 
 // qdelta_max_luma/qdelta_max_chroma bound adaptive quantization's per-block
 // search; neither was ever varied from its default.
+#endif  // SJPEG_NO_SEARCH
+
+#if !defined(SJPEG_NO_ADAPTIVE_QUANT)
 SJPEG_TEST(QDeltaMax) {
   // A smooth gradient: the adaptive search skips a channel outright when
   // size and distortion don't correlate well (see kCorrelationThreshold in
@@ -2575,6 +2592,9 @@ SJPEG_TEST(QDeltaMax) {
   SJPEG_CHECK(encode_luma(0) != encode_luma(12));
 }
 
+#endif  // SJPEG_NO_ADAPTIVE_QUANT
+
+#if !defined(SJPEG_NO_SEARCH)
 // A custom SearchHook subclass: only the internal default hook was ever
 // exercised elsewhere.
 class CountingHook : public sjpeg::SearchHook {
@@ -2615,6 +2635,8 @@ SJPEG_TEST(SearchHook) {
 
 // EncoderParam(quality)'s clamp on out-of-range values: only SjpegQuantMatrix
 // (a different function) had its 0..100 sweep covered.
+#endif  // SJPEG_NO_SEARCH
+
 SJPEG_TEST(QualityConstructorClamp) {
   const sjpeg::EncoderParam neg(-10.f);
   const sjpeg::EncoderParam zero(0.f);

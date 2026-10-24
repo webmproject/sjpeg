@@ -267,6 +267,7 @@ void Get16x16Block_RGBA_AVX2(const uint8_t* data, int step, int16_t* blocks) {
       data, step, blocks);
 }
 
+#if !defined(SJPEG_NO_RISKINESS)
 // Fused color conversion sharing RG and GB 256-bit unpacks
 static inline void ConvertRGBToYUV_Fused_AVX2(
     const __m256i* const R, const __m256i* const G, const __m256i* const B,
@@ -351,6 +352,7 @@ void RowToIndexAVX2(const uint8_t* rgb, int width, uint16_t* dst) {
 
 #undef TRANSFORM_AVX2
 #undef MK_CST_256_16
+#endif  // SJPEG_NO_RISKINESS
 
 }  // namespace sjpeg
 
