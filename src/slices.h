@@ -68,10 +68,14 @@ class ChunkSet {
   ChunkSet(const ChunkSet&) = delete;
   ChunkSet& operator=(const ChunkSet&) = delete;
 
-#if !defined(SJPEG_NO_MULTITHREADING)
-  ~ChunkSet() { delete[] chunks_; }
+  ThreadChunk& operator[](int t) { return data()[t]; }
+  const ThreadChunk* begin() const { return ((ChunkSet*)this)->data(); }
+  const ThreadChunk* end() const { return begin() + size(); }
+
   // Sets up 'num_slices' slices, keeping them if the count is the same.
   // Returns false in case of allocation failure.
+#if !defined(SJPEG_NO_MULTITHREADING)
+  ~ChunkSet() { delete[] chunks_; }
   bool Reset(int num_slices) {
     if (size_ == (size_t)num_slices) return true;
     delete[] chunks_;
@@ -88,21 +92,18 @@ class ChunkSet {
   }
   ThreadChunk* data() { return (chunks_ != nullptr) ? chunks_ : &chunk_; }
   size_t size() const { return size_; }
-#else
+
+ private:
+  ThreadChunk* chunks_ = nullptr;  // several slices, or the lone one below
+  size_t size_ = 1;
+#else  // always the lone slice: the multi-slice paths compile out
   bool Reset(int /*num_slices*/) { return true; }
   ThreadChunk* data() { return &chunk_; }
   size_t size() const { return 1; }
 #endif
-  ThreadChunk& operator[](int t) { return data()[t]; }
-  const ThreadChunk* begin() const { return ((ChunkSet*)this)->data(); }
-  const ThreadChunk* end() const { return begin() + size(); }
 
  private:
   ThreadChunk chunk_;  // the lone slice
-#if !defined(SJPEG_NO_MULTITHREADING)
-  ThreadChunk* chunks_ = nullptr;  // or several of them
-  size_t size_ = 1;
-#endif
 };
 
 }  // namespace sjpeg

@@ -48,10 +48,10 @@
 // Progressive (spectral-split-only) encoding; on by default. Pass
 // -DSJPEG_NO_PROGRESSIVE to strip the feature's code out entirely.
 
-// Multi-threaded baseline encoding (EncoderParam::num_threads); on by default.
-// Pass -DSJPEG_NO_MULTITHREADING to strip the feature's code out entirely,
+// Multi-threaded encoding (EncoderParam::num_threads); on by default. Pass
+// -DSJPEG_NO_MULTITHREADING to strip the thread pool out (enc_parallel.cc),
 // along with sjpeg's only use of <thread>. num_threads is then ignored and
-// encoding always runs on the calling thread.
+// encoding always runs on the calling thread, as a single slice.
 
 // SIMD feature-detection macros (SJPEG_USE_SSE2/SSSE3/AVX2/NEON,
 // SJPEG_AARCH64) and the intrinsic headers they gate live in simd.h; only

@@ -269,10 +269,6 @@ size_t Encoder::SliceSlabSize(int first_interval, int end_interval) const {
   return slab;
 }
 
-#if defined(SJPEG_NO_MULTITHREADING)
-int Encoder::GetNumSlices(int /*cap*/, int /*grain*/) const { return 1; }
-#endif  // SJPEG_NO_MULTITHREADING
-
 bool Encoder::ReserveSlab() {
   // Worst-case macroblock is 24bits*64*6 coeffs = 1152 bytes, doubled by 0xff
   // stuffing, so kMaxMCUSize (2560) covers one MCU. Writer serves that out of a
@@ -327,7 +323,6 @@ const int16_t* Encoder::GetMCUCoeffs(int mb_x, int mb_y, int16_t* scratch,
 }
 
 void Encoder::CollectCoeffsSlice(int y_start, int y_end, uint8_t* rep_buf) {
-  assert(use_extra_memory_);
   int16_t* in =
       in_blocks_ + static_cast<size_t>(y_start) * mb_w_ * 64 * mcu_blocks_;
   for (int mb_y = y_start; mb_y < y_end; ++mb_y) {
@@ -339,15 +334,12 @@ void Encoder::CollectCoeffsSlice(int y_start, int y_end, uint8_t* rep_buf) {
 }
 
 void Encoder::CollectCoeffs() {
-#if !defined(SJPEG_NO_MULTITHREADING)
-  const int num_slices = GetNumSlices(mb_h_);
-  if (num_slices > 1) {
-    CollectCoeffsMultiThreaded(num_slices);
-    return;
-  }
-#endif
-  CollectCoeffsSlice(0, mb_h_, replicated_buffer_);
-  have_coeffs_ = true;
+  assert(use_extra_memory_);
+  RunParallel(GetNumSlices(mb_h_), mb_h_, [&](int, int y_start, int y_end) {
+    uint8_t rep_buf[4 * 16 * 16];
+    CollectCoeffsSlice(y_start, y_end, rep_buf);
+  });
+  if (ok_) have_coeffs_ = true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -473,18 +465,39 @@ bool Encoder::ReplayScanSlice(int first_interval, int end_interval,
 
 void Encoder::SinglePassScan() {
   const int total_intervals = TotalRestartIntervals();
-#if !defined(SJPEG_NO_MULTITHREADING)
   const int num_slices = GetNumSlices(total_intervals, have_coeffs_ ? 64 : 0);
-  if (num_slices > 1) {
-    SinglePassScanMultiThreaded(num_slices, total_intervals);
+  if (num_slices == 1) {  // straight into the output
+    alignas(16) int16_t scratch[64 * 6];
+    uint8_t rep_buf[4 * 16 * 16];
+    if (!CodeScanSlice(0, total_intervals, total_intervals, &bw_,
+                       SliceSlabSize(0, total_intervals), scratch, rep_buf)) {
+      SetError();
+    }
     return;
   }
-#endif
-  if (!CodeScanSlice(0, total_intervals, total_intervals, &bw_,
-                     SliceSlabSize(0, total_intervals), in_blocks_,
-                     replicated_buffer_)) {
+  // Each slice quantizes and codes into its own buffer.
+  ChunkSet chunks(nullptr);
+  if (!chunks.Reset(num_slices)) {
     SetError();
+    return;
   }
+  RunParallel(
+      num_slices, total_intervals,
+      [&](int t, int first_interval, int end_interval) {
+        ThreadChunk& chunk = chunks[t];
+        BitWriter bw(&chunk.data);
+        const size_t slab = SliceSlabSize(first_interval, end_interval);
+        alignas(16) int16_t scratch[64 * 6];
+        uint8_t rep_buf[4 * 16 * 16];
+        if (!CodeScanSlice(first_interval, end_interval, total_intervals, &bw,
+                           slab, scratch, rep_buf)) {
+          chunk.ok = false;
+          return;
+        }
+        bw.Flush();
+        chunk.ok = bw.Finalize();
+      });
+  ConcatenateChunks(chunks.data(), num_slices);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -504,7 +517,7 @@ void Encoder::SinglePassScanOptimized() {
     SinglePassScan();  // redo everything, but with optimal tables now.
   } else {
     DeallocateBlocks();  // pass 2 replays run/levels; the coeffs are dead now
-    ReplaySlices(num_slices, total_intervals, &chunks);
+    ReplaySlices(total_intervals, &chunks);
   }
 }
 
@@ -527,7 +540,7 @@ void Encoder::QuantizeSlices(int num_slices, int total_intervals,
 
   InitCostCodes();
 
-  ForEachSlice(
+  RunParallel(
       num_slices, total_intervals,
       [&](int t, int first_interval, int end_interval) {
         ThreadChunk& chunk = (*chunks)[t];
@@ -569,9 +582,9 @@ void Encoder::MergeChunkStats(const ThreadChunk* chunks, int num_chunks) {
   }
 }
 
-void Encoder::ReplaySlices(int num_slices, int total_intervals,
-                           ChunkSet* chunks) {
-  if (num_slices == 1) {  // straight into the output
+void Encoder::ReplaySlices(int total_intervals, ChunkSet* chunks) {
+  const int num_slices = (int)chunks->size();  // as QuantizeSlices() left them
+  if (num_slices == 1) {                       // straight into the output
     const SliceStore& store = (*chunks)[0].store;
     if (!ReplayScanSlice(0, total_intervals, total_intervals, store.nb_blocks,
                          store.coeffs.data(), store.run_levels.data(), &bw_,
@@ -580,8 +593,7 @@ void Encoder::ReplaySlices(int num_slices, int total_intervals,
     }
     return;
   }
-#if !defined(SJPEG_NO_MULTITHREADING)
-  ForEachSlice(
+  RunParallel(
       num_slices, total_intervals,
       [&](int t, int first_interval, int end_interval) {
         ThreadChunk& chunk = (*chunks)[t];
@@ -597,7 +609,22 @@ void Encoder::ReplaySlices(int num_slices, int total_intervals,
         chunk.ok = bw.Finalize();
       });
   ConcatenateChunks(chunks->data(), num_slices);
-#endif
+}
+
+void Encoder::ConcatenateChunks(ThreadChunk* chunks, int num_chunks) {
+  for (int t = 0; t < num_chunks; ++t) {
+    if (!chunks[t].ok) {
+      SetError();
+      return;
+    }
+    if (chunks[t].data.size() == 0) continue;
+    if (!bw_.Reserve(chunks[t].data.size())) {
+      SetError();
+      return;
+    }
+    bw_.PutBytes(chunks[t].data.data(), chunks[t].data.size());
+    chunks[t].data.Reset();
+  }
 }
 
 float Encoder::EvaluateSize(int num_slices, int total_intervals,
