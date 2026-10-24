@@ -51,9 +51,9 @@
 namespace sjpeg {
 
 int Encoder::NumThreads(int requested) {
-  if (requested >= 0) return std::max(1, requested);
-  const unsigned int hw = std::thread::hardware_concurrency();
-  return std::max(1, static_cast<int>(hw));
+  const int num_threads =
+      (requested >= 0) ? requested : (int)std::thread::hardware_concurrency();
+  return std::max(1, std::min(num_threads, (int)kMaxThreads));
 }
 
 int Encoder::GetNumSlices(int cap, int grain) const {
