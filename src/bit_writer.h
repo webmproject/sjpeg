@@ -316,7 +316,7 @@ struct BitCounter {
     bits_ |= static_cast<uint64_t>(bits) << (64 - bit_pos_);
   }
   // Not const: pending bytes still owe us their escapes.
-  size_t Size() {
+  uint64_t Size() {  // not size_t: can exceed 32 bits on 32-bit platforms
     Flush();
     return size_;
   }
@@ -373,7 +373,7 @@ struct BitCounter {
   uint32_t bits_;
 #endif  // SJPEG_HAVE_64BIT
   size_t bit_pos_;
-  size_t size_;
+  uint64_t size_;
 };
 
 }  // namespace sjpeg
