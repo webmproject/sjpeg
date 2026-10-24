@@ -27,6 +27,8 @@
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
+#if !defined(SJPEG_NO_ADAPTIVE_QUANT)
+
 namespace sjpeg {
 
 // finer tuning of perceptual optimizations, all read by AnalyseHisto() only:
@@ -352,6 +354,7 @@ size_t Encoder::CollectHistogramsSlice(int y_start, int y_end, int step,
 }
 
 void Encoder::CollectHistograms() {
+  assert(store_histo_ != nullptr);
   int num_slices = GetNumSlices(mb_h_);
   const size_t nb_mbs = (size_t)mb_w_ * mb_h_;
   const int step = SamplingStep();
@@ -402,3 +405,5 @@ void Encoder::CollectHistograms() {
 }
 
 }  // namespace sjpeg
+
+#endif  // SJPEG_NO_ADAPTIVE_QUANT

@@ -78,6 +78,8 @@ void SearchHook::NextMatrix(int idx, uint8_t dst[64]) {
 ////////////////////////////////////////////////////////////////////////////////
 // Helpers for the search
 
+#if !defined(SJPEG_NO_SEARCH)
+
 void Encoder::LoopScan() {
   assert(use_extra_memory_);
   assert(reuse_run_levels_);
@@ -315,3 +317,5 @@ float Encoder::ComputePSNR() const {
   for (int t = 0; t < num_slices; ++t) total_error += errors.data()[t];
   return GetPSNR(total_error, nb_samples);
 }
+
+#endif  // SJPEG_NO_SEARCH

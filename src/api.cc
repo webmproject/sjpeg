@@ -172,6 +172,7 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   SetMetadata(&param.xmp, Encoder::XMP);
   xmp_split_ = param.xmp_split_point;
 
+#if !defined(SJPEG_NO_SEARCH)  // else target_mode is ignored: 1 pass
   passes_ = (param.passes < 1) ? 1 : (param.passes > 20) ? 20 : param.passes;
   if (passes_ > 1) {
     use_extra_memory_ = true;
@@ -180,6 +181,7 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
         (param.search_hook == nullptr) ? &default_hook_ : param.search_hook;
     if (!search_hook_->Setup(param)) return false;
   }
+#endif
 
   restart_interval_rows_ = param.restart_interval_rows;
   num_threads_ = NumThreads(param.num_threads);

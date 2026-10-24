@@ -15,6 +15,17 @@ ifeq ($(SJPEG_HAVE_MULTITHREADING),0)
 SJPEG_CFLAGS += -DSJPEG_NO_MULTITHREADING
 endif
 
+# Trimming: set any of these to 0 to strip the feature out (see README.md).
+# C_FALLBACK=0 takes NEON for granted: on armeabi-v7a, only for NEON devices.
+SJPEG_HAVE_RISKINESS := 1
+SJPEG_HAVE_SHARP_YUV := 1
+SJPEG_HAVE_SEARCH := 1
+SJPEG_HAVE_ADAPTIVE_QUANT := 1
+SJPEG_HAVE_METADATA := 1
+SJPEG_HAVE_C_FALLBACK := 1
+$(foreach f,RISKINESS SHARP_YUV SEARCH ADAPTIVE_QUANT METADATA C_FALLBACK,\
+  $(if $(filter 0,$(SJPEG_HAVE_$(f))),$(eval SJPEG_CFLAGS += -DSJPEG_NO_$(f))))
+
 ifeq ($(APP_OPTIM),release)
   SJPEG_CFLAGS += -finline-functions -ffast-math \
                   -ffunction-sections -fdata-sections
