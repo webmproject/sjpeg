@@ -20,9 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if !defined(SJPEG_NO_MULTITHREADING)
 #include <algorithm>
-#endif
 #include <cstdlib>
 #include <memory>
 #include <new>
@@ -149,22 +147,6 @@ void EncoderParam::ResetMetadata() {
   xmp_split_point = 0u;
 }
 
-namespace {
-
-int GetNumThreads(const EncoderParam& param) {
-#if defined(SJPEG_NO_MULTITHREADING)
-  (void)param;
-  return 1;
-#else
-  if (param.num_threads < 0) {
-    return Encoder::HardwareConcurrency();
-  }
-  return std::max(1, param.num_threads);
-#endif
-}
-
-}  // namespace
-
 bool Encoder::InitFromParam(const EncoderParam& param) {
   SetQuantMatrices(param.quant_);
   if (param.use_min_quant_) {
@@ -198,14 +180,12 @@ bool Encoder::InitFromParam(const EncoderParam& param) {
   }
 
   restart_interval_rows_ = param.restart_interval_rows;
-  num_threads_ = GetNumThreads(param);
-#if !defined(SJPEG_NO_MULTITHREADING)
+  num_threads_ = NumThreads(param.num_threads);
   // Parallel coding needs somewhere to slice the scan, so ask for the finest
   // granularity unless the caller picked one.
-  if (num_threads_ > 1) {
+  if (num_threads() > 1) {
     restart_interval_rows_ = std::max(restart_interval_rows_, 1);
   }
-#endif
 
   assert(memory_hook_ ==
          (param.memory == nullptr ? GetDefaultMemoryManager() : param.memory));
@@ -219,7 +199,7 @@ bool Encode(const uint8_t* rgb, int width, int height, int stride,
     return false;
   }
 
-  const int num_threads = GetNumThreads(param);
+  const int num_threads = Encoder::NumThreads(param.num_threads);
   Encoder* const enc =
       EncoderFactory(rgb, width, height, stride, param.yuv_mode, sink,
                      kRGBInput, param.memory, num_threads);
@@ -280,7 +260,7 @@ bool EncodePacked4(const uint8_t* src, int width, int height, int stride,
     }
     return Encode(rgb.get(), width, height, rgb_stride, param, sink);
   }
-  const int num_threads = GetNumThreads(param);
+  const int num_threads = Encoder::NumThreads(param.num_threads);
   Encoder* const enc = EncoderFactory(src, width, height, stride, mode, sink,
                                       fmt, param.memory, num_threads);
   return FinishEncoding(enc, &param);

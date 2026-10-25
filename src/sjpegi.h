@@ -19,12 +19,8 @@
 #ifndef SJPEG_JPEGI_H_
 #define SJPEG_JPEGI_H_
 
-#include <vector>
-
-#if !defined(SJPEG_NO_MULTITHREADING)
-#include <functional>
 #include <memory>
-#endif
+#include <vector>
 
 // IWYU pragma: begin_exports
 #include "bit_writer.h"
@@ -68,17 +64,34 @@ class Encoder {
   // return MCU samples at macroblock position (mb_x, mb_y)
   // clipped is true if the MCU is clipped and needs replication
   // rep_buf is 4 * 16 * 16 bytes of caller-owned scratch for replicating
-  // clipped MCUs. It must not be shared between threads; the parallel scans
-  // pass per-worker storage, everything else passes replicated_buffer_.
+  // clipped MCUs. It must not be shared between threads: each slice of the
+  // passes has its own.
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out_blocks,
                           uint8_t* rep_buf) = 0;
 
-  int num_threads() const { return num_threads_; }
   void SetNumThreads(int num_threads) { num_threads_ = num_threads; }
 
+  // Number of threads to use for 'requested' (< 0: all the hardware ones).
+  // Slice count for a parallel pass over [0, cap): 1 if serial, else up to
+  // num_threads_ bounded by 'cap' and a worthwhileness check on MCU count
+  // (grain <= 0: linear kMinMCUsPerThread model; else ScaledThreadLimit()).
+  // Runs fn(slice_idx, first, end) over a partition of [0, total) in
+  // 'num_threads' slices.
+  // Without multithreading support: 1 thread, 1 slice, inlined so that the
+  // multi-slice code paths compile out.
 #if !defined(SJPEG_NO_MULTITHREADING)
-  static int HardwareConcurrency();
+  int num_threads() const { return num_threads_; }
+  static int NumThreads(int requested);
+  int GetNumSlices(int cap, int grain = 64) const;
   void RunParallel(int num_threads, int total, FuncRef<int, int, int> fn) const;
+#else
+  int num_threads() const { return 1; }
+  static int NumThreads(int /*requested*/) { return 1; }
+  int GetNumSlices(int /*cap*/, int /*grain*/ = 64) const { return 1; }
+  void RunParallel(int /*num_threads*/, int total,
+                   FuncRef<int, int, int> fn) const {
+    fn(0, 0, total);
+  }
 #endif
 
  private:
@@ -104,11 +117,6 @@ class Encoder {
                : 1;
   }
   size_t SliceSlabSize(int first_interval, int end_interval) const;
-
-  // Slice count for a parallel pass over [0, cap): 1 if serial, else up to
-  // num_threads_ bounded by 'cap' and a worthwhileness check on MCU count
-  // (grain <= 0: linear kMinMCUsPerThread model; else ScaledThreadLimit()).
-  int GetNumSlices(int cap, int grain = 64) const;
 
   // Marker writers: thin wrappers around hw_ that gather the frame state.
   void WriteDQT();
@@ -162,10 +170,9 @@ class Encoder {
   // step.
   void WriteBaselineAndScan();
 
-#if !defined(SJPEG_NO_MULTITHREADING)
   static constexpr int kMinMCUsPerThread = 256;
 
-  class ThreadPool;
+  class ThreadPool;  // not defined without multithreading support
   struct ThreadPoolDeleter {
     void operator()(ThreadPool* p) const;
   };
@@ -181,33 +188,17 @@ class Encoder {
     return threads;
   }
 
-  // Parallel equivalents of the serial passes, emitting the same results.
-  void CollectHistogramsMultiThreaded(int num_threads);
-  void CollectCoeffsMultiThreaded(int num_threads);
-  float ComputePSNRMultiThreaded(int num_threads) const;
-  void SinglePassScanMultiThreaded(int num_threads, int total_intervals);
   // Appends the slices to bw_ in order, freeing each one as it goes.
   void ConcatenateChunks(ThreadChunk* chunks, int num_chunks);
-#endif  // !SJPEG_NO_MULTITHREADING
 
   // Slice-based passes: a slice is a range of restart intervals. They run on
   // 'num_slices' threads (a single slice when serial), and emit the same
   // bitstream, byte for byte.
-  // Runs fn(slice_idx, first, end) over a partition of [0, total).
-  template <class F>
-  void ForEachSlice(int num_slices, int total, const F& fn) const {
-#if !defined(SJPEG_NO_MULTITHREADING)
-    RunParallel(num_slices, total, fn);
-#else
-    (void)num_slices;
-    fn(0, 0, total);
-#endif
-  }
   // Quantizes the slices into (*chunks)[], gathering the entropy statistics
   // into stats_ if optimizing the Huffman tables.
   void QuantizeSlices(int num_slices, int total_intervals, ChunkSet* chunks);
   // Codes the stored run/levels of the slices, in order, into bw_.
-  void ReplaySlices(int num_slices, int total_intervals, ChunkSet* chunks);
+  void ReplaySlices(int total_intervals, ChunkSet* chunks);
   // Size, in bytes, of the stream coded from the quantized slices.
   float EvaluateSize(int num_slices, int total_intervals, ChunkSet* chunks);
   // Sums each slice's symbol frequencies into stats_.
@@ -305,7 +296,6 @@ class Encoder {
   // into out[0..3]. Shared by the NV12/NV21 and direct-YUV420 encoders.
   void GetLumaBlock16x16(const uint8_t* y, int y_step, int mb_x, int mb_y,
                          bool clipped, int16_t* out, uint8_t* rep_buf);
-  uint8_t replicated_buffer_[4 * 16 * 16];  // tmp buffer for replication
   int pix_step_ = 3;  // bytes per input pixel (3=RGB, 4=BGRA/RGBA)
 
   sjpeg::RGBToYUVBlockFunc get_yuv_block_ = nullptr;  // set by GetBlockFunc()
