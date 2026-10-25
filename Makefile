@@ -100,6 +100,7 @@ SJPEG_OBJS = \
     src/colors_rgb.o \
     src/dichotomy.o \
     src/enc.o \
+    src/enc_parallel.o \
     src/encoders.o \
     src/entropy.o \
     src/fdct.o \
@@ -112,9 +113,6 @@ SJPEG_OBJS = \
 
 ifeq ($(SJPEG_HAVE_PROGRESSIVE), 1)
   SJPEG_OBJS += src/prog.o
-endif
-ifeq ($(SJPEG_HAVE_MULTITHREADING), 1)
-  SJPEG_OBJS += src/enc_parallel.o
 endif
 
 

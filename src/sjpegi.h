@@ -19,12 +19,8 @@
 #ifndef SJPEG_JPEGI_H_
 #define SJPEG_JPEGI_H_
 
-#include <vector>
-
-#if !defined(SJPEG_NO_MULTITHREADING)
-#include <functional>
 #include <memory>
-#endif
+#include <vector>
 
 // IWYU pragma: begin_exports
 #include "bit_writer.h"
@@ -68,17 +64,34 @@ class Encoder {
   // return MCU samples at macroblock position (mb_x, mb_y)
   // clipped is true if the MCU is clipped and needs replication
   // rep_buf is 4 * 16 * 16 bytes of caller-owned scratch for replicating
-  // clipped MCUs. It must not be shared between threads; the parallel scans
-  // pass per-worker storage, everything else passes replicated_buffer_.
+  // clipped MCUs. It must not be shared between threads: each slice of the
+  // passes has its own.
   virtual void GetSamples(int mb_x, int mb_y, bool clipped, int16_t* out_blocks,
                           uint8_t* rep_buf) = 0;
 
-  int num_threads() const { return num_threads_; }
   void SetNumThreads(int num_threads) { num_threads_ = num_threads; }
 
+  // Number of threads to use for 'requested' (< 0: all the hardware ones).
+  // Slice count for a parallel pass over [0, cap): 1 if serial, else up to
+  // num_threads_ bounded by 'cap' and a worthwhileness check on MCU count
+  // (grain <= 0: linear kMinMCUsPerThread model; else ScaledThreadLimit()).
+  // Runs fn(slice_idx, first, end) over a partition of [0, total) in
+  // 'num_threads' slices.
+  // Without multithreading support: 1 thread, 1 slice, inlined so that the
+  // multi-slice code paths compile out.
 #if !defined(SJPEG_NO_MULTITHREADING)
-  static int HardwareConcurrency();
+  int num_threads() const { return num_threads_; }
+  static int NumThreads(int requested);
+  int GetNumSlices(int cap, int grain = 64) const;
   void RunParallel(int num_threads, int total, FuncRef<int, int, int> fn) const;
+#else
+  int num_threads() const { return 1; }
+  static int NumThreads(int /*requested*/) { return 1; }
+  int GetNumSlices(int /*cap*/, int /*grain*/ = 64) const { return 1; }
+  void RunParallel(int /*num_threads*/, int total,
+                   FuncRef<int, int, int> fn) const {
+    fn(0, 0, total);
+  }
 #endif
 
  private:
@@ -105,11 +118,6 @@ class Encoder {
   }
   size_t SliceSlabSize(int first_interval, int end_interval) const;
 
-  // Slice count for a parallel pass over [0, cap): 1 if serial, else up to
-  // num_threads_ bounded by 'cap' and a worthwhileness check on MCU count
-  // (grain <= 0: linear kMinMCUsPerThread model; else ScaledThreadLimit()).
-  int GetNumSlices(int cap, int grain = 64) const;
-
   // Marker writers: thin wrappers around hw_ that gather the frame state.
   void WriteDQT();
   void WriteSOF(bool progressive = false);
@@ -117,18 +125,12 @@ class Encoder {
   void WriteDRI();
   void WriteSOS();
 
-  void ResetDCs();
   bool EmitRestartMarker(sjpeg::BitWriter* bw, int interval_idx,
                          int total_intervals, size_t slab_size);
 
   // GetSamples() + fDCT_() for one MCU, into 'out'. Shared by the baseline
   // and progressive quantize loops.
   void TransformMCU(int mb_x, int mb_y, int16_t* out, uint8_t* rep_buf);
-  void TransformMCU(int mb_x, int mb_y, int16_t* out);
-
-  // TransformMCU() unless coefficients are already cached. Shared guard for
-  // EncodeProgressive().
-  void MaybeTransformMCU(int mb_x, int mb_y, int16_t** in);
 
   // The MCU's unquantized coefficients: the ones CollectCoeffs() cached if it
   // ran, otherwise computed into 'scratch'.
@@ -168,10 +170,9 @@ class Encoder {
   // step.
   void WriteBaselineAndScan();
 
-#if !defined(SJPEG_NO_MULTITHREADING)
   static constexpr int kMinMCUsPerThread = 256;
 
-  class ThreadPool;
+  class ThreadPool;  // not defined without multithreading support
   struct ThreadPoolDeleter {
     void operator()(ThreadPool* p) const;
   };
@@ -187,33 +188,17 @@ class Encoder {
     return threads;
   }
 
-  // Parallel equivalents of the serial passes, emitting the same results.
-  void CollectHistogramsMultiThreaded(int num_threads);
-  void CollectCoeffsMultiThreaded(int num_threads);
-  float ComputePSNRMultiThreaded(int num_threads) const;
-  void SinglePassScanMultiThreaded(int num_threads, int total_intervals);
   // Appends the slices to bw_ in order, freeing each one as it goes.
   void ConcatenateChunks(ThreadChunk* chunks, int num_chunks);
-#endif  // !SJPEG_NO_MULTITHREADING
 
   // Slice-based passes: a slice is a range of restart intervals. They run on
   // 'num_slices' threads (a single slice when serial), and emit the same
   // bitstream, byte for byte.
-  // Runs fn(slice_idx, first, end) over a partition of [0, total).
-  template <class F>
-  void ForEachSlice(int num_slices, int total, const F& fn) const {
-#if !defined(SJPEG_NO_MULTITHREADING)
-    RunParallel(num_slices, total, fn);
-#else
-    (void)num_slices;
-    fn(0, 0, total);
-#endif
-  }
   // Quantizes the slices into (*chunks)[], gathering the entropy statistics
   // into stats_ if optimizing the Huffman tables.
   void QuantizeSlices(int num_slices, int total_intervals, ChunkSet* chunks);
   // Codes the stored run/levels of the slices, in order, into bw_.
-  void ReplaySlices(int num_slices, int total_intervals, ChunkSet* chunks);
+  void ReplaySlices(int total_intervals, ChunkSet* chunks);
   // Size, in bytes, of the stream coded from the quantized slices.
   float EvaluateSize(int num_slices, int total_intervals, ChunkSet* chunks);
   // Sums each slice's symbol frequencies into stats_.
@@ -311,7 +296,6 @@ class Encoder {
   // into out[0..3]. Shared by the NV12/NV21 and direct-YUV420 encoders.
   void GetLumaBlock16x16(const uint8_t* y, int y_step, int mb_x, int mb_y,
                          bool clipped, int16_t* out, uint8_t* rep_buf);
-  uint8_t replicated_buffer_[4 * 16 * 16];  // tmp buffer for replication
   int pix_step_ = 3;  // bytes per input pixel (3=RGB, 4=BGRA/RGBA)
 
   sjpeg::RGBToYUVBlockFunc get_yuv_block_ = nullptr;  // set by GetBlockFunc()
@@ -371,7 +355,6 @@ class Encoder {
 
   int q_bias_ = 0;       // [0..255]: rounding bias for quant. of AC coeffs.
   Quantizer quants_[2];  // quant matrices
-  int DCs_[3];           // DC predictors
 
   // DCT coefficients storage, aligned to 32 bytes
   static constexpr size_t ALIGN_CST = 31;
@@ -423,30 +406,54 @@ class Encoder {
   bool EncodeProgScans();    // ... once the planes are allocated
   struct ProgPlanes {
     // Non-MCU-interleaved storage (non-interleaved AC scans need true raster
-    // order). The run/levels are packed back to back in quantization (MCU)
-    // order, and grown on demand: rl_offset[] locates each block's ones.
+    // order).
     DCTCoeffs* coeffs[MAX_COMP];
-    RunLevel* run_levels[MAX_COMP];
-    // One per block, index in run_levels[]. 32 bits are enough: there are at
-    // most 8192 x 8192 blocks of 63 run/levels. Stored right after coeffs[],
-    // in the same allocation.
+    // One per block, index in its slice's run_levels[]. 32 bits are enough:
+    // there are at most 8192 x 8192 blocks of 63 run/levels. Stored right
+    // after coeffs[], in the same allocation.
     uint32_t* rl_offset[MAX_COMP];
-    size_t rl_used[MAX_COMP], rl_capacity[MAX_COMP];
+    // The quantization runs over slices of MCU rows (just one if serial),
+    // each packing its run/levels back to back in quantization (MCU) order,
+    // grown on demand. Slice t spans rows [t * mb_h_ / nb_slices, ...).
+    struct Slice {
+      RunLevel* run_levels[MAX_COMP];
+      size_t rl_used[MAX_COMP], rl_capacity[MAX_COMP], rl_max[MAX_COMP];
+      EntropyStats stats;  // DC stats of the slice
+      // DC of the slice's first and last block, to chain the DC predictions
+      // across slices.
+      int first_dc[MAX_COMP], last_dc[MAX_COMP];
+      bool ok;
+      // Written for every block: keeps neighbouring slices from sharing a
+      // cache line.
+      uint8_t padding[64];
+    };
+    Slice* slices;
+    int nb_slices;
+    MemoryManager* rl_memory;                  // for the slices' run_levels[]
     int plane_w[MAX_COMP], plane_h[MAX_COMP];  // MCU-padded stride
     // True (non-MCU-padded) per-component block dims per spec A.2.4; what
     // non-interleaved AC scans must actually visit.
     int true_w[MAX_COMP], true_h[MAX_COMP];
-    // Scratch AC Huffman state, rebuilt per progressive scan (unlike
-    // entropy_, which holds 2 permanent baseline tables).
-    ProgACCoder ac;
+    // plane offset of each MCU's sub-block, relative to its first one
+    int sub_offset[MAX_COMP][4];
   };
-  bool AllocateProgPlanes();
+  bool AllocateProgPlanes(int nb_slices);
   void DeallocateProgPlanes();
-  bool GrowProgRunLevels(int c);  // returns false in case of error
+  // Run/levels storage of the slices, from rl_memory. Unlike Alloc(), doesn't
+  // call SetError(): safe from the worker threads.
+  RunLevel* AllocProgRunLevels(size_t num);
+  void FreeProgRunLevels(int c);  // frees all the slices' ones for component c
+  // returns false in case of error
+  bool GrowProgRunLevels(ProgPlanes::Slice* s, int c);
+  // Quantizes MCU rows [y_start, y_end) into slice t.
+  bool QuantizeProgSlice(int t, int y_start, int y_end, int16_t* scratch,
+                         uint8_t* rep_buf);
+  // Codes the AC scan of component c, band [Ss, Se], including its DHT and SOS.
+  bool CodeProgACScan(int c, int Ss, int Se, ProgACCoder* ac, BitWriter* bw,
+                      size_t slab_size) const;
   // index of sub-block 'i' of MCU (mb_x,mb_y) in component c's plane
   int ProgPlaneIndex(int c, int mb_x, int mb_y, int i) const;
   bool CheckProgBuffers() { return ReserveSlab(); }
-  void EncodeProgAC(int c, int split);  // all AC scans for one component
   template <class BlockFn, class EOBFn, class StartFn>
   bool WalkACBand(int c, int Ss, int Se, BlockFn on_block, EOBFn on_eob,
                   StartFn on_start) const;

@@ -142,12 +142,6 @@ uint16_t Encoder::GenerateDCDiffCode(int DC, int* const DC_predictor) {
 ////////////////////////////////////////////////////////////////////////////////
 // Code bitstream
 
-void Encoder::ResetDCs() {
-  for (int c = 0; c < nb_comps_; ++c) {
-    DCs_[c] = 0;
-  }
-}
-
 // Codes one block's DC symbol. Shared by CodeBlock()/CodeBlockDC().
 static inline void CodeDC(uint16_t dc_code, const uint32_t* const dc_codes,
                           BitWriter* const bw) {
