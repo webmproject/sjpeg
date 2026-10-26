@@ -220,13 +220,6 @@ class Encoder {
   // dichotomy loop
   void LoopScan();
 
-  // Histogram pass
-  void CollectHistograms();
-  // Visits one MCU out of 'step' (1, 2 or 4) and returns how many it did.
-  size_t CollectHistogramsSlice(int y_start, int y_end, int step,
-                                Histo histos[2], int16_t* scratch,
-                                uint8_t* rep_buf);
-
   typedef int (*QuantizeBlockFunc)(const int16_t in[64], int idx,
                                    const Quantizer& Q, DCTCoeffs* const out,
                                    RunLevel* const rl);
@@ -419,13 +412,26 @@ class Encoder {
   typedef void (*StoreHistoFunc)(const int16_t in[64], Histo* const histos,
                                  int nb_blocks);
   static StoreHistoFunc store_histo_;
+#if !defined(SJPEG_NO_ADAPTIVE_QUANT)
   static StoreHistoFunc GetStoreHistoFunc();  // select between the above.
+
+  // Histogram pass
+  void CollectHistograms();
+  // Visits one MCU out of 'step' (1, 2 or 4) and returns how many it did.
+  size_t CollectHistogramsSlice(int y_start, int y_end, int step,
+                                Histo histos[2], int16_t* scratch,
+                                uint8_t* rep_buf);
 
   // Provided the AC histograms have been stored with StoreHisto(), this
   // function will analyze impact of varying the quantization scales around
   // initial values, trading distortion for bit-rate in a controlled way.
   void AnalyseHisto();
   void ResetHisto();  // initialize histos_[]
+#else                 // use_adaptive_quant_ stays false: never called
+  static StoreHistoFunc GetStoreHistoFunc() { return nullptr; }
+  void CollectHistograms() {}
+  void AnalyseHisto() {}
+#endif
   Histo histos_[2];
 
   // --- progressive (spectral-split-only) mode. See SetProgressive(). ---

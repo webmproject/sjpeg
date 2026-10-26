@@ -32,6 +32,8 @@
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
+#if !defined(SJPEG_NO_SHARP_YUV)
+
 namespace sjpeg {
 
 // We could use SFIX=0 and only uint8_t for fixed_y_t, but it produces some
@@ -883,3 +885,5 @@ bool sjpeg::ApplySharpYUVConversion(const uint8_t* const rgb, int W, int H,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+#endif  // SJPEG_NO_SHARP_YUV

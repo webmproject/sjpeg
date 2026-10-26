@@ -27,7 +27,7 @@
 #include "common.h"
 #include "dsp.h"
 
-#if defined(SJPEG_USE_AVX2)
+#if defined(SJPEG_USE_AVX2) && !defined(SJPEG_NO_RISKINESS)
 
 namespace sjpeg {
 
@@ -130,4 +130,4 @@ void RiskinessScoreRowAVX2(const uint16_t* row1, const uint16_t* row2, int size,
 
 }  // namespace sjpeg
 
-#endif  // SJPEG_USE_AVX2
+#endif  // SJPEG_USE_AVX2 && !SJPEG_NO_RISKINESS

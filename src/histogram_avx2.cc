@@ -29,7 +29,7 @@
 #include "blocks.h"
 #include "common.h"
 
-#if defined(SJPEG_USE_AVX2)
+#if defined(SJPEG_USE_AVX2) && !defined(SJPEG_NO_ADAPTIVE_QUANT)
 
 namespace sjpeg {
 
@@ -56,4 +56,4 @@ void StoreHistoAVX2(const int16_t in[64], Histo* histos, int nb_blocks) {
 
 }  // namespace sjpeg
 
-#endif  // SJPEG_USE_AVX2
+#endif  // SJPEG_USE_AVX2 && !SJPEG_NO_ADAPTIVE_QUANT

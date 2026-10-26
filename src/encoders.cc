@@ -462,6 +462,7 @@ bool EncodeYUV420(const uint8_t* Y, int Y_stride, const uint8_t* U,
 ////////////////////////////////////////////////////////////////////////////////
 // sub-class for the sharp YUV 4:2:0 version
 
+#if !defined(SJPEG_NO_SHARP_YUV)
 class EncoderSharp420 final : public EncoderYUV420 {
  public:
   EncoderSharp420(int W, int H, const uint8_t* const rgb, int step,
@@ -493,6 +494,7 @@ class EncoderSharp420 final : public EncoderYUV420 {
  protected:
   uint8_t* yuv_memory_;
 };
+#endif  // SJPEG_NO_SHARP_YUV
 
 ////////////////////////////////////////////////////////////////////////////////
 // all-in-one factory to pickup the right encoder instance
@@ -510,8 +512,14 @@ Encoder* EncoderFactory(const uint8_t* rgb, int W, int H, int stride,
     enc = new (std::nothrow)
         EncoderRGB<16>(yuv_mode, W, H, rgb, stride, sink, fmt, memory);
   } else if (yuv_mode == SJPEG_YUV_SHARP) {
+#if !defined(SJPEG_NO_SHARP_YUV)
     enc = new (std::nothrow)
         EncoderSharp420(W, H, rgb, stride, sink, memory, num_threads);
+#else  // plain 4:2:0 instead
+    (void)num_threads;
+    enc = new (std::nothrow)
+        EncoderRGB<16>(SJPEG_YUV_420, W, H, rgb, stride, sink, fmt, memory);
+#endif
   } else if (yuv_mode == SJPEG_YUV_444 || yuv_mode == SJPEG_YUV_400) {
     enc = new (std::nothrow)
         EncoderRGB<8>(yuv_mode, W, H, rgb, stride, sink, fmt, memory);

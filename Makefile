@@ -17,6 +17,13 @@ ARCHIVE_FILE=sjpeg-$(VERSION).tar.gz
 SJPEG_HAVE_PROGRESSIVE ?= 1
 # Set to 0 to build without multi-threaded encoding support.
 SJPEG_HAVE_MULTITHREADING ?= 1
+# Trimming: set any of these to 0 to strip the feature out (see README.md).
+SJPEG_HAVE_RISKINESS ?= 1
+SJPEG_HAVE_SHARP_YUV ?= 1
+SJPEG_HAVE_SEARCH ?= 1
+SJPEG_HAVE_ADAPTIVE_QUANT ?= 1
+SJPEG_HAVE_METADATA ?= 1
+SJPEG_HAVE_C_FALLBACK ?= 1
 
 EXTRA_FLAGS= -DSJPEG_HAVE_PNG -DSJPEG_HAVE_JPEG
 ifeq ($(SJPEG_HAVE_PROGRESSIVE), 0)
@@ -27,6 +34,8 @@ ifeq ($(SJPEG_HAVE_MULTITHREADING), 0)
 else
   EXTRA_FLAGS += -pthread
 endif
+$(foreach f,RISKINESS SHARP_YUV SEARCH ADAPTIVE_QUANT METADATA C_FALLBACK,\
+  $(if $(filter 0,$(SJPEG_HAVE_$(f))),$(eval EXTRA_FLAGS += -DSJPEG_NO_$(f))))
 UTILS_LIBS= -lpng -ljpeg
 
 # we use C++-11

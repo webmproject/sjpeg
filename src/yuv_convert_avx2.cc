@@ -29,7 +29,7 @@
 #include "common.h"
 #include "dsp.h"
 
-#if defined(SJPEG_USE_AVX2)
+#if defined(SJPEG_USE_AVX2) && !defined(SJPEG_NO_SHARP_YUV)
 
 namespace sjpeg {
 
@@ -435,4 +435,4 @@ void UpdateChroma_AVX2(const fixed_y_t* src1, const fixed_y_t* src2,
 
 }  // namespace sjpeg
 
-#endif  // SJPEG_USE_AVX2
+#endif  // SJPEG_USE_AVX2 && !SJPEG_NO_SHARP_YUV
