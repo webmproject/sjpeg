@@ -69,7 +69,7 @@ class EntropyCoder {
   void Compile(const EntropyStats& stats);
   // Size, in bits, of the entropy-coded data described by 'stats'. Same total
   // as the sum of BlocksSize(), minus uncounted 0xff byte-stuffing.
-  size_t Size(const EntropyStats& stats) const;
+  uint64_t Size(const EntropyStats& stats) const;
 
   // type: 0 = DC, 1 = AC. q_idx: 0 = luma, 1 = chroma.
   const HuffmanTable* table(int type, int q_idx) const {
