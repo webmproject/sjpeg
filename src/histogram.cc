@@ -27,6 +27,8 @@
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
+#if !defined(SJPEG_NO_ADAPTIVE_QUANT)
+
 namespace sjpeg {
 
 // finer tuning of perceptual optimizations, all read by AnalyseHisto() only:
@@ -323,34 +325,44 @@ void Encoder::AnalyseHisto() {
   }
 }
 
-void Encoder::CollectHistogramsSlice(int y_start, int y_end, Histo histos[2],
-                                     int16_t* scratch, uint8_t* rep_buf) {
+size_t Encoder::CollectHistogramsSlice(int y_start, int y_end, int step,
+                                       Histo histos[2], int16_t* scratch,
+                                       uint8_t* rep_buf) {
   const bool use_extra_memory = use_extra_memory_;
+  size_t nb_sampled = 0;
   for (int mb_y = y_start; mb_y < y_end; ++mb_y) {
     int16_t* in =
         use_extra_memory
             ? in_blocks_ + static_cast<size_t>(mb_y * mb_w_) * 64 * mcu_blocks_
             : scratch;
     for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
+      const bool sampled = IsSampledMCU(mb_x, mb_y, step);
       if (!use_extra_memory) {
+        if (!sampled) continue;
         in = scratch;
       }
       TransformMCU(mb_x, mb_y, in, rep_buf);
       for (int c = 0; c < nb_comps_; ++c) {
         const int num_blocks = nb_blocks_[c];
-        store_histo_(in, &histos[quant_idx_[c]], num_blocks);
+        if (sampled) store_histo_(in, &histos[quant_idx_[c]], num_blocks);
         in += 64 * num_blocks;
       }
+      nb_sampled += sampled;
     }
   }
+  return nb_sampled;
 }
 
 void Encoder::CollectHistograms() {
+  assert(store_histo_ != nullptr);
   int num_slices = GetNumSlices(mb_h_);
+  const size_t nb_mbs = (size_t)mb_w_ * mb_h_;
+  const int step = SamplingStep();
   // Slice 0 counts into histos_, the others into their own histograms, summed
   // afterward.
   struct HistoWorker {
     Histo histos[2];
+    size_t nb_sampled;
   };
   std::unique_ptr<HistoWorker[]> workers;
   if (num_slices > 1) {
@@ -359,13 +371,22 @@ void Encoder::CollectHistograms() {
   }
   const int num_histos = (nb_comps_ > 1) ? 2 : 1;
   ResetHisto();
+  size_t nb_sampled = 0;  // slice 0's, then the total
   RunParallel(num_slices, mb_h_, [&](int t, int y_start, int y_end) {
     Histo* const dst_histos = (t == 0) ? histos_ : workers[t - 1].histos;
     if (t > 0) memset(dst_histos, 0, sizeof(Histo) * num_histos);
     alignas(16) int16_t mcu_scratch[6 * 64];
     uint8_t rep_buf[4 * 16 * 16];
-    CollectHistogramsSlice(y_start, y_end, dst_histos, mcu_scratch, rep_buf);
+    const size_t n = CollectHistogramsSlice(y_start, y_end, step, dst_histos,
+                                            mcu_scratch, rep_buf);
+    if (t == 0) {
+      nb_sampled = n;
+    } else {
+      workers[t - 1].nb_sampled = n;
+    }
   });
+  for (int w = 0; w < num_slices - 1; ++w) nb_sampled += workers[w].nb_sampled;
+  const float scale = (float)nb_mbs / nb_sampled;  // back to the full picture
   for (int q = 0; q < num_histos; ++q) {
     int* const dst = &histos_[q].counts_[0][0];
     for (int w = 0; w < num_slices - 1; ++w) {
@@ -374,8 +395,15 @@ void Encoder::CollectHistograms() {
         dst[i] += src[i];
       }
     }
+    if (nb_sampled < nb_mbs) {
+      for (int i = 0; i < 64 * (MAX_HISTO_DCT_COEFF + 1); ++i) {
+        dst[i] = (int)(dst[i] * scale + .5f);
+      }
+    }
   }
   have_coeffs_ = use_extra_memory_;
 }
 
 }  // namespace sjpeg
+
+#endif  // SJPEG_NO_ADAPTIVE_QUANT

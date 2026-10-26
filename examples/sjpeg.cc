@@ -135,6 +135,9 @@ int main(int argc, char* argv[]) {
       "  -no_adapt .......... Don't use adaptive quantization (=faster)\n"
       "  -adapt_bias ........ Use adaptive quantization bias (=slower)\n"
       "  -rdo ............... Use rate-distortion optimization\n"
+      "  -fast .............. Fast mode: sampled statistics and search\n"
+      "                       passes, cheaper -trellis. Combines with the\n"
+      "                       other options, doesn't disable any.\n"
       "  -trellis ........... use trellis-based quantization (=slower, "
       "overrides\n"
       "                       -rdo and -adapt_bias)\n"
@@ -217,6 +220,8 @@ int main(int argc, char* argv[]) {
       param.adaptive_bias = true;
     } else if (!strcmp(argv[c], "-rdo")) {
       param.use_rdo = true;
+    } else if (!strcmp(argv[c], "-fast")) {
+      param.fast_mode = true;
     } else if (!strcmp(argv[c], "-trellis")) {
       param.use_trellis = true;
     } else if (!strcmp(argv[c], "-progressive")) {

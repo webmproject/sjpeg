@@ -18,6 +18,8 @@
 
 #include <stdint.h>
 
+#if !defined(SJPEG_NO_RISKINESS)
+
 #include "./sjpegi.h"
 
 namespace sjpeg {
@@ -1643,3 +1645,5 @@ const uint8_t kSharpnessScore[] = {  // 30k
 // clang-format on
 
 }  // namespace sjpeg
+
+#endif  // SJPEG_NO_RISKINESS

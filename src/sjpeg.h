@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-#define SJPEG_VERSION 0x000104  // 0.1.4
+#define SJPEG_VERSION 0x000106  // 0.1.6
 
 #if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
@@ -50,7 +50,8 @@ size_t SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
 // Parameter 'yuv_mode': decides which colorspace to use. Possible values:
 //   * YUV_AUTO  (0): automated decision between YUV 4:2:0 / sharp / 4:4:4
 //   * YUV_420   (1): YUV 4:2:0
-//   * YUV_SHARP (2): YUV 4:2:0 with 'sharp' conversion
+//   * YUV_SHARP (2): YUV 4:2:0 with 'sharp' conversion (plain 4:2:0 if built
+//                    with SJPEG_NO_SHARP_YUV)
 //   * YUV_444   (3): YUV 4:4:4
 //   * YUV_400   (4): YUV 4:0:0, aka Grayscale (luma only)
 typedef enum {
@@ -147,6 +148,8 @@ void SjpegQuantMatrix(float quality, bool for_chroma, uint8_t matrix[64]);
 // Returns the favored conversion mode to use (YUV420 / sharp-YUV420 / YUV444)
 // Return values: SJPEG_YUV_420, SJPEG_YUV_SHARP or SJPEG_YUV_444
 // If risk is not NULL, the riskiness score (between 0 and 100) is returned.
+// Built with SJPEG_NO_RISKINESS, it always returns SJPEG_YUV_420 (risk 0), and
+// so does the SJPEG_YUV_AUTO mode.
 SjpegYUVMode SjpegRiskiness(const uint8_t* rgb, int width, int height,
                             int stride, float* risk);
 
@@ -209,13 +212,14 @@ struct EncoderParam {
   // of quant_[][].
   void SetMinQuantization(const uint8_t m[2][64], int min_quant_tolerance = 0);
 
-  // main compression parameters
+  // main compression parameters (ignored if stripped out: see SJPEG_NO_*)
   SjpegYUVMode yuv_mode;       // YUV-420...444 decisions
   bool Huffman_compress;       // if true, use optimized Huffman tables.
   bool adaptive_quantization;  // if true, use optimized quantizer matrices.
   bool adaptive_bias;          // if true, use perceptual bias adaptation (luma)
   bool use_trellis;            // if true, use trellis-based optimization
   bool use_rdo;                // if true, use fast rate-distortion optimization
+  bool fast_mode;              // if true, fast mode (see -fast in man sjpeg)
 
   // Emit restart markers (RST0-RST7) every 'restart_interval_rows' MCU rows.
   // The default is 0. Values <= 0 disable them when single-threaded, or use an

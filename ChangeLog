@@ -1,3 +1,7 @@
+- 10/26: 0.1.6: build-time trimming, SJPEG_NO_{RISKINESS,SHARP_YUV,SEARCH,
+    ADAPTIVE_QUANT,METADATA,C_FALLBACK} (CMake SJPEG_ENABLE_*, make SJPEG_HAVE_*)
+- 10/26: 0.1.5: add EncoderParam::fast_mode (-fast): sampled statistics and
+    search passes, cheaper trellis
 - 10/26: 0.1.4 release
   * add progressive JPEG encoding, restart markers, multithreaded encoding
   * add fast RDO and adaptive-bias quantization

@@ -53,6 +53,11 @@
 // along with sjpeg's only use of <thread>. num_threads is then ignored and
 // encoding always runs on the calling thread, as a single slice.
 
+// Other features can be stripped out the same way, for a smaller binary:
+// -DSJPEG_NO_RISKINESS (SJPEG_YUV_AUTO = 4:2:0), -DSJPEG_NO_SHARP_YUV (plain
+// 4:2:0), -DSJPEG_NO_SEARCH (target_mode ignored), -DSJPEG_NO_ADAPTIVE_QUANT,
+// -DSJPEG_NO_METADATA, -DSJPEG_NO_C_FALLBACK (see SupportsSSE2() below).
+
 // SIMD feature-detection macros (SJPEG_USE_SSE2/SSSE3/AVX2/NEON,
 // SJPEG_AARCH64) and the intrinsic headers they gate live in simd.h; only
 // files that define SJPEG_NEED_ASM_HEADERS before including this one pull
@@ -146,8 +151,23 @@ inline bool SafeAdd(T a, T b, T* out) {
 #endif
 }
 
+// SJPEG_NO_C_FALLBACK: the SSE2 / NEON baseline is taken for granted, so the
+// plain-C variants they replace are never picked, and drop out of the binary.
+// (ForceSlowCImplementation has no effect then.)
+#if defined(SJPEG_NO_C_FALLBACK) && \
+    (defined(SJPEG_USE_SSE2) || defined(SJPEG_USE_NEON))
+#define SJPEG_SIMD_BASELINE
+#if defined(SJPEG_USE_SSE2)
+inline bool SupportsSSE2() { return true; }
+inline bool SupportsNEON() { return false; }
+#else
+inline bool SupportsSSE2() { return false; }
+inline bool SupportsNEON() { return true; }
+#endif
+#else
 extern bool SupportsSSE2();
 extern bool SupportsNEON();
+#endif
 extern bool SupportsAVX2();
 
 // Constants below are marker codes defined in JPEG spec

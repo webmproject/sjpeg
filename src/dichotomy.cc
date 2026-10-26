@@ -78,6 +78,8 @@ void SearchHook::NextMatrix(int idx, uint8_t dst[64]) {
 ////////////////////////////////////////////////////////////////////////////////
 // Helpers for the search
 
+#if !defined(SJPEG_NO_SEARCH)
+
 void Encoder::LoopScan() {
   assert(use_extra_memory_);
   assert(reuse_run_levels_);
@@ -85,6 +87,10 @@ void Encoder::LoopScan() {
   const int total_intervals = TotalRestartIntervals();
   const int num_slices = search_hook_->for_size ? GetNumSlices(total_intervals)
                                                 : GetNumSlices(mb_h_);
+  // sampled: the size is estimated from half the MCUs, so the final pass is
+  // always redone in full.
+  const bool sampled =
+      (SamplingStep() > 1) && search_hook_->for_size && optimize_size_;
   if (use_adaptive_quant_) {
     CollectHistograms();
   } else {
@@ -113,7 +119,7 @@ void Encoder::LoopScan() {
 
     float result;
     if (search_hook_->for_size) {
-      result = EvaluateSize(num_slices, total_intervals, &chunks);
+      result = EvaluateSize(num_slices, total_intervals, &chunks, sampled);
       if (!ok_) break;
     } else {
       // if we're just targeting PSNR, we don't need to compute the run/levels
@@ -158,7 +164,7 @@ void Encoder::LoopScan() {
     return;
   }
   // Redo the quantization pass if the search's last try wasn't the winner.
-  if (!last_is_best) {
+  if (!last_is_best || sampled) {
     QuantizeSlices(num_slices, total_intervals, &chunks);
     if (!ok_) return;
     if (optimize_size_) entropy_.Compile(stats_);
@@ -264,26 +270,39 @@ float Encoder::GetPSNR(uint64_t err, uint64_t size) {
              : 99.f;
 }
 
+// If SamplingStep() > 1, only the IsSampledMCU(.., 2) ones are measured.
 uint64_t Encoder::ComputePSNRSlice(int y_start, int y_end) const {
+  const bool sampled = (SamplingStep() > 1);
   uint64_t error = 0;
-  const int16_t* in =
-      in_blocks_ + static_cast<size_t>(y_start) * mb_w_ * 64 * mcu_blocks_;
-  const size_t slice_mbs = static_cast<size_t>(y_end - y_start) * mb_w_;
-  for (size_t n = 0; n < slice_mbs; ++n) {
-    for (int c = 0; c < nb_comps_; ++c) {
-      const Quantizer& Q = quants_[quant_idx_[c]];
-      for (int i = 0; i < nb_blocks_[c]; ++i) {
-        error += quantize_error_(in, Q);
-        in += 64;
+  const size_t row_size = (size_t)mb_w_ * 64 * mcu_blocks_;
+  for (int mb_y = y_start; mb_y < y_end; ++mb_y) {
+    const int16_t* in = in_blocks_ + mb_y * row_size;
+    for (int mb_x = 0; mb_x < mb_w_; ++mb_x) {
+      if (sampled && !IsSampledMCU(mb_x, mb_y, 2)) {
+        in += 64 * mcu_blocks_;
+        continue;
+      }
+      for (int c = 0; c < nb_comps_; ++c) {
+        const Quantizer& Q = quants_[quant_idx_[c]];
+        for (int i = 0; i < nb_blocks_[c]; ++i) {
+          error += quantize_error_(in, Q);
+          in += 64;
+        }
       }
     }
   }
   return error;
 }
 
+size_t Encoder::NumSampledMCUs() const {
+  const size_t even_rows = (mb_h_ + 1) / 2, odd_rows = mb_h_ / 2;
+  return even_rows * ((mb_w_ + 1) / 2) + odd_rows * (mb_w_ / 2);
+}
+
 float Encoder::ComputePSNR() const {
   const int num_slices = GetNumSlices(mb_h_);
-  const size_t nb_mbs = static_cast<size_t>(mb_w_) * mb_h_;
+  const size_t nb_mbs =
+      (SamplingStep() > 1) ? NumSampledMCUs() : (size_t)mb_w_ * mb_h_;
   const uint64_t nb_samples = 64ull * nb_mbs * mcu_blocks_;
   if (num_slices == 1) return GetPSNR(ComputePSNRSlice(0, mb_h_), nb_samples);
   Buffer<uint64_t> errors(memory_hook_);  // allocated on the calling thread
@@ -298,3 +317,5 @@ float Encoder::ComputePSNR() const {
   for (int t = 0; t < num_slices; ++t) total_error += errors.data()[t];
   return GetPSNR(total_error, nb_samples);
 }
+
+#endif  // SJPEG_NO_SEARCH

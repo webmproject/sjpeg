@@ -5,7 +5,7 @@
                    \_____/___/__//_/\__/_/_____/_____/
                           (__)_/  _ \/  _ \/ .__\
                           _)  \   __/   __/  /  \
-                         /____/__/  \_____/_____/v0.1.4
+                         /____/__/  \_____/_____/v0.1.6
 ```
 
 *   **sjpeg**: 's' stands for 'simple'.
@@ -122,6 +122,8 @@ if (!sjpeg::Encode(rgb, width, height, stride, param, &output)) {
     *   `adaptive_quantization`: content-based spatial variance quantization.
     *   `adaptive_bias`: perceptual rounding-bias adaptation.
     *   `use_trellis`: rate-distortion Trellis quantization optimization.
+    *   `fast_mode`: fast mode (sampled statistics and search passes, cheaper
+        trellis).
 *   **Progressive JPEG**:
     *   `progressive_luma_split`: AC spectral split index (1..63, default 64 =
         disabled; `2` is a common choice).
@@ -209,8 +211,18 @@ cmake --build build -j4
 | `SJPEG_HAVE_AVX2` | `OFF` | Compiles AVX2 kernel variants (x86-64). Dispatched at runtime via `SupportsAVX2()`. |
 | `SJPEG_ENABLE_PROGRESSIVE` | `ON` | Enables progressive JPEG encoding support. |
 | `SJPEG_ENABLE_MULTITHREADING` | `ON` | Enables multi-threaded encoding support (restart-interval parallel scans). |
+| `SJPEG_ENABLE_RISKINESS` | `ON` | `SjpegRiskiness()`, behind the `SJPEG_YUV_AUTO` mode (else: plain 4:2:0). |
+| `SJPEG_ENABLE_SHARP_YUV` | `ON` | Sharp-YUV 4:2:0 conversion (else: plain 4:2:0). |
+| `SJPEG_ENABLE_SEARCH` | `ON` | Target size / PSNR search (else: `target_mode` is ignored). |
+| `SJPEG_ENABLE_ADAPTIVE_QUANT` | `ON` | Adaptive quantization (else: `adaptive_quantization` is ignored). |
+| `SJPEG_ENABLE_METADATA` | `ON` | EXIF / ICC / XMP / APP markers (else: not written). |
+| `SJPEG_ENABLE_C_FALLBACK` | `ON` | Plain-C variants of the SSE2 / NEON functions. `OFF` takes the SIMD baseline for granted (always there on x86-64 and arm64). |
 | `SJPEG_BUILD_EXAMPLES` | `ON` | Builds `examples/sjpeg` and `examples/vjpeg`. |
 | `SJPEG_BUILD_TESTS` | `ON` | Builds `tests/unit_test`. |
+
+Turning one of the `SJPEG_ENABLE_*` options `OFF` defines `SJPEG_NO_<feature>`:
+the feature's code is stripped out, and its parameters are ignored.
+With GNU Make or ndk-build (`Android.mk`), use `SJPEG_HAVE_<feature>=0`.
 
 To run the tests (unit tests, plus the `sjpeg` command-line tests):
 
@@ -263,6 +275,7 @@ can be enabled or disabled via compiler definitions (`-D...`):
 | `SJPEG_HAVE_AVX2` | Off (`CMake`) | Compiles optimized AVX2 kernels for FDCT, quantization, histogram, color conversion, sharp-YUV and riskiness scoring on x86-64. Safely falls back to SSE2 on older CPUs at runtime. |
 | `SJPEG_USE_PEXT` | Off | In `src/quantize_avx2.cc`, uses BMI2 `_pext_u32` to compact the natural-order non-zero coefficient mask (2 ops vs 5). Off by default because `pext` is microcoded with multi-cycle latency on AMD Zen 1/Zen+. Requires `-mbmi2`. |
 | `SJPEG_NO_PROGRESSIVE` | Off | Completely strips progressive encoding code, structures, and buffers, reducing binary footprint for baseline-only deployments. (Set automatically by `-DSJPEG_ENABLE_PROGRESSIVE=OFF`). |
+| `SJPEG_NO_MULTITHREADING`, `SJPEG_NO_RISKINESS`, `SJPEG_NO_SHARP_YUV`, `SJPEG_NO_SEARCH`, `SJPEG_NO_ADAPTIVE_QUANT`, `SJPEG_NO_METADATA`, `SJPEG_NO_C_FALLBACK` | Off | Strip the matching feature out, see the `SJPEG_ENABLE_*` CMake options above (which set them). |
 | `SJPEG_FORCE_32BIT` | Off | Forces 32-bit bit-writer paths on 64-bit platforms for cross-architecture verification (`src/bit_writer.h`). |
 | `SJPEG_USE_COUNTFF_LUT` | On | Uses a 64-bit lookup table to accelerate 0xFF escape byte counting in the bit-writer (`src/bit_writer.h`). Unconditionally defined in source; disabling it means commenting out the `#define`, not passing `-U`. |
 
