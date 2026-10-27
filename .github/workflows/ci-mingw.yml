@@ -1,0 +1,52 @@
+name: CI MinGW
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+# Cancel the workflow if a new one is triggered from the same PR, branch, or tag, except on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build-mingw:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sys:
+          - ucrt64
+          - clang64
+
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        with:
+          msystem: ${{ matrix.sys }}
+          update: true
+          pacboy: >-
+            cc:p
+            cmake:p
+            libjpeg-turbo:p
+            libpng:p
+            ninja:p
+            zlib:p
+      - name: Print cmake version
+        run: cmake --version
+
+      - name: Prepare sjpeg (cmake)
+        run: >
+          cmake -G Ninja -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DSJPEG_HAVE_AVX2=ON
+      - name: Build sjpeg
+        run: cmake --build build --config Release --parallel 4
+      - name: Run sjpeg Tests
+        working-directory: ./build
+        run: ctest -j -R unit_test --output-on-failure

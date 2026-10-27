@@ -1,0 +1,47 @@
+name: CI Windows
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+# Cancel the workflow if a new one is triggered from the same PR, branch, or tag, except on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [cl, clang-cl]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Developer Command Prompt for Microsoft Visual C++
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+      - name: Install libraries
+        uses: johnwason/vcpkg-action@04c68c847bf5196ecaa72331ecf51208583916ef # v8.0.0
+        id: vcpkg
+        with:
+          pkgs: libjpeg-turbo libpng zlib
+          triplet: x64-windows-release
+          token: ${{ github.token }}
+
+      - name: Prepare sjpeg (cmake)
+        env:
+          VCPKG_CMAKE_CONFIG: ${{ steps.vcpkg.outputs.vcpkg-cmake-config }}
+        run: >
+          cmake (-split $env:VCPKG_CMAKE_CONFIG) -G Ninja -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DSJPEG_HAVE_AVX2=ON
+          -DCMAKE_C_COMPILER=${{ matrix.compiler }}
+          -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}
+      - name: Build sjpeg
+        run: cmake --build build --config Release --parallel 4
+      - name: Run sjpeg Tests
+        working-directory: ./build
+        run: ctest -j $Env:NUMBER_OF_PROCESSORS -R unit_test --output-on-failure
