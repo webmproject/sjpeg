@@ -644,6 +644,7 @@ SJPEG_TEST(AllocationFailure) {
   }
 }
 
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
 // The standard library's allocations (output string, per-slice buffers,
 // threads...) don't go through the MemoryManager, and fail by throwing: see
 // the operator new replacement at the end of this file.
@@ -696,6 +697,7 @@ SJPEG_TEST(StdAllocationFailure) {
     g_new_single = false;
   }
 }
+#endif  // __cpp_exceptions || __EXCEPTIONS || _CPPUNWIND
 
 // Output that never throws: failures are reported by Commit().
 class MallocSink : public sjpeg::ByteSink {
@@ -722,6 +724,7 @@ class MallocSink : public sjpeg::ByteSink {
   size_t pos_ = 0, capacity_ = 0;
 };
 
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
 // With such an output and a single thread, nothing may throw: this is what a
 // build without exception support relies on.
 SJPEG_TEST(NoThrowingAllocation) {
@@ -760,6 +763,7 @@ SJPEG_TEST(NoThrowingAllocation) {
     SJPEG_CHECK(budget > 1 && budget < 100);
   }
 }
+#endif  // __cpp_exceptions || __EXCEPTIONS || _CPPUNWIND
 
 SJPEG_TEST(Dimensions) {
   const int kWidth = 35, kHeight = 19;
@@ -2703,6 +2707,7 @@ int main(int argc, char* argv[]) {
   return (g_num_failures == 0) ? 0 : 1;
 }
 
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
 ////////////////////////////////////////////////////////////////////////////////
 // Global 'new' that can be made to fail (see StdAllocationFailure)
 
@@ -2741,3 +2746,4 @@ NO_INLINE void operator delete(void* ptr) noexcept { free(ptr); }
 NO_INLINE void operator delete[](void* ptr) noexcept { free(ptr); }
 NO_INLINE void operator delete(void* ptr, size_t) noexcept { free(ptr); }
 NO_INLINE void operator delete[](void* ptr, size_t) noexcept { free(ptr); }
+#endif  // __cpp_exceptions || __EXCEPTIONS || _CPPUNWIND
