@@ -17,6 +17,7 @@
 // Author: Skal (pascal.massimino@gmail.com)
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
