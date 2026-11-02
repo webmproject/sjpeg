@@ -19,7 +19,11 @@
 #ifndef SJPEG_JPEGI_H_
 #define SJPEG_JPEGI_H_
 
+#include <stdint.h>
+
+#include <algorithm>
 #include <memory>
+#include <string>
 #include <vector>
 
 // IWYU pragma: begin_exports
