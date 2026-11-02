@@ -258,6 +258,10 @@ static inline int TrailingZeros64(uint64_t x) {
 #endif
 }
 
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+#define SJPEG_HAVE_EXCEPTIONS
+#endif
+
 // Calls fn() and returns false if it threw std::bad_alloc, which is how the
 // standard library reports its allocation failures. Anything else (thrown by
 // a user's ByteSink, say) is not ours to handle.
@@ -265,7 +269,7 @@ static inline int TrailingZeros64(uint64_t x) {
 // plain call.
 template <class F>
 bool NoThrow(F&& fn) {
-#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+#if defined(SJPEG_HAVE_EXCEPTIONS)
   try {
     fn();
   } catch (const std::bad_alloc&) {
