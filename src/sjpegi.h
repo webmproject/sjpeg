@@ -24,7 +24,6 @@
 #include <algorithm>
 #include <memory>
 #include <string>
-#include <vector>
 
 // IWYU pragma: begin_exports
 #include "bit_writer.h"
