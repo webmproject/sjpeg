@@ -2,3 +2,5 @@ Checks: -*,bugprone-argument-comment,bugprone-assert-side-effect,bugprone-bool-p
 FormatStyle: file
 HeaderFilterRegex: src/.*|examples/.*|tests/.*
 WarningsAsErrors: ''
+CheckOptions:
+  misc-include-cleaner.IgnoreHeaders: 'bits/.*;pngconf\.h'
