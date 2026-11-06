@@ -30,8 +30,6 @@
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
 
-using namespace sjpeg;  // for the plain-C entry points at the end
-
 namespace sjpeg {
 
 // Some general default values. Declared in sjpegi.h: api.cc reads them too.
@@ -795,10 +793,12 @@ void Encoder::WriteBaselineAndScan() {
 
 bool SjpegCompress(const uint8_t* rgb, int width, int height, float quality,
                    std::string* output) {
-  EncoderParam param;
+  sjpeg::EncoderParam param;
   param.SetQuality(quality);
-  if (!ValidDimensions(width, height)) return false;  // before '3 * width'
-  return Encode(rgb, width, height, 3 * width, param, output);
+  if (!sjpeg::ValidDimensions(width, height)) {
+    return false;  // before '3 * width'
+  }
+  return sjpeg::Encode(rgb, width, height, 3 * width, param, output);
 }
 
 bool SjpegDimensions(const std::string& jpeg_data, int* width, int* height,

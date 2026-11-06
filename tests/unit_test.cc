@@ -2186,7 +2186,8 @@ SJPEG_TEST(MultiThreadedSharpYUV) {
 #endif  // SJPEG_NO_SHARP_YUV
 
 SJPEG_TEST(SafeArithmetic) {
-  using namespace sjpeg;
+  using sjpeg::SafeAdd;
+  using sjpeg::SafeMultiply;
 
   // SafeMultiply with size_t
   size_t out_s = 0;
