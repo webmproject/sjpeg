@@ -24,7 +24,7 @@
 
 #include "sjpegi.h"
 
-using namespace sjpeg;
+namespace sjpeg {
 
 ////////////////////////////////////////////////////////////////////////////////
 // dichotomy
@@ -319,3 +319,5 @@ float Encoder::ComputePSNR() const {
 }
 
 #endif  // SJPEG_NO_SEARCH
+
+}  // namespace sjpeg
