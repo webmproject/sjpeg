@@ -25,10 +25,13 @@
 #include <stdlib.h>
 
 #include <algorithm>
+#if !defined(SJPEG_NO_METADATA)
 #include <string>
+#endif
 
 #include "blocks.h"
 #include "dsp.h"
+#include "entropy.h"
 #if !defined(SJPEG_NO_METADATA)
 #include "md5sum.h"
 #endif

@@ -22,9 +22,11 @@
 #include <stdint.h>
 #include <string.h>  // for memset
 
+#include <cstdlib>  // for std::abs
+#if !defined(SJPEG_NO_RISKINESS)
 #include <algorithm>  // for std::min, std::max
-#include <cstdlib>    // for std::abs
 #include <utility>    // for std::swap
+#endif
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "common.h"

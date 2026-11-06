@@ -23,9 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <atomic>
 #include <memory>
-#include <new>
 #include <string>
 #include <thread>  // NOLINT
 #include <vector>
@@ -34,6 +32,11 @@
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpeg.h"
 #include "sjpegi.h"
+
+#if defined(SJPEG_HAVE_EXCEPTIONS)
+#include <atomic>
+#include <new>
+#endif
 
 namespace sjpeg {
 extern bool ForceSlowCImplementation;

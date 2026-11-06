@@ -19,9 +19,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 
-#include <cstdlib>
 #include <new>
 
 #include "sjpegi.h"

@@ -27,6 +27,7 @@
 #define SJPEG_NEED_ASM_HEADERS
 #include "common.h"
 #include "dsp.h"
+#include "sjpeg.h"
 
 namespace sjpeg {
 

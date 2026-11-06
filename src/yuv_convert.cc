@@ -16,6 +16,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#if !defined(SJPEG_NO_SHARP_YUV)
+
 #include <assert.h>
 #include <limits.h>
 #include <math.h>
@@ -31,8 +33,6 @@
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
-
-#if !defined(SJPEG_NO_SHARP_YUV)
 
 namespace sjpeg {
 
