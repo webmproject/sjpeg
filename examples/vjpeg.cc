@@ -23,17 +23,19 @@
 #define _POSIX_C_SOURCE 200112L  // for setenv
 #endif
 
-#include <assert.h>
-#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>  // IWYU pragma: keep
-
-#include <cmath>
-#include <vector>  // IWYU pragma: keep
 
 #if defined(SJPEG_HAVE_OPENGL) && \
     (defined(HAVE_GLUT_GLUT_H) || defined(HAVE_GL_GLUT_H))
+#include <assert.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <cmath>
+#include <string>
+#include <vector>
+
 #if defined(HAVE_GLUT_GLUT_H)
 #include <GLUT/glut.h>
 #elif defined(HAVE_GL_GLUT_H)

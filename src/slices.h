@@ -23,7 +23,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if !defined(SJPEG_NO_MULTITHREADING)
 #include <new>
+#endif
 
 #include "bit_writer.h"
 #include "blocks.h"

@@ -20,6 +20,8 @@
 #ifndef SJPEG_EXAMPLES_UTILS_H_
 #define SJPEG_EXAMPLES_UTILS_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 

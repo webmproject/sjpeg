@@ -16,6 +16,8 @@
 //
 // Author: Skal (pascal.massimino@gmail.com)
 
+#if !defined(SJPEG_NO_ADAPTIVE_QUANT)
+
 #include <assert.h>
 #include <float.h>  // for FLT_MAX
 #include <stdint.h>
@@ -26,8 +28,6 @@
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"
-
-#if !defined(SJPEG_NO_ADAPTIVE_QUANT)
 
 namespace sjpeg {
 

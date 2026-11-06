@@ -26,7 +26,6 @@
 #include <algorithm>
 #include <mutex>  // NOLINT
 #include <string>
-#include <vector>
 
 #define SJPEG_NEED_ASM_HEADERS
 #include "sjpegi.h"

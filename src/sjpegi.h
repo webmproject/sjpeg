@@ -19,6 +19,8 @@
 #ifndef SJPEG_JPEGI_H_
 #define SJPEG_JPEGI_H_
 
+#include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include <algorithm>

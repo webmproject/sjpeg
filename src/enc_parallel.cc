@@ -28,7 +28,6 @@
 
 #include <assert.h>
 #include <stdint.h>
-#include <string.h>  // for memset
 
 #include <algorithm>
 #include <condition_variable>  // NOLINT
@@ -45,8 +44,6 @@
 #else
 #include <pthread.h>
 #endif
-
-#include "bit_writer.h"
 
 namespace sjpeg {
 
