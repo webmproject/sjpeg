@@ -699,7 +699,7 @@ static void HandleReshape(int width, int height) {
 }
 
 static void HandleDisplay() {
-  if (kParams.out_rgb.size() == 0) return;
+  if (kParams.out_rgb.empty()) return;
   glPushMatrix();
   glPixelZoom((GLfloat)(+1. / kParams.width * kParams.viewport_width),
               (GLfloat)(-1. / kParams.height * kParams.viewport_height));
