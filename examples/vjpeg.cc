@@ -101,7 +101,7 @@ struct Params {
     quality = 75;
   }
   bool SetCurrentFile(size_t file_number);
-  bool SetAltFile(const char* const file_name);
+  bool SetAltFile(const char* file_name);
 };
 static Params kParams;
 
