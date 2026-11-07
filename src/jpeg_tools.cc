@@ -67,11 +67,11 @@ const uint8_t* GetSOFData(const uint8_t* src, size_t size) {
 }
 }  // anonymous namespace
 
-bool SjpegDimensions(const uint8_t* src0, size_t size, int* width, int* height,
+bool SjpegDimensions(const uint8_t* data, size_t size, int* width, int* height,
                      int* is_yuv420) {
-  const uint8_t* const src = GetSOFData(src0, size);
+  const uint8_t* const src = GetSOFData(data, size);
   if (src == nullptr) return false;
-  const size_t left_over = size - (size_t)(src - src0);
+  const size_t left_over = size - (size_t)(src - data);
   if (left_over < 8 + 3 * 1) return false;
   if (height != nullptr) *height = (src[5] << 8) | src[6];
   if (width != nullptr) *width = (src[7] << 8) | src[8];
@@ -90,26 +90,26 @@ bool SjpegDimensions(const uint8_t* src0, size_t size, int* width, int* height,
 ///////////////////////////////////////////////////////////////////////////////
 // Quantizer marker (DQT)
 
-int SjpegFindQuantizer(const uint8_t* src, size_t size, uint8_t quant[2][64]) {
+int SjpegFindQuantizer(const uint8_t* data, size_t size, uint8_t quant[2][64]) {
   memset(quant[0], 0, sizeof(quant[0]));
   memset(quant[1], 0, sizeof(quant[1]));
   // minimal size for 64 coeffs and the markers (5 bytes)
-  if (src == nullptr || size < 69 || src[0] != 0xff || src[1] != 0xd8) {
+  if (data == nullptr || size < 69 || data[0] != 0xff || data[1] != 0xd8) {
     return 0;
   }
-  const uint8_t* const end = src + size - 8;  // 8 bytes of safety, for marker
-  src += 2;                                   // skip over the initial M_SOI
-  for (; src < end && *src != 0xff; ++src) {  /* search first 0xff marker */
+  const uint8_t* const end = data + size - 8;   // 8 bytes of safety, for marker
+  data += 2;                                    // skip over the initial M_SOI
+  for (; data < end && *data != 0xff; ++data) { /* search first 0xff marker */
   }
   int nb_comp = 0;
-  while (src < end) {
-    if (src[1] == 0xff) {  // fill byte before a marker (B.1.1.2)
-      ++src;
+  while (data < end) {
+    if (data[1] == 0xff) {  // fill byte before a marker (B.1.1.2)
+      ++data;
       continue;
     }
-    const uint32_t marker = (uint32_t)((src[0] << 8) | src[1]);
-    const int chunk_size = 2 + ((src[2] << 8) | src[3]);
-    if (chunk_size > end - src) break;  // no pointer past the end, even unread
+    const uint32_t marker = (uint32_t)((data[0] << 8) | data[1]);
+    const int chunk_size = 2 + ((data[2] << 8) | data[3]);
+    if (chunk_size > end - data) break;  // no pointer past the end, even unread
     if (marker == M_SOS) {
       // we can stop searching at the first SOS marker encountered, to avoid
       // parsing the whole data
@@ -118,8 +118,8 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size, uint8_t quant[2][64]) {
       // Jump over packets of 1 index + 64 coeffs
       int i = 4;
       while (i + 1 < chunk_size) {
-        const int Pq = src[i] >> 4;
-        const int Tq = src[i] & 0x0f;
+        const int Pq = data[i] >> 4;
+        const int Tq = data[i] & 0x0f;
         if (Pq > 1 || Tq > 3) return 0;  // invalid bitstream. See B.4.
         const int m_size = 64 * Pq + 65;
         if (i + m_size > chunk_size) return 0;
@@ -127,10 +127,10 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size, uint8_t quant[2][64]) {
           for (int j = 0; j < 64; ++j) {
             int v;
             if (Pq == 0) {
-              v = src[i + 1 + j];
+              v = data[i + 1 + j];
             } else {
               // convert 16b->8b by clamping
-              v = ((int)src[i + 1 + 2 * j + 0] << 8) | src[i + 1 + 2 * j + 1];
+              v = ((int)data[i + 1 + 2 * j + 0] << 8) | data[i + 1 + 2 * j + 1];
               v = (v > 255) ? 255 : v;
             }
             quant[Tq][sjpeg::kZigzag[j]] = (v < 1) ? 1u : (uint8_t)v;
@@ -142,7 +142,7 @@ int SjpegFindQuantizer(const uint8_t* src, size_t size, uint8_t quant[2][64]) {
         i += m_size;
       }
     }
-    src += chunk_size;
+    data += chunk_size;
   }
   return ((nb_comp & 1) != 0) + ((nb_comp & 2) != 0) + ((nb_comp & 4) != 0) +
          ((nb_comp & 8) != 0);
