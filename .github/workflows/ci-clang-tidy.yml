@@ -36,16 +36,14 @@ jobs:
           persist-credentials: false
       - run: >-
           sudo apt-get update &&
-          sudo apt-get install -y clang clang-tidy libpng-dev libjpeg-dev
+          sudo apt-get install -y
+          clang clang-tidy freeglut3-dev libjpeg-dev libpng-dev
       - run: >-
           cmake -B build
           -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           ${{ matrix.opts }}
+      - run: run-clang-tidy -p build -warnings-as-errors=* -quiet
       - run: >-
-          run-clang-tidy -p build
-          -checks=-*,misc-include-cleaner -warnings-as-errors=* -quiet
-      - run: >-
-          clang-tidy -p build
-          -checks=-*,misc-include-cleaner --warnings-as-errors=* --quiet
+          clang-tidy -p build --warnings-as-errors=* --quiet
           src/*.h examples/*.h
