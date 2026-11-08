@@ -262,7 +262,7 @@ static int cmp(const void* pa, const void* pb) {
 
 static void BuildOptimalTable(HuffmanTable* const t,
                               const SymbolCount* const freq, int size) {
-  enum { MAX_BITS = 32, MAX_CODE_SIZE = 16 };
+  enum { MAX_BITS = 56, MAX_CODE_SIZE = 16 };
   assert(size <= 256);
   assert(t != nullptr);
 
@@ -355,18 +355,14 @@ static void BuildOptimalTable(HuffmanTable* const t,
   }
 
   // Count bit distribution.
-  uint8_t bits[MAX_BITS];
+  uint16_t bits[MAX_BITS];
   memset(bits, 0, sizeof(bits));
   int max_bit_size = 0;
   for (int i = 0; i <= size; ++i) {
-    int s = codesizes[i];
+    const int s = codesizes[i];
     assert(s <= codesizes[size]);  // symbol #size is the biggest one.
     if (s > 0) {
-      // This is slightly penalizing but only for ultra-rare symbol
-      if (s > MAX_BITS) {
-        s = MAX_BITS;
-        codesizes[i] = MAX_BITS;  // clamp code-size
-      }
+      assert(s <= MAX_BITS);
       ++bits[s - 1];
       if (s > max_bit_size) {
         max_bit_size = s;
@@ -403,9 +399,10 @@ static void BuildOptimalTable(HuffmanTable* const t,
   for (int l = max_bit_size - 1; l >= MAX_CODE_SIZE; --l) {
     while (bits[l] > 0) {
       int k = l - 2;
-      while (bits[k] == 0) {  // Search for a level with a leaf to split.
+      while (k > 0 && bits[k] == 0) {  // Search for a leaf to split.
         --k;
       }
+      assert(bits[k] > 0);
       /* Move up 2 symbols from bottom-most level l, and sink down one from
          level k, like this:
                     Before:                After:
@@ -434,7 +431,8 @@ static void BuildOptimalTable(HuffmanTable* const t,
 
   // update table with final book
   for (int i = 0; i < MAX_CODE_SIZE; ++i) {
-    t->bits_[i] = bits[i];
+    assert(bits[i] <= 255);
+    t->bits_[i] = (uint8_t)bits[i];
   }
 }
 
