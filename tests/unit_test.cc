@@ -2685,6 +2685,36 @@ SJPEG_TEST(QualityConstructorClamp) {
   SJPEG_CHECK(HasSize(out, W, H));
 }
 
+SJPEG_TEST(DeepHuffmanTable) {
+  sjpeg::SymbolCount fib[50] = {1, 1};
+  for (int i = 2; i < 50; ++i) fib[i] = fib[i - 1] + fib[i - 2];
+
+  for (int mode = 0; mode < 3; ++mode) {
+    sjpeg::EntropyStats stats;
+    stats.Reset();
+    stats.dc[0][0] = 1;
+    const int n = (mode == 0) ? 49 : 256;
+    for (int i = 0; i < n; ++i) {
+      stats.ac[0][i] = (mode == 0)   ? fib[i]
+                       : (mode == 1) ? (i < 48 ? fib[i] : (1ULL << 33) - 1)
+                                     : (i == 0 ? 500 : 1);
+    }
+    sjpeg::EntropyCoder coder(1);
+    coder.SetDefaultTables();
+    coder.Compile(stats);
+    coder.InitCodes(false);
+    const sjpeg::HuffmanTable* const t = coder.table(1, 0);
+    SJPEG_CHECK(t->nb_syms_ == n);
+    int sum_bits = 0;
+    for (int l = 0; l < 16; ++l) sum_bits += t->bits_[l];
+    SJPEG_CHECK(sum_bits == n);
+    for (int s = 0; s < n; ++s) {
+      const uint32_t len = coder.ac_codes(0)[s] & 0xffu;
+      SJPEG_CHECK(len >= 1 && len <= 16);
+    }
+  }
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
